@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semojum-braille"
+version = "0.1.0"
+description = "세모점 점역 엔진: 묵자(한국어·수식·표·시각 대체텍스트)를 한국어 점자로 옮긴다"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "braillify==2.0.1",
+    "pydantic>=2.9,<3",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools]
+packages = ["semojum_braille"]
+
+[tool.setuptools.package-data]
+semojum_braille = ["*.json"]

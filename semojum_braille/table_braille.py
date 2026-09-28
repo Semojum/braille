@@ -1,0 +1,1166 @@
+"""PART 6-3 — 표 점역 (render_mode 기반 조판).
+
+표의 복수 초안(3안)은 LLM 텍스트가 아니라 **레이아웃 3종**이다
+(stage4_complex.md 'T4-2 공통 규약' — 표=레이아웃 차이, 셀 값 동일):
+  table_grid : ⠿ 테두리 + ⠒ 행 구분선 (격자 원형)
+  transposed : 행↔열 전치 (점자 도서 제작 지침 3장1절 NLD-3.1.2, 점역자 주 동반)
+  linear     : '  키  값' 선형 풀어쓰기 (3칸 시작, 유도점·콜론 없음)
+격자 구조가 아닌 비정형(narrative)·처리불가는 단일안으로 처리한다.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+
+from semojum_braille.isolation import safe_translate
+from semojum_braille.nested_block import append_nested
+from semojum_braille.regulations import make_rule, make_rule_at
+from semojum_braille.symbol_rules import symbol_rule_spans
+from semojum_braille.text_braille import content_rules
+from semojum_braille.translator import translate_tagged_text as _translate
+from semojum_braille.translator import (
+    border_marker_spans,
+    emphasis_marker_spans,
+    tn_marker_spans,
+    translate_with_breaks,
+)
+from semojum_braille.schemas import BrailleOutput, Draft, LLMOutput, RuleApplication
+
+
+def _base_trail(
+    lines: list[str], source: str = "", *, content: bool = True
+) -> list[RuleApplication]:
+    """점역자 주 마커(NLD-1.2.6)·판단이 갈리는 특수기호를 점자 좌표로 emit.
+
+    rule_trail은 **점역사가 판단해야 할 자리**만 기록한다(Step17 2026-08-08 대표 지시 —
+    종전 "내용 변환만"에서 좁혔다). 수표·문장부호 같은 자명한 규정은 `content_rules`가
+    더 이상 내지 않고, 기호는 `symbol_rules._DISCRETIONARY`가 거른다.
+    text 경로와 같은 함수를 쓰는 것은 그대로다 — text/table 비대칭 금지(r12).
+
+    source = 점역 전 원본 텍스트. 원본에 점역자 주 태그가 있을 때만 emit하여
+    ∽·ː 등 동일 점형(⠠⠄)을 오인하지 않는다(B1 오탐 방지).
+    content=False = 점역되지 않은 원문 그대로인 줄(처리 불가 플레이스홀더) —
+    변환이 없으므로 내용 규정을 붙이지 않는다(환각 0).
+    """
+    joined = "\n".join(lines)
+    trail = [
+        make_rule_at("NLD-1.2.6", lines, s, e, tag=tag)
+        for s, e, tag in tn_marker_spans(joined, source)
+    ]
+    trail += [
+        make_rule_at(rule_id, lines, s, e, tag="symbol")
+        for s, e, rule_id in symbol_rule_spans(source, joined)
+    ]
+    # 드러냄표 ⠠⠤…⠤⠄ (제56항) — text 경로와 동일 배선(원본 태그 gate, r12).
+    trail += [
+        make_rule_at("MCST-한글-6.13.56", lines, s, e, tag=tag)
+        for s, e, tag in emphasis_marker_spans(joined, source)
+    ]
+    # 글상자 테두리(NLD-1.2.5 · 원장 C-01b) — 시각 요소도 이 경로로 온다(visual_braille).
+    trail += [
+        make_rule_at("NLD-1.2.5", lines, s, e, tag=tag)
+        for s, e, tag in border_marker_spans(joined, source)
+    ]
+    if content:
+        trail += content_rules(source, lines)
+    return trail
+
+from semojum_braille.constants import COLS as _COLS  # noqa: E402 (공용 상수)
+_BORDER  = "⠿"  # 표 테두리
+_EMPTY_CELL = "⠿⠿"  # 빈 셀 (NLD-3.1.2(4))
+_SEP     = "⠒"  # 행·셀 구분선
+
+# ── 표 구조 태그 (plan §3-5 확장) ─────────────────────────────────────────────
+# table_opt가 stage②(점역 직전 텍스트)에 <!표>/<!행>/<!칸>으로 표 구조를 출력하고,
+# 여기서 행렬로 파싱해 기존 4안 렌더러(풀어쓰기/격자/전치/선형)에 1:1 위임한다.
+_TBL_OPEN, _TBL_CLOSE = "<!표>", "<!/표>"
+_TBL_ROW_OPEN, _TBL_ROW_CLOSE = "<!행>", "<!/행>"
+_TBL_CELL = "<!칸>"
+# build_table_tags는 여는 `<!칸>`만 찍지만(구분자 하나면 족하다), 손으로 쓴 입력과
+# BE가 보내는 txt는 다른 태그처럼 **쌍으로** 적는다. 닫는 쪽을 먼저 지우고 여는 쪽으로
+# 가른다 — 여닫이를 한꺼번에 구분자로 쓰면 빈 조각이 생겨 빈 셀과 구분되지 않는다.
+_TBL_CELL_CLOSE = "<!/칸>"
+_TBL_ROW_RE = re.compile(r"<!행>(.*?)<!/행>", re.DOTALL)
+
+
+def build_table_tags(rows: list[list[str]]) -> str:
+    """행렬 → <!표><!행><!칸>… 태그 문자열(stage② 표시·table_braille 입력)."""
+    out = [_TBL_OPEN]
+    for r in rows:
+        out.append(_TBL_ROW_OPEN + "".join(_TBL_CELL + str(c) for c in r) + _TBL_ROW_CLOSE)
+    out.append(_TBL_CLOSE)
+    return "\n".join(out)
+
+
+def parse_table_tags(text: str):
+    """<!표> 태그 → 행렬(list[list[str]]). 태그 없으면 None(파이프 폴백)."""
+    if _TBL_OPEN not in text:
+        return None
+    rows: list[list[str]] = []
+    for m in _TBL_ROW_RE.finditer(text):
+        cells = m.group(1).replace(_TBL_CELL_CLOSE, "").split(_TBL_CELL)
+        if cells and cells[0] == "":
+            cells = cells[1:]   # 첫 <!칸> 앞 빈 셀 제거
+        rows.append([c.strip() for c in cells])
+    return rows or None
+# 유도점: 지침 §(5)는 열 항목 간격이 5칸 이상일 때 열 **사이**에 `"`를 연속으로 적으라 한다
+# (열 제목 사이는 제외). 줄머리에 무조건 붙이던 옛 구현을 제거 — 진짜 규정 유도점은 미구현.
+
+# ── 도서 관행 / 규정 스위치 (BRAILLE_STYLE) ───────────────────────────────────
+# 수식 축(kor_math_rules)·텍스트 축(translator)과 같은 형태의 게이팅을 표 축에도 둔다
+# (2026-07-21). 그전까지 표는 스위치가 없어 **규정 모드를 아예 제공하지 못했다**.
+# 기본값은 book — 우리 KPI 정답이 도서(수능특강 점역본)이고 점역사도 그 표기로 검수한다.
+#
+# 무엇이 관행이고 무엇이 규정인지 (자료지침 =「2025년도 개정 …점자교과서 및 교수학습
+# 자료 제작 지침」 3장, 도서지침 =「점자 도서 제작 지침」 3장):
+#
+#   규정 근거가 있어 **게이팅하지 않는** 것
+#     · 표 제목 5칸                자료지침 §3.1.3(1) "위 테두리 이전 줄 5칸에 적는다"
+#     · 빈 셀 ⠿⠿                  자료지침 §3.1.3(9) "내용이 없는 빈칸은 =="
+#     · 위/아래 테두리 ⠿⠛…⠿·⠿⠶…⠿  자료지침 §3.1.3(2) =GGG…= / =777…=
+#     · 행 제목 3칸에서 시작        자료지침 §3.3.1(3) "행 제목은 3칸에 적고"
+#     · 열 항목 두 칸 구분          자료지침 §3.1.1(1)②·§3.3.1(3) "두 칸씩 띄어"
+#     · 전치 시 점역자 주           자료지침 §3.1.1(2) "변경한 내용은 점역자 주로 알린다"
+#                                  (예 3-2 실물과 셀 단위 일치 — 아래 _TN_TRANSPOSE)
+#
+#   규정 근거 없이 gold 실측으로 정한 것 = **관행, book 모드 한정**
+#     · _ROWWISE_MAX_WIDTH 40      규정 ①은 32칸. 40은 "32 + 한 번 접힘" 실측
+#     · 문장 수준 구분자 쌍점        규정에 없음(§3.3.3은 번호 체계, §3.3.1(5)는 세로선)
+#     · 전치 발동 조건 "열 수 > 행 수"  규정 (2)의 조건은 "원본 형태대로 점역할 수 없다면"
+#     · 32칸 초과 시 행 머리 단독 줄  규정은 §3.3.1(4)+도서지침 §3 6)(3) 첫 칸 이어적기
+#
+#   조판 선택이 아니라 **입력 한계 보완**이라 게이팅 대상이 아닌 것
+#     · _header_extent 숫자 휴리스틱 — 규정은 원본의 열/행 제목을 그대로 쓰지만 우리
+#       입력(<!표> 태그)에는 머리 메타가 없어 추론한다. 모드와 무관한 구조 추론이다.
+#     · _render_grid / _render_linear — option 2·4 초안. 점역사가 손으로 고르는 대안이라
+#       자동 경로의 규정 준수와 층이 다르다(_render_linear 독스트링 참조).
+_BOOK_STYLE = os.environ.get("BRAILLE_STYLE", "book") != "regulation"
+
+# 전치 점역자 주 — 자료지침 §3.1.1(2) "이때 변경한 내용은 점역자 주로 알린다".
+# 문구는 같은 지침 예 3-2 '행과 열을 변경한 표'가 실제로 실은 것을 그대로 쓴다:
+#   원문 BRF  ,'jr7@v`\!`^,@ms`d+@oj5,'  (지침 문서는 backtick=빈칸)
+#   →         ⠠⠄⠚⠗⠶⠈⠧⠀⠳⠮⠀⠘⠠⠈⠍⠎⠀⠙⠬⠈⠕⠚⠢⠠⠄
+# 우리 translator가 내는 점자와 셀 단위로 일치함을 확인했다(25셀).
+# 옛 문구 "표의 가로와 세로를 바꾸어 점역함."은 지침에 없는 자작 표현이고 8셀 더 길었다.
+# ⚠ 이 문구는 **자료지침 예3-2 실물과 셀 단위로 일치**한다(회귀 테스트가 그걸 지킨다).
+#   2026-08-12에 도서지침 예3-13("가독성을 위해 열과 행을 바꾸어 점역하고…")을 보고
+#   "이유가 빠졌다"며 고쳤다가 예3-2 대조가 깨져 되돌렸다. **지침 두 권이 서로 다른
+#   문구를 쓴다** — 자료지침은 짧게, 도서지침은 이유를 앞에 둔다. 둘 다 정본이므로
+#   여기서는 셀 대조가 걸려 있는 자료지침 쪽을 정본으로 삼는다(`tn_notices` 참조).
+_TN_TRANSPOSE = "행과 열을 바꾸어 표기함"
+_TN_SRC = f"<!주>{_TN_TRANSPOSE}<!/주>"   # 태그 형식(§3-5) — rule_trail emit용
+_TN_SRC_MARK = "⠠⠄"                                  # 점역자 주 마커(양끝) — 출력 검출용
+# 표 제목 "5칸에서 시작" = 앞 빈칸 **4**(도서지침 §3 5)(1)·자료지침 §3.1.3(1)).
+# 5로 적어 한 칸 밀려 있었다(2026-08-10 정정, 원장 C-21). 근거 3단이 모두 4다:
+#   규정 실물 5건 — 도서지침 예3-1·3-5·3-9·3-2, 자료지침 예3-4 모두 앞 빈칸 4
+#   코퍼스 관행   — dev+val 2027의 `〈표 N〉` 제목 줄 6/6이 앞 빈칸 4
+#   같은 오해가 오늘 도표 축(diagram_opt._TITLE_INDENT)에서도 4로 고쳐졌다
+_TITLE_INDENT = 4
+
+# ★ 점자 지면의 빈칸은 전부 U+2800 이다(대표 지적 R1, 2026-08-24). 표 경로는 그때 빠졌다 —
+#   줄머리를 ASCII 공백 `"  "`로 적고 있었고 **눈으로는 `"⠀⠀"`와 구별이 안 돼** 넉 달을 살아남았다.
+#   그래서 리터럴을 쓰지 않고 반드시 이 이름으로 적는다. 2026-08-28 실측(생명과학 body p0004
+#   한 쪽): 우리 출력에 ASCII 공백 35자 · 점자 빈칸 544자. 표 줄이 전부 ASCII 쪽이었다.
+#   폭 계산은 안 바뀐다 — `layout_braille._cell_count`가 `len()`이라 둘 다 1셀로 센다.
+_PAD = "⠀"          # 점자 빈칸(U+2800)
+_ROW_INDENT = 2     # 표 본문 "3칸에서 시작" = 앞 빈칸 2 (자료지침 §3.1.1(1)②)
+
+# 표 위/아래 테두리 (자료지침 §3.1.3(2) `=GGG…=` / `=777…=`). 격자·선형이 같이 쓴다.
+_TBL_TOP = "⠿" + "⠛" * (_COLS - 2) + "⠿"
+_TBL_BOT = "⠿" + "⠶" * (_COLS - 2) + "⠿"
+
+
+def _tn_transpose_line() -> str:
+    """전치 점역자 주 한 줄. 지침 예 3-2는 3칸(빈칸 2)에서 적고 표 본문 위에 둔다."""
+    return _PAD * _ROW_INDENT + _translate(_TN_SRC)
+
+
+def _border_line() -> str:
+    return _BORDER * _COLS
+
+
+def _row_sep() -> str:
+    return _SEP * _COLS
+
+
+def _split_cell(text: str, width: int) -> list[str]:
+    lines, buf = [], ""
+    for ch in text:
+        if len(buf) >= width:
+            lines.append(buf)
+            buf = ch
+        else:
+            buf += ch
+    if buf:
+        lines.append(buf)
+    return lines or [""]
+
+
+# ★ 32칸에서 하드 컷하면 **숫자 한 개가 두 줄로 갈린다**(2026-08-29, braille 최소 재현).
+#   `낭트 칙령(1598, …` 이 `…⠼⠁⠑⠊` / `⠓⠐…` 로 갈리면 뒤 줄 `⠓` 는 수표를 잃어 **자음 ㅎ**
+#   으로 읽힌다 — 1598 이 '159' + '타' 가 된다. 셀 수는 맞고 뜻만 바뀌는 자리다.
+#   gold 실측(정답 1,251쪽, BRF-ASCII): 줄 끝이 수표+숫자로 **공백 없이** 끝나는 줄 129건 중
+#   **숫자가 갈린 것 0건**. 24건이 후보로 잡혔으나 전부 다음 줄이 한글로 이어지는 것이었고,
+#   `#aifd`(1964) 다음 줄 `c*`(년) 은 묵자에서 `1964년` 임을 확인했다(사회문화 p090).
+#   ⚠ gold 는 유니코드가 아니라 **BRF-ASCII** 다. 유니코드로 찾으면 0건이 나온다.
+_DIGIT_CELLS = frozenset("⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚")   # 1~0 (kor_math_rules._DIGIT_MAP 과 같은 값)
+_NUMBER_SIGN = "⠼"
+
+
+def _num_run_start(s: str, i: int) -> int:
+    """`s[i]` 가 수표로 열린 숫자 런 안이면 그 수표 위치, 아니면 `i`.
+
+    숫자 셀은 로마자 a~j 와 점형이 같으므로 **수표로 열린 런만** 본다(number_sign.py 와 같은
+    불변량). 로마자 낱말을 숫자로 오인해 애먼 자리에서 줄을 당기지 않기 위해서다.
+    """
+    if i >= len(s) or s[i] not in _DIGIT_CELLS:
+        return i
+    j = i
+    while j > 0 and s[j - 1] in _DIGIT_CELLS:
+        j -= 1
+    return j - 1 if j > 0 and s[j - 1] == _NUMBER_SIGN else i
+
+
+def _split_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    i = 0
+    while i < len(text):
+        end = min(i + _COLS, len(text))
+        if end < len(text):
+            cut = _num_run_start(text, end)
+            # 런이 줄 머리부터 시작하면 당길 자리가 없다 — 그때만 하드 컷을 유지한다
+            # (수표+숫자만으로 32칸을 넘는 경우라 실물에서는 안 나온다).
+            if i < cut < end:
+                end = cut
+        lines.append(text[i:end])
+        i = end
+    return lines or [""]
+
+
+# ── 칸이 길면 한 줄에 칸 하나 (지침 §3.1.1(1)③ · 원장 C-30b) ────────────────
+# §3.1.1(1): ②가로로 풀어 적었을 때 쉽게 이해할 수 있다면 열 항목을 두 칸씩 띄어 풀어 적는다.
+#            ③**열 항목이 여러 단어와 문장으로 되어 있어** 가로로 풀어 적을 경우 표를
+#              이해하기 어렵다면 번호 체계를 활용하여 풀어 적는다.
+# 즉 규정은 ②와 ③을 **칸 내용 길이**로 가른다. 우리는 열 수만 봤다.
+#
+# gold 실측(dev-2027 900쪽, 표 186개):
+#   행우선 127개 · 칸당 글자 중앙 25 (p75 36)
+#   열우선  59개 · 칸당 글자 중앙 82 (p25 48)
+# 사분위가 거의 안 겹친다 → 임계 40~45자. 기본 42.
+#
+# ★ **축은 바꾸지 않는다.** gold 가 어느 축을 레코드로 삼는지는 실측으로 안 갈렸다
+#   (글자 대조 머리행 11 : 첫열 13). 축을 잘못 바꾸면 지금보다 나빠지므로, 축은 그대로
+#   두고 **한 줄에 칸 하나만** 적는다. 대표가 지적한 증상(한 줄에 긴 칸 둘)은 이걸로 사라진다.
+# ⚠ 기본은 끔. 채택은 A/B 로 판정한다(원장 C-01b·C-77 과 같이 놓고 본다).
+# ⚠ CER 이 gold 배치와 어긋나 내려갈 수 있다 — 이 축은 배치라 CER 이 잘 못 잰다.
+_RECORD_MIN_CELL = float(os.environ.get("TABLE_RECORD_MIN_CELL", "42"))
+
+
+def record_rows_enabled() -> bool:
+    """칸이 길 때 한 줄에 칸 하나로 적는 스위치(기본 끔). 원장 C-30b."""
+    return os.environ.get("TABLE_RECORD_ROWS", "0") == "1"
+
+
+def _mean_cell_len(rows: list[list[str]]) -> float:
+    """머리행·행머리를 뺀 **값 칸**의 평균 글자수."""
+    vals = [c.strip() for r in rows[1:] for c in r[1:] if c.strip()]
+    return sum(len(c) for c in vals) / len(vals) if vals else 0.0
+
+
+def _use_record_rows(rows: list[list[str]]) -> bool:
+    return (record_rows_enabled() and len(rows) > 1 and len(rows[0]) > 2
+            and _mean_cell_len(rows) >= _RECORD_MIN_CELL)
+
+
+_HEAD_CELL_MAX = 10   # 열 제목 칸의 최대 글자수 — 이보다 길면 제목이 아니라 값이다
+
+
+def _has_col_headers(first_row: list[str]) -> bool:
+    """첫 행이 **열 제목행**인가. 구분선을 넣을지 가른다(원장 C-30).
+
+    지침은 구분선을 일관되게 **"열 제목과 열 항목 사이"** 로 정의한다
+    (용어 정의 · §3.1.3(5) · §3.3.1). **열 제목이 없으면 구분선도 없다.**
+    그런데 종전에는 첫 행을 **무조건** 머리행으로 보고 넣었다.
+
+    2열 표는 대개 키-값 나열이라 첫 행이 열 제목이 아니다. 3열 이상은 실제로 제목이 있다.
+    그래서 2열에만 판정을 걸고, 판정은 **머리행 칸이 짧은가**로 한다 — 제목은 라벨이라 짧고
+    값은 길다.
+
+    gold 실측(2026-08-29, braille 이 표 단위로 짝지음 408개 · 양성 81):
+        정책                     dev 142    val 266    전체 408
+        늘 넣는다(종전)            50.7%      3.4%      19.9%
+        안 넣는다                49.3%     96.6%      80.1%
+        **머리행 ≤10자**         **81.7%**  95.9%   **90.9%**
+    ★ 임계는 **val 에서 고르고 dev 에서 평가**했다 — dev 정확 81.7% · 정밀 80.3% ·
+      재현 84.7% · F1 0.82. 곡선이 평평해(N=6~16 에서 dev F1 0.78~0.86) 뾰족한 봉우리가 아니다.
+    ⚠ val 은 양성이 9개뿐이라 val 쪽 정밀도(43.8%)는 표본이 얇다. val 에서는 '안 넣기'가
+      0.7p 낫지만 순손실이 2건이고, dev 이득이 +32p 라 전체로는 확실한 이득이다.
+    ⚠ 표본에는 앵커로 회수한 69개가 들어 있고 앵커 정확도는 95.0%다(5% 오염).
+      linear 표 439개 중 31개는 아직 짝을 못 지었다.
+    """
+    # ⚠ 판정은 **파싱된 첫 행**을 본다. `_html_to_grid(expand=False)` 가 `colspan` 을 안 펴므로
+    #   3~5열 표라도 첫 행이 `<td colspan="5">…</td>` 한 칸이면 여기서는 1~2칸으로 보인다.
+    #   실측(M017): dev 900쪽 중 그런 쪽이 **2쪽**(004 body p0192 열[3] · 009 body p0005 열[5,5])이고
+    #   둘 다 구분선이 사라졌는데 **gold 도 그 두 쪽 구분선이 0개**라 방향이 맞다.
+    #   즉 이 규칙은 '1열 표'만 건드리는 게 아니다 — **첫 행이 좁게 파싱되는 표**까지 닿는다.
+    if len(first_row) < 2:
+        return False                      # 1열은 글상자다 — 열 제목이 없으니 구분선도 없다
+    if len(first_row) > 2:
+        return True                       # 3열 이상은 종전대로 — 열 제목이 실제로 있다
+    return all(len(c.strip()) <= _HEAD_CELL_MAX for c in first_row if c.strip())
+
+
+# ── 지침 §3.2.2 열 너비의 단축 기법 (2026-09-02 신설, 원장 C-92) ──────────────
+# "표의 정렬을 유지하기 위해 행·열 제목과 열 항목은 해당 열의 공간에 맞춰 축어나 범례를
+#  사용하여 길이를 단축할 수 있다. 이런 경우 원본과 달라진 내용이나 범례를 점역자 주로 알린다."
+#
+# 실측(표 opt 산출 2,500건): 3열 이상 표 1,436건 중 93~96%가 격자로 나가고 그중 82%가
+# 한 줄 폭(`constants.COLS`)을 넘는다. 규정은 줄이는 법을 일곱 가지로 줬는데 우리가 하나도 안 썼다.
+#
+# 일곱 중 **되돌릴 수 있고 뜻을 안 잃는 넷만** 쓴다. 축어(1)·소문자(3)는 낱말을 지어내야
+# 하고 범례(2)는 표마다 기호를 새로 정해야 해서 rule-based 로 안전하지 않다 — LLM 몫이다.
+#   (5) 반복된 단위: 한 열이 모두 같은 단위로 끝나면 그 단위를 열 제목으로 올린다
+#   (4) 구두점 생략: 값 끝의 마침표·쉼표를 뗀다
+#   (7) 수표 생략: 열 항목이 모두 숫자면 수표(⠼)를 뺀다
+#   (6) 한 종류 기호: 표 전체에 한 기호만 쓰이면 통째로 뗀다
+# 어느 것도 한 줄(`constants.COLS`, 지금 32칸)에 들어가면 발동하지 않는다 —
+# 규정이 "정렬을 유지하기 위해" 라고 조건을 달았다. 칸수는 상수라 바뀌면 함께 따라간다.
+# A/B 스위치 — 끄면 종전 동작이다.
+_SHORTEN = os.environ.get("TABLE_SHORTEN", "1") == "1"
+_TN_OPEN, _TN_CLOSE = "<!주>", "<!/주>"
+
+_UNIT_RE = re.compile(r"[\(（]?\s*(%|명|개|원|년|월|일|시간|분|초|kg|g|km|m|cm|mm|℃|점|회|배|만 ?톤|톤)\s*[\)）]?$")
+
+
+def _shorten_columns(grid: list[list[str]]) -> tuple[list[list[str]], list[str]]:
+    """§3.2.2 로 열을 줄인다. (줄인 표, 점역자 주로 알릴 것) 반환."""
+    if len(grid) < 2:
+        return grid, []
+    ncol = max(len(r) for r in grid)
+    notes: list[str] = []
+    seen_units: set[str] = set()
+    out = [list(r) + [""] * (ncol - len(r)) for r in grid]
+
+    # (5) 반복된 단위 → 열 제목으로
+    for j in range(1, ncol):
+        vals = [r[j].strip() for r in out[1:] if j < len(r) and r[j].strip()]
+        if len(vals) < 2:
+            continue
+        units = {m.group(1) for v in vals if (m := _UNIT_RE.search(v))}
+        if len(units) == 1 and all(_UNIT_RE.search(v) for v in vals):
+            u = units.pop()
+            head = out[0][j].strip()
+            if u not in head:
+                out[0][j] = f"{head}({u})" if head else f"({u})"
+            for r in out[1:]:
+                if j < len(r):
+                    r[j] = _UNIT_RE.sub("", r[j]).strip()
+            if u not in seen_units:
+                seen_units.add(u)
+                # ★ 문구는 우리가 지어내지 않는다(2026-09-02 대표 지시 — 조립은 rule-based,
+                #   문안은 근거가 있어야 한다). 규정 §3.2.2 (5)의 낱말을 그대로 쓴다:
+                #   "반복된 단위나 축어 등은 열 제목으로 옮겨 표기". gold 에는 이 고지의
+                #   정형 문구가 없고(전수 0건) `범례: …` 꼴만 2건 있다 — 원장 C-95.
+                # 조사를 코드가 붙이면 "년는" 처럼 틀린다 — 붙임 없이 쌍점으로 잇는다.
+                notes.append(f"단위 {u}: 열 제목으로 옮겨 표기")
+
+    # (4) 구두점 생략 — 값 끝의 마침표
+    for r in out[1:]:
+        for j in range(1, len(r)):
+            if r[j].endswith("."):
+                r[j] = r[j][:-1]
+    return out, notes
+
+
+def _wrap_row(body: str, first_indent: int = 2, cont_indent: int = 4) -> list[str]:
+    """지침 §3.2.1 (3) — 줄이 넘어가는 내용은 두 줄로 나눈다.
+
+    폭 기준은 `constants.COLS` 하나뿐이다 — 칸수를 바꾸면 여기도 따라간다.
+
+    "①열 제목: 해당 열 제목의 시작 지점과 동일한 위치에 적는다.
+      ②행 제목, 열 항목: 해당 행 제목의 시작 지점보다 오른쪽으로 두 칸 들여 쓴다."
+    행 단위 전개 형식에서는 행 제목이 3칸(앞 빈칸 2)에서 시작하므로 이어지는 줄은 5칸이다.
+
+    ⚠ "두 줄을 넘어서는 안 된다"는 단서가 있으나, 셋째 줄이 필요한 만큼 긴 항목을
+      잘라 버리면 내용을 잃는다. 여기서는 **자르지 않고** 필요한 만큼 나눈다 —
+      규정은 표를 짧게 만들라는 것이지 글자를 버리라는 것이 아니다.
+    """
+    lines, cur, indent = [], "", first_indent
+    for tok in body.split("⠀"):
+        cand = (cur + "⠀" + tok) if cur else tok
+        if len("⠀" * indent + cand) > _COLS and cur:
+            lines.append("⠀" * indent + cur)
+            indent, cur = cont_indent, tok
+        else:
+            cur = cand
+    if cur:
+        lines.append("⠀" * indent + cur)
+    return lines or ["⠀" * first_indent]
+
+
+def _grid_width(grid: list[list[str]]) -> int:
+    """격자로 냈을 때 가장 긴 줄의 셀 수(대략)."""
+    w = 0
+    for row in grid:
+        head = _translate(row[0]) if row and row[0] else "⠿⠿"
+        vals = [(_translate(c) if c.strip() else "⠿⠿") for c in row[1:]]
+        w = max(w, len("⠀⠀" + head + ("⠐⠂⠀" + "⠀⠀".join(vals) if vals else "")))
+    return w
+
+
+def _render_grid(corrected_text: str) -> list[str]:
+    """지침 §3.1 표 표기(행 단위 전개, 예3-4·3-6 실측 형식, 2026-07-19 정정).
+
+    위 테두리 ⠿⠛…⠿ · 아래 테두리 ⠿⠶…⠿ 안에, 각 행을 3칸(앞 빈칸 2)에서
+    '행제목  값  값'으로 적는다. 값 사이는 두 칸이고, 행 머리 뒤도 같은 구분자를 쓴다
+    (`_sep_word_level` — 낱말 수준이면 두 칸, 문장 수준이면 쌍점). 빈 셀 = ⠿⠿(§3.1.2(4)).
+    (구 격자형 — 전체 ⠿ 채움 테두리·세로 ⠿ 벽·행 구분선 — 은 지침 예시와 달랐다.
+     layout._is_border_line이 이 테두리 형을 정식 인정해 들여쓰기 미적용도 유지된다.)
+    """
+    rows = [ln for ln in corrected_text.splitlines() if ln.strip()]
+    top, bot = _TBL_TOP, _TBL_BOT
+    # ★ 테두리를 낸다 (2026-08-06 판정 번복 — 원장 C-01a).
+    #   2026-07-29에는 "코퍼스 정답 14,382줄에 테두리형 줄 0개"를 근거로 뺐다. 그 표본이
+    #   **구판 수능특강 한 종류**였던 게 문제다. 82권으로 다시 재니 정반대다:
+    #     구 gold(수능특강) 0.00% / 신 gold(2027 EBS) 2.62% / 초등참고서 4.78% /
+    #     중등교과서 3.37% / 고등교과서 2.97%  — 일반도서만 0%(표가 거의 없다)
+    #   dev-2027 완결 테두리 블록 실측: 위 ⠿⠛…⠿ 1,096줄 · 아래 ⠿⠶…⠿ 1,783줄.
+    #   메모리 [[gold-brl-fullcell-is-ong]]("정답의 ⠿는 약자 '옹'")은 **낱개 ⠿** 얘기지
+    #   32칸 채움 줄 얘기가 아니다 — 그 둘을 같이 본 것이 오판의 원인이었다.
+    #   BRAILLE_STYLE 게이팅을 걸지 않는다. 규정(지침 §3.1.3(2))과 관행이 이제 같다.
+    #
+    # ★ 행 구분선 ⠐⠐…⠐ (2026-08-06 신설).
+    #   gold 표 445개 중 287개(64%)가 행 사이에 32칸 ⠐ 줄을 넣는다(EBS-E26-013 p8 실물).
+    #   마지막 행 뒤에는 넣지 않는다 — 아래 테두리가 그 자리를 맡는다.
+    rowsep = "⠐" * _COLS
+    if not rows:
+        return [top, bot]
+    grid = [[c.strip() for c in r.split("|")] for r in rows]
+    if _use_record_rows(grid):
+        return [top] + _record_lines(grid) + [bot]
+    # §3.2.2 — 32칸을 넘을 때만 줄인다(위 _shorten_columns 주석 참조).
+    notes: list[str] = []
+    if _SHORTEN and _grid_width(grid) > _COLS:
+        grid, notes = _shorten_columns(grid)
+        if notes and _grid_width(grid) <= _COLS:
+            rows = ["|".join(r) for r in grid]
+        elif notes:
+            rows = ["|".join(r) for r in grid]      # 다 못 줄여도 줄인 만큼은 쓴다
+        else:
+            notes = []
+    # ★ #839 — 행 머리 뒤 구분자를 `_sep_word_level` 로 정한다.
+    #   종전엔 이 자리에 `_COLON` 이 **리터럴로 박혀** 있어 표가 늘 쌍점으로 나갔다.
+    #   판정은 2026-07-21 에 이미 gold 로 정해져 `_render_unfold` 에 배선돼 있었는데
+    #   `_render_grid` 만 그 자리를 안 지났다. `_render_unfold` 가 기본이던 동안에는
+    #   안 드러나다가 #793·#797 로 **기본이 격자로 뒤집히면서** 대부분의 표에 새어 나왔다.
+    #   규정 근거: 「점자 도서 제작 지침」 재추출 1647행 "표의 셀과 셀 사이는 두 칸을
+    #   띄어 구분한다" · 「점자 자료 제작 지침」 §3.1(1)② "열 항목을 두 칸씩 띄어" —
+    #   쌍점은 표 절 어디에도 없다. 쌍점은 문장 수준 셀에 한한 도서 관행이라
+    #   `_sep_word_level` 이 `_BOOK_STYLE` 로 가둔다(규정 모드는 늘 두 칸).
+    #   gold 행 머리 뒤 표기 대조(동결 코퍼스): 늘 쌍점 dev 21.2%·val 26.0% →
+    #   `_sep_word_level` dev 81.2%·val 71.5%.
+    #   되돌리는 길: TABLE_GRID_SEP=colon — 스위치는 **호출 시** 읽는다(모듈 상수로 굳히면
+    #   A/B 의 끄기 팔이 임포트 시점에 박혀 안 꺼진다).
+    if os.environ.get("TABLE_GRID_SEP") == "colon":
+        sep = _COLON
+    else:
+        sep = "⠀⠀" if _sep_word_level(grid) else _COLON
+
+    lines: list[str] = [top]
+    if notes:
+        # 규정: "원본과 달라진 내용이나 범례를 점역자 주로 알린다"
+        # ★ 리터럴 `[점역자 주]` 금지(규약 9) — 태그로 넣어야 ⠠⠄ 표가 된다.
+        lines.extend(_wrap_row(_translate(_TN_OPEN + ", ".join(notes) + _TN_CLOSE)))
+    for k, row in enumerate(rows):
+        cells = [c.strip() for c in row.split("|")]
+        head = _translate(cells[0]) if cells[0] else "⠿⠿"
+        vals = [(_translate(c) if c else "⠿⠿") for c in cells[1:]]
+        body = head + (sep + "⠀⠀".join(vals) if vals else "")
+        # §3.2.1 (3) — 32칸을 넘으면 나눠 적고 이어지는 줄은 두 칸 더 들여쓴다.
+        if _SHORTEN and len("⠀⠀" + body) > _COLS:
+            lines.extend(_wrap_row(body))
+        else:
+            lines.append("⠀⠀" + body)
+        if k == 0 and len(rows) > 1 and _has_col_headers(cells):
+            lines.append(rowsep)          # 머리행과 본문 사이(실측 위치)
+    lines.append(bot)
+    return lines
+
+
+def _record_lines(grid: list[list[str]]) -> list[str]:
+    """행마다 '행머리' 한 줄 + 칸마다 '머리행이름: 값' 한 줄 (원장 C-30b).
+
+    축은 원본 그대로 둔다 — 머리행 이름을 이름표로 쓰므로 추측이 없다.
+    """
+    heads = grid[0]
+    out: list[str] = []
+    for row in grid[1:]:
+        rh = row[0].strip()
+        if rh:
+            out.append("⠀⠀" + _translate(rh))
+        for j, cell in enumerate(row[1:], start=1):
+            name = heads[j].strip() if j < len(heads) else ""
+            val = _translate(cell) if cell.strip() else "⠿⠿"
+            out.append("⠀⠀⠀⠀" + ((_translate(name) + "⠐⠂⠀") if name else "") + val)
+    return out
+
+
+# §3.3.3 (1) 2단계 번호 체계 — 「점자 자료 제작 지침」 재추출 2153~2154행 "가. 나. 다. ……"
+_L2_MARKS = "가나다라마바사아자차카타파하"
+
+
+def _render_numbered(corrected_text: str) -> list[str]:
+    """지침 §3.1.1 (1)③ — 번호 체계를 활용하여 풀어 적는다.
+
+    규정 원문: "열 항목이 여러 단어와 문장으로 되어 있어 가로로 풀어 적을 경우 표를
+    이해하기 어렵다면 번호 체계를 활용하여 풀어 적는다."
+
+    형식은 §3.3.3 이 정한 그대로 쓴다.
+      · (1) 번호 체계  1단계 `1. 2. 3.` · **2단계 `가. 나. 다.`** · 3단계 `1) 2) 3)`
+            「점자 자료 제작 지침」 재추출 2149~2156행
+      · (2) 항목 표기  "번호 체계를 적용한 항목마다 **줄을 바꾸어** 적는다"  같은 파일 2157행
+      · 들여쓰기       예 3-9 실물(같은 파일 2216~2232행)이 1단계 6칸 · 2단계 4칸 ·
+                       항목 2칸이다. §3.3.2(2) "상위 행 제목은 5칸, 최상위는 7칸"과 같은
+                       방향으로 **위계가 높을수록 깊게** 들여쓴다.
+
+    ⚠ 2026-09-10 이전에는 2단계 자리에 3단계 기호 `1)` 을 쓰고 값을 쌍점으로 같은 줄에
+      붙였다(`1) 열제목: 값`). (1)의 단계 대응과 (2)의 줄바꿈을 둘 다 어겼다.
+
+    ⚠ 이 렌더러는 §3.1.1 의 **판정 순서 셋째**다 — ①정렬 유지 ②가로 풀어쓰기 로
+      안 될 때만 온다. 판정은 `table_opt._infer_render_mode` 가 한다.
+    """
+    rows = [ln for ln in corrected_text.splitlines() if ln.strip()]
+    if not rows:
+        return [_TBL_TOP, _TBL_BOT]
+    grid = [[c.strip() for c in r.split("|")] for r in rows]
+    heads = grid[0]
+    out: list[str] = [_TBL_TOP]
+    for i, row in enumerate(grid[1:], start=1):
+        rh = row[0].strip()
+        out.extend(_wrap_row(_translate(f"{i}. {rh}") if rh else _translate(f"{i}."),
+                             first_indent=6, cont_indent=8))
+        for j, cell in enumerate(row[1:], start=1):
+            name = heads[j].strip() if j < len(heads) else ""
+            val = cell.strip()
+            if not val:
+                continue
+            mark = _L2_MARKS[(j - 1) % len(_L2_MARKS)]
+            if name:
+                out.extend(_wrap_row(_translate(f"{mark}. {name}"),
+                                     first_indent=4, cont_indent=6))
+                out.extend(_wrap_row(_translate(val), first_indent=2, cont_indent=4))
+            else:
+                out.extend(_wrap_row(_translate(f"{mark}. {val}"),
+                                     first_indent=4, cont_indent=6))
+    out.append(_TBL_BOT)
+    return out
+
+
+def _render_linear(corrected_text: str) -> list[str]:
+    """2열 표 → 한 줄에 '키  값'. 3칸에서 시작하고 키와 값을 두 칸 띄운다.
+        `  언어 문제  64.9`   (유도점·콜론 없음 — 코퍼스 확인)
+
+    ★ 위/아래 테두리를 두른다 (2026-08-10 신설 — 원장 C-22). 종전에는 격자형만 테두리를
+      냈고 선형은 맨몸으로 나갔다. 자료지침 §3.1.3(2)는 표에 테두리를 요구하고 열 수로
+      예외를 두지 않으며, 도서지침 예 3-2(2열 표)가 테두리를 두른 실물을 싣는다.
+      코퍼스도 같다 — 우리가 선형으로 낸 표를 gold에서 찾아 보니 **dev 69/75(92%) ·
+      val 49/49(100%)가 테두리 안**이었다(temp/boxtbl/linear_probe2.py).
+      머리행 구분선 ⠐×32는 넣지 **않는다**: dev gold 324 vs 우리 297로 이미 비슷하고
+      val은 gold 7 vs 우리 18로 이미 넘친다 — 여기서 더 넣으면 val이 악화한다.
+
+    ★ 이 렌더러만은 BRAILLE_STYLE을 타지 않는다(2026-07-17 판단, 2026-07-21 재확인).
+      표 축 전체가 스위치를 안 탄다는 옛 주석은 이제 사실이 아니다 — 모듈 상단 _BOOK_STYLE
+      게이팅 표를 볼 것. 여기가 예외인 이유는 따로다: 전에 여기 있던 '규정 모드'
+      분기(`⠄키: 값`)가 실은 규정이 아니었다.
+        · 지침 §(5)는 유도점을 "열 항목 **사이**, 간격이 **5칸 이상일 때만**" 넣으라 하는데
+          그 분기는 **줄 맨 앞에 무조건** 붙였다. 열 제목 사이엔 아예 넣지 말라는 단서도 무시.
+        · 유도점 글리프도 지침은 `"`인데 `⠄`를 썼고, 쌍점 `:`은 근거를 못 찾았다.
+      즉 "기존 구현"에 규정 라벨이 붙어 있었을 뿐이라, 켜면 GriTS가 0.88→0.667로 떨어진다.
+      진짜 규정 유도점(간격≥5칸일 때 열 사이 삽입)은 미구현 — 구현 후 다시 스위치에 걸 것.
+    """
+    result: list[str] = []
+    for ln in corrected_text.splitlines():
+        if "|" in ln:
+            parts = [p.strip() for p in ln.split("|", 1)]
+            if len(parts) > 1:
+                head_br, val_br = _translate(parts[0]), _translate(parts[1])
+                entry = f"{_PAD * _ROW_INDENT}{head_br}{_PAD * 2}{val_br}"
+                if len(entry) > _COLS:
+                    # 정답 관행(세계사 p009 실측): 키+값이 32칸을 넘치면 키를 단독 줄로
+                    # 세우고 값을 다음 줄부터 — 한 줄에 이어붙이지 않는다.
+                    result.append(f"{_PAD * _ROW_INDENT}{head_br}")
+                    pad = _PAD * _ROW_INDENT
+                    result.extend(_split_lines(f"{pad}{val_br}")
+                                  if len(val_br) + _ROW_INDENT > _COLS else [f"{pad}{val_br}"])
+                    continue
+            else:
+                entry = f"{_PAD * _ROW_INDENT}{_translate(parts[0])}"
+        else:
+            entry = _translate(ln)
+        if len(entry) <= _COLS:
+            result.append(entry)
+        else:
+            result.extend(_split_lines(entry))
+    return [_TBL_TOP, *(result or [""]), _TBL_BOT]
+
+
+_NUMERIC_CELL_RE = re.compile(r"^[\d.,()%~\-\s]+$")
+
+
+def _header_extent(rows: list[list[str]]) -> tuple[int, int]:
+    """(머리 행 수, 머리 열 수). 값이 숫자인지로 데이터 영역을 가른다.
+
+    수능특강 표는 대분류/소분류 2단 머리(성별×나이수급분류 등)가 흔하다. 1단으로 가정하면
+    대분류가 데이터처럼 섞여 정답과 어긋난다.
+
+    ★ 숫자는 '데이터 영역이 여기서 시작한다'는 **양성 신호**일 뿐이다. 신호가 없다고
+      해서 표 전체가 머리인 것은 아니다 — 2026-07-20 이전 구현은 숫자가 하나도 없는
+      축에서 루프가 break되지 않아 h=n_rows-1 · k=n_cols-1까지 번졌고, 그 결과
+      `_render_unfold`가 **마지막 행·열만 데이터로 취급**해 나머지 칸을 통째로 버렸다
+      (생물 p122: 3x4 표에서 h=2·k=3 → 12칸 중 8칸 유실, 머리행·데이터행이
+      '동공 B 억제'처럼 한 줄에 뒤섞임). 순수 텍스트 표는 이 코퍼스에서 흔하므로
+      전체 표의 57%가 이 상태였다. 신호가 없는 축은 머리 1단으로 되돌린다.
+    """
+    def is_num(s: str) -> bool:
+        return bool(s.strip()) and bool(_NUMERIC_CELL_RE.match(s))
+
+    n_rows, n_cols = len(rows), len(rows[0])
+    h = 0
+    for r in rows:
+        if any(is_num(c) for c in r[1:]):
+            break
+        h += 1
+    else:
+        h = 1          # 숫자 신호 없음 → 머리 1행(기본). 전체를 머리로 삼지 않는다.
+    h = max(1, min(h, n_rows - 1))
+
+    body = rows[h:]
+    k = 0
+    for j in range(n_cols):
+        if any(is_num(r[j]) for r in body):
+            break
+        k += 1
+    else:
+        k = 1          # 숫자 신호 없음 → 머리 1열(기본).
+    # k==0(첫 열부터 숫자)은 그대로 둔다 — 행 머리 없이 전 열을 데이터로 펴며 칸 유실이 없다.
+    k = min(k, n_cols - 1)
+    return h, k
+
+
+# 셀이 '낱말 수준'인지 '문장 수준'인지 가르는 점자 길이 — **규정에서 유도한 값**이다.
+#   자료지침 §3.1.1(1)①  한 행을 32칸 안에 배열할 수 있어야 한다      → 줄 폭 _COLS=32
+#   자료지침 §3.3.1(3)    행 제목은 3칸에 적는다                      → 줄머리 빈칸 2
+#   자료지침 §3.1.1(1)②·§3.3.1(3)  열 항목은 두 칸씩 띄어 적는다      → 구분자 2
+# 즉 '행 제목 + 두 칸 + 열 항목' 한 쌍이 한 줄에 들어가려면
+#     2(들여쓰기) + L(제목) + 2(구분자) + L(항목) ≤ 32  →  L ≤ 14
+# 14 = (32 − 2 − 2) // 2 로 딱 떨어진다. 아래 식은 그 유도를 코드로 남긴 것이다.
+# ⚠ 정직하게 밝혀 둔다 — 이 값은 2026-07-20 도입 당시엔 근거 없이 14로 적혀 있었고(5f7eeca),
+#   유도는 2026-07-21에 사후 확인했다. 값이 바뀌지 않으므로 A/B는 불필요하다.
+#   규정 모드에서는 애초에 쓰이지 않는다(_rowwise_ok·_sep_word_level 독스트링 참조).
+_WORD_CELL_MAX = (_COLS - 2 - 2) // 2   # = 14
+
+# 한 행을 통째로 한 줄에 적을 때 허용 폭.
+#   규정(§3.1.1(1)①)은 32칸이다. 40은 "32 + 한 번 접힘"까지 행 단위로 적는 도서 관행으로,
+#   gold 실측(폭 32–40 구간의 행 단위 채택률 58%가 최고)으로 정했다 → book 모드 한정.
+_ROWWISE_MAX_WIDTH = 40 if _BOOK_STYLE else _COLS
+
+_COLON = "⠐⠂⠀"          # 쌍점 + 한 칸 (정답 도서 실측: 사회문화 p087 '의미⠐⠂⠀하층의…')
+
+
+def _word_level(rows: list[list[str]]) -> bool:
+    """셀이 낱말 수준인가(↔ 여러 단어·문장).
+
+    지침 §3.1.1(1)②는 '열 항목을 두 칸씩 띄어 풀어 적는다', ③은 '열 항목이 여러 단어와
+    문장으로 되어 있어 가로로 풀어 적을 경우 표를 이해하기 어렵다면' 다른 방식으로 적으라
+    한다. 즉 갈림길은 셀이 낱말 수준인가다.
+
+    정답 도서 실측도 같다 — 낱말 수준 표(생물 p119·p122, 사회문화 p185)는 열 항목을
+    **두 칸** 띄어 적고, 문장 수준 표(사회문화 p087·p174)는 **쌍점**으로 잇는다.
+
+    ★ 이 '전 셀 ≤14' 판정은 **행 단위 전개 가능 여부**(`_rowwise_ok`) 전용이다. 구분자
+      선택에는 `_sep_word_level`(중앙값)을 쓴다 — 근거는 그쪽 독스트링.
+    """
+    return all(len(_translate(c)) <= _WORD_CELL_MAX for r in rows for c in r if c.strip())
+
+
+def _sep_word_level(rows: list[list[str]]) -> bool:
+    """열 단위 전개의 구분자를 두 칸으로 할 것인가 — **중앙값** 셀로 판정한다.
+
+    §3.1.1(1)③의 갈림길은 '열 항목이 여러 단어와 문장으로 되어 있는가', 즉 표의
+    **전형적인** 셀이 어느 수준인가다. 그런데 `_word_level`은 전 셀 검사(all)라 셀 하나가
+    14셀을 넘으면 표 전체가 쌍점으로 돌았다 — 긴 머리 셀 하나 때문에 나머지 수십 셀이
+    전부 쌍점이 되는 병리가 실제로 있었다(사회문화 p114: 49셀 중 15셀짜리 **1개**가
+    초과인데 우리는 쌍점 45개, gold는 페이지 전체에 1개. 생물 p067·p124도 같은 꼴).
+
+    gold 실측으로 정한다 — 열 단위 표에서 셀 쌍 (a,b)가 gold에 `a+b`로 붙어 있으면 두 칸,
+    `a⠐⠂b`면 쌍점으로 세어 표별 정답 구분자를 확정하고 규칙을 검정했다(판정 가능
+    dev 36 · val 171요소):
+        규칙                     dev 정합      val 정합
+        전 셀 ≤14 (구현)         42% (15/36)   40% ( 68/171)   ← 쌍점 오판 dev 20·val 103
+        초과비율 ≤0.25           61% (22/36)   61% (104/171)
+        **중앙값 ≤14**           64% (23/36)   70% (120/171)   ← 채택
+    현행의 오류는 한쪽으로 쏠려 있었다(gold가 두 칸인데 쌍점으로 적음 dev 20·val 103건,
+    반대는 dev 1·val 0건). 중앙값은 새 상수를 들이지 않고 같은 _WORD_CELL_MAX를 쓴다.
+
+    ★ 규정 모드에서는 항상 True — 즉 늘 두 칸이다. 쌍점은 규정 어디에도 없다. 자료지침이
+      '여러 단어와 문장'인 표에 주는 답은 §3.3.3 번호 체계(미구현)와 §3.3.1(5) 세로선
+      (조건부 '할 수 있다')이고, 기본형은 §3.1.1(1)②·§3.3.1(3)의 두 칸이다.
+    """
+    if not _BOOK_STYLE:
+        return True
+    lens = sorted(len(_translate(c)) for r in rows for c in r if c.strip())
+    return not lens or lens[len(lens) // 2] <= _WORD_CELL_MAX
+
+
+def _row_width(rows: list[list[str]]) -> int:
+    """행을 통째로(두 칸 구분) 한 줄에 적었을 때의 최대 점자 폭."""
+    widths = []
+    for r in rows:
+        cs = [_translate(c) for c in r if c.strip()]
+        widths.append(sum(len(c) for c in cs) + 2 * max(0, len(cs) - 1))
+    return max(widths) if widths else 0
+
+
+def _rowwise_ok(rows: list[list[str]]) -> bool:
+    """행 단위(가로) 전개가 가능한 표인가 — 낱말 수준 + 한 행이 좁을 것.
+
+    §3.1.1(1)①은 '표의 한 행을 32칸 안에 배열할 수 있다면' 원본 정렬대로 적으라 한다.
+    정답 도서는 조금 넘쳐 한 번 접히는 정도(생물 p122, 37칸)까지 행 단위로 적고, 크게
+    넘치는 넓은 표(사회문화 p185, 8열 ~90칸)는 열 단위로 돌린다.
+
+    ⚠ 임계 40 완화(50·60)는 gold 실측·전 코퍼스 A/B 양쪽에서 **기각**했다(2026-07-21).
+      · gold 실측: 표를 행 단위로 적었는지를 '한 행의 셀 3개가 gold에 잇달아 나오는가'로
+        판정(각 셀이 gold에 있는 구간만 모수에 넣는 조건부 검정, 확증 dev 40·val 195요소).
+        폭 구간별 행 단위 채택률(val)은 32–40이 **58%로 최고**고 40을 넘으면 19~38%로
+        떨어진다(100–150 12%, 150+ 4%). 즉 도서가 가르는 지점이 40 부근이다. 정책 정합률도
+        현행이 최적(dev 78%·val 76%)이고 임계를 올리면 어느 값에서도 내려간다.
+      · 전 코퍼스 A/B(재점역+채점): 편집셀 dev 57,178 → 50에서 57,212(+34) · 60에서
+        57,196(+18)로 **악화**, val만 −717·−1,047. 한쪽 악화라 채택 규칙 미달.
+      · 원인: ①이 (2)전치보다 먼저라 임계를 올리면 폭 40~w 표의 **전치가 사라진다**.
+        생물 p119(gold 열 인접 123/123)·수학2 p016이 그렇게 깨진다.
+      · '폭 245·435 표도 gold는 행 단위'라는 직전 라운드 관찰은 재현되지 않았다 — 그 표들
+        (사회문화 p192·p107 등)은 `_word_level`이 False라 임계와 무관하게 열 단위로 간다.
+
+    ★ 규정 모드는 폭 조건만 본다. §3.1.1(1)①이 거는 조건은 "한 행을 32칸 안에 배열할 수
+      있는가" 하나뿐이고, 셀이 낱말 수준인지(_word_level)는 ③의 갈림길이지 ①의 조건이
+      아니다. 즉 규정 모드에서 _WORD_CELL_MAX는 쓰이지 않는다.
+    """
+    if not _BOOK_STYLE:
+        return _row_width(rows) <= _ROWWISE_MAX_WIDTH      # = 32
+    return _word_level(rows) and _row_width(rows) <= _ROWWISE_MAX_WIDTH
+
+
+def _render_rowwise(rows: list[list[str]], orig_len: list[int]) -> list[str]:
+    """행 단위 전개 — 원본 한 행을 한 줄에, 열 항목을 두 칸씩 띄어 3칸에서 적는다.
+
+    정답 도서 실측(생물 p122 표12):
+        ⠀⠀자율 신경⠀⠀침 분비⠀⠀폐의 기관지⠀⠀동공     ← 32칸에서 layout이 접는다
+        ⠀⠀A⠀⠀촉진⠀⠀수축⠀⠀축소
+        ⠀⠀B⠀⠀억제⠀⠀이완⠀⠀확대
+    (생물 p119도 같은 형식. 열 단위 전개와 달리 모서리·행 머리를 되풀이하지 않아
+     원본 칸 수만큼만 찍힌다 — 과잉생산이 없다.)
+
+    orig_len = 폭 맞춤(패딩) 전 각 행의 실제 칸 수. 원본에 있던 빈 칸은 ⠿⠿로 남기고
+    (NLD-3.1.2(4)), 짧은 행을 늘리려고 붙인 패딩만 버린다 — 둘을 구분하지 않으면
+    진짜 빈 칸이 사라지거나 없던 ⠿⠿가 생긴다.
+    """
+    lines: list[str] = []
+    for r, n in zip(rows, orig_len):
+        cells = r[:n]
+        if not any(c.strip() for c in cells):
+            continue
+        lines.append(_PAD * _ROW_INDENT + (_PAD * 2).join(
+            _translate(c) if c.strip() else _EMPTY_CELL for c in cells))
+    return lines or [""]
+
+
+def _should_transpose(rows: list[list[str]], n_cols: int) -> bool:
+    """§3.1.1(2) 발동 여부 — 행↔열을 바꿔 가로로 풀어 적을 표인가.
+
+    지침: "원본 자료에서 열 항목을 세로 방향으로 읽어야 하고, 이를 원본 형태대로 점역할 수
+    없다면 행과 열 제목의 배열을 바꾸어 가로 방향으로 풀어 적는다." 즉 세로로 긴 축을 행으로
+    돌려 한 줄이 32칸에 들어가게 만드는 조작이다.
+
+    조건 = **열 수 > 행 수**(넓은 표). 단 호출부가 §3.1.1①(원본 정렬 유지)을 먼저 보므로
+    실효 규칙은 "원본이 행 단위로 안 들어가고 + 열 수 > 행 수"다. gold 실측으로 확정했다 —
+    dev+val 표 396요소 중 방향이 확증되는 119요소(정답 도서가 표를 실었고 셀 인접이 한
+    방향으로 잡히는 것)에 라벨을 붙여 후보 규칙을 검정한 결과:
+        ①먼저 → C > R        정확 87.4%  (적중 24 / 오발동 5 / 미발동 10)  ← 채택
+        C > R (①무시)        정확 88.2%  — 수치는 비슷하나 생물 p122를 깨서 기각
+        ①먼저 → C>R and T폭<폭  정확 86.6%
+        T폭 < 폭              정확 84.9%
+        not _rowwise_ok and 전치 후 ok  정확 73.1%  (발동 3건뿐 — 너무 좁다)
+    "전치 안 함" 고정이 71.4%이므로 +16.0p. 대표 근거는 생물 p119(3×6 → 6×3):
+    gold가 열 인접쌍 123/123(100%)으로 전치본을 적었고, 원본 행 폭 52칸(>32)이 전치 후
+    28칸(≤32)으로 줄어 §3.1.1(1)①을 만족한다.
+
+    ⚠ "전치 후 행이 더 좁아질 때만"이라는 추가 가드는 검정 후 **기각**했다. 목적론적으로는
+    그럴듯하지만(전치는 행을 줄 안에 넣으려고 하는 것) 실측은 반대였다 — 전 코퍼스 재점역
+    A/B로 10페이지가 움직였는데, 사회문화 p100의 병리(+1372셀)를 없애는 대신 정당한 전치
+    9건(사회문화 p125 -504, 생물 p006 -129, 세계사 p190 -96 … 합 -1085셀)을 막아서
+    dev가 순악화(+90)했다. gold는 T폭이 원본보다 넓어도 전치하는 표가 많다.
+
+    ★ 점역자 주는 **반드시 붙인다**(2026-07-21 복원, b04aba7의 생략을 되돌림). 직전 판단은
+      "gold가 전치 46페이지에서 0회" → 관행 우선이었으나, 재감사에서 전제가 무너졌다:
+      정답 도서는 전치뿐 아니라 **점역자 주 자체를 거의 안 쓴다**(마커 ⠠⠄가 전 코퍼스
+      1131p 중 1p). 즉 0/46은 '전치에 주를 안 단다'는 관행의 증거가 아니라 그 출판사가
+      점역자 주를 통째로 생략한다는 사실의 부분집합이다. 반면 §3.1.1(2)는 명시적으로
+      요구하고 지침 예 3-2는 실물까지 싣는다. 무엇보다 이건 표기 형태 문제가 아니라
+      **독자가 표의 가로세로가 바뀐 사실 자체를 모르게 되는** 정확성 문제다.
+      두 모드 공통 — 규정이 요구하는 것이므로 book 모드에서도 뺀다.
+
+    모드별 발동 조건:
+      book       열 수 > 행 수 (위 실측 근거)
+      regulation §3.1.1(2)의 조건 그대로 — "원본 형태대로 점역할 수 없다면"(호출부가 ①을
+                 먼저 보므로 이미 참) 행과 열을 바꿔 "가로 방향으로 풀어 적는다". 전치해서
+                 한 행이 32칸에 들어갈 때만 목적이 달성되므로 그것을 조건으로 쓴다.
+                 (이 조건은 book 모드에선 실측으로 기각됐다 — 위 ⚠ 참조.)
+    """
+    if not _BOOK_STYLE:
+        return _row_width([list(col) for col in zip(*rows)]) <= _COLS
+    return n_cols > len(rows)
+
+
+def _transpose_rows(
+    rows: list[list[str]], orig_len: list[int]
+) -> tuple[list[list[str]], list[int], int]:
+    """행↔열 교환. 폭 맞춤(패딩)으로 채운 자리는 '실제 칸'에서 빼고 돌린다.
+
+    패딩을 실제 칸으로 착각한 채 전치하면 없던 빈 셀 ⠿⠿가 생긴다(NLD-3.1.2(4)는
+    '내용이 없는 빈칸'에만 쓴다). 전치 후 각 행의 꼬리 패딩만 잘라낸다.
+    """
+    real = [[j < orig_len[i] for j in range(len(rows[i]))] for i in range(len(rows))]
+    t_rows = [list(col) for col in zip(*rows)]
+    t_len = []
+    for col in zip(*real):
+        n = len(col)
+        while n > 0 and not col[n - 1]:
+            n -= 1
+        t_len.append(n)
+    return t_rows, t_len, (len(t_rows[0]) if t_rows else 0)
+
+
+def _render_unfold(corrected_text: str) -> list[str]:
+    """표 → 풀어쓰기 (NLD-3.1.2). 셀 길이에 따라 행 단위 / 열 단위로 갈린다(§3.1.1(1)).
+
+    정답 도서(수능특강 점역본) 관찰:
+        수급 분류  60—64세      ← 모서리 라벨 + 열 머리
+        연금 수급자  68.3        ← 행 머리 + 값
+        기초 수급자  3.2
+    즉 열마다 "열 머리" 줄을 세우고 그 아래 "행 머리  값"을 한 줄씩 적는다. 32칸 안에
+    한 항목이 들어가 점역사가 표를 좌우로 훑지 않아도 된다.
+    (구현 전에는 격자를 그대로 폭 맞춤해 냈다 — 넓은 표가 줄바꿈으로 뭉개지고 빈 셀 ⠿⠿가
+     열 어긋남과 겹쳐 정답과 크게 벌어졌다.)
+    행이 1줄뿐이거나 열이 2개뿐인 표는 전개할 게 없으므로 값만 나열한다.
+    """
+    rows = [[c.strip() for c in ln.split("|")] for ln in corrected_text.splitlines() if ln.strip()]
+    if not rows:
+        return [""]
+    n_cols = max(len(r) for r in rows)
+    orig_len = [len(r) for r in rows]            # 패딩 전 실제 칸 수(빈 칸 ⠿⠿ 판정용)
+    rows = [r + [""] * (n_cols - len(r)) for r in rows]
+
+    if len(rows) < 2 or n_cols < 2:              # 전개할 축이 없음 → 값 나열
+        return [f"{_PAD * _ROW_INDENT}{_translate('  '.join(c for c in r if c))}"
+                for r in rows] or [""]
+
+    # §3.1.1은 순서가 있는 판정이다 — ①"한 행을 32칸 안에 배열할 수 있다면 표의 정렬
+    # 형태대로" 가 먼저고, (2)전치는 "원본 형태대로 점역할 수 **없다면**" 쓰는 뒷수단이다.
+    # 이 순서를 뒤집어 전치를 먼저 보면 원본대로 잘 적히던 표까지 돌아간다(생물 p122 실측:
+    # 3×4라 C>R이 참이지만 gold는 원본 정렬 그대로 — 행 인접 79/79).
+    if _rowwise_ok(rows):                        # §3.1.1(1)① 원본 정렬 유지 → 행 단위
+        return _render_rowwise(rows, orig_len)
+
+    head: list[str] = []                         # 전치 점역자 주(§3.1.1(2))가 들어갈 자리
+    if _should_transpose(rows, n_cols):          # §3.1.1(2) 넓은 표 → 행↔열 교환
+        rows, orig_len, n_cols = _transpose_rows(rows, orig_len)
+        head = [_tn_transpose_line()]            # "변경한 내용은 점역자 주로 알린다"
+        if _rowwise_ok(rows):                    # 전치 후 한 행이 들어가면 행 단위
+            return head + _render_rowwise(rows, orig_len)
+    # 열 단위 전개의 구분자: 낱말 수준이면 두 칸, 문장 수준이면 쌍점(정답 도서 실측).
+    sep = "⠀⠀" if _sep_word_level(rows) else _COLON
+
+    n_head_rows, n_head_cols = _header_extent(rows)
+    body = rows[n_head_rows:]
+    col_names = rows[n_head_rows - 1]
+    # 모서리 라벨: 행 머리 축의 이름(예: "수급 분류") — 각 열 머리 줄 앞에 붙는다.
+    # 머리가 2단 이상이면 모서리 블록(머리 행 × 머리 열)의 이름을 순서대로 모두 잇는다.
+    # 옛 구현은 col_names[n_head_cols-1] 한 칸만 썼기 때문에 나머지 모서리 칸("구분",
+    # "혈액 성분" 등)이 출력 어디에도 실리지 않고 사라졌다.
+    corner_cells: list[str] = []
+    for hi in range(n_head_rows):
+        for c in rows[hi][:n_head_cols]:
+            c = c.strip()
+            if c and c not in corner_cells:
+                corner_cells.append(c)
+    corner = " ".join(corner_cells)
+    corner_br = _translate(corner) if corner else ""
+
+    def _cell(v: str) -> str:                    # 빈 셀 = ⠿⠿ (NLD-3.1.2(4))
+        return _translate(v) if v else _EMPTY_CELL
+
+    # 행 그룹(예: 성별) — 행 머리 열 중 마지막을 뺀 나머지가 그룹 키
+    groups: list[tuple[tuple[str, ...], list[list[str]]]] = []
+    for r in body:
+        key = tuple(r[: max(0, n_head_cols - 1)])
+        if groups and groups[-1][0] == key:
+            groups[-1][1].append(r)
+        else:
+            groups.append((key, [r]))
+
+    lines: list[str] = []
+    prev_section = None
+    for key, rows_in in groups:
+        for j in range(n_head_cols, n_cols):
+            # 상위 열 머리(병합된 대분류) + 그룹 키 → 구간 제목
+            tops: list[str] = []
+            for h in range(n_head_rows - 1):
+                v = rows[h][j]
+                if v and v not in tops:
+                    tops.append(v)
+            section = " ".join([*tops, *(k for k in key if k)]).strip()
+            if section and section != prev_section:
+                lines.append(f"{_PAD * _ROW_INDENT}{_translate(section)}")
+                prev_section = section
+            # 열 머리 줄 = 구간 머리. 정답 도서 실측(사회문화 p087·p174)은 5칸(빈칸 4)에
+            # 적고, 그 아래 딸린 줄은 3칸에서 '행 머리{쌍점}{한 칸}값'으로 적는다.
+            # 쌍점 ⠐⠂ + 한 칸은 gold 원문과 셀 단위로 일치(p087 3행 ⠺⠑⠕⠐⠂⠀…).
+            head_br = (f"{corner_br}{sep}" if corner_br else "") + _cell(col_names[j])
+            lines.append(f"{_PAD * _TITLE_INDENT}{head_br}")
+            for r in rows_in:
+                row_head = r[n_head_cols - 1] if n_head_cols else ""
+                row_br = f"{_translate(row_head)}{sep}" if row_head else ""
+                entry = f"{_PAD * _ROW_INDENT}{row_br}{_cell(r[j])}"
+                if len(entry) <= _COLS or not row_br:
+                    lines.append(entry)
+                elif _BOOK_STYLE:
+                    # 정답 관행(세계사 p009·사회문화 p174 실측): 값이 32칸을 넘치면 행 머리를
+                    # 단독 줄로 세우고(이때는 쌍점 없이) 값을 다음 줄부터 적는다.
+                    lines.append(f"{_PAD * _ROW_INDENT}{_translate(row_head)}")
+                    lines.append(f"{_PAD * _ROW_INDENT}{_cell(r[j])}")
+                else:
+                    # 규정: 행 제목 단위로 줄을 바꾸고(§3.3.1(4)) 한 셀이 두 줄로 나뉘면
+                    # 다음 줄 **첫 칸부터** 이어 적는다(도서지침 제3장 6)(3)).
+                    lines.extend(_split_lines(entry))
+    return head + lines if lines else (head or [""])
+
+
+def print_layout(corrected_text: str, mode: str) -> str:
+    """표 초안의 **묵자** 배치 (2026-08-06).
+
+    FE 피커는 묵자와 점자를 나란히 보여 준다(와이어프레임). 종전에는 초안 4개가 전부
+    `text=원문`이라 묵자 칸이 똑같아 무엇을 고르는지 알 수 없었다.
+
+    ★ 점자 렌더러(`_render_*`)를 재활용하지 않는다 — 그쪽은 `_translate`가 19곳에 박혀
+      있어 파라미터화하면 점자 출력이 흔들린다. 배치 규칙만 같은 별도 함수로 둔다.
+    ★ 32칸 접기는 하지 않는다. 묵자는 그 제약이 없고, 피커는 **배치 모양**을 보이는 게 목적이다.
+    """
+    if mode == "transposed":
+        corrected_text = _transpose_text(corrected_text)
+    rows = [[c.strip() for c in ln.split("|")]
+            for ln in corrected_text.splitlines() if ln.strip()]
+    if not rows:
+        return corrected_text
+    out: list[str] = []
+    if mode == "numbered":                    # §3.1.1 (1)③ 번호 체계
+        # 번호 체계·줄 나눔은 점자 쪽(`_render_numbered`)과 **같아야 한다** — 피커가
+        # 묵자와 점자를 나란히 보이므로 어긋나면 점역사가 다른 안을 보고 고른다.
+        heads = rows[0]
+        for i, r in enumerate(rows[1:], start=1):
+            out.append(f"{i}. {r[0].strip()}" if r and r[0].strip() else f"{i}.")
+            for j, cell in enumerate(r[1:], start=1):
+                v = cell.strip()
+                if not v:
+                    continue
+                nm = heads[j].strip() if j < len(heads) else ""
+                mark = _L2_MARKS[(j - 1) % len(_L2_MARKS)]
+                if nm:
+                    out.append(f"  {mark}. {nm}")
+                    out.append(f"    {v}")
+                else:
+                    out.append(f"  {mark}. {v}")
+        return "\n".join(out)
+    if mode == "linear":                      # 키  값 (2열 표)
+        for r in rows:
+            out.append("  ".join(c for c in r if c) if len(r) > 1 else (r[0] if r else ""))
+    elif mode == "unfold":                    # 행머리 + 값들을 줄마다 (§3.1.2)
+        for r in rows:
+            head, vals = (r[0] if r else ""), [c for c in r[1:] if c]
+            out.append(f"{head}  " + "  ".join(vals) if vals else head)
+    else:                                     # table_grid · transposed · linear
+        for r in rows:
+            head, vals = (r[0] if r else ""), [c or "(빈칸)" for c in r[1:]]
+            out.append(f"{head}: " + "  ".join(vals) if vals else head)
+    if mode == "transposed":
+        out.insert(0, "[점역자 주] 행과 열을 바꾸어 표기함")
+    # ★ 테두리·구분선을 묵자에도 그린다(2026-09-03 대표 지시). 점자 렌더러(_render_grid·
+    #   _render_linear)는 글상자 테두리와 표 구분선을 내는데 묵자 초안만 안 냈다. 그래서
+    #   FE 피커에서 **다섯 안이 죄다 테두리 없는 줄글**로 보였고 `테두리+구분선`·`테두리만`
+    #   이라는 이름과 어긋났다(unfold 와 linear 는 출력이 아예 같았다).
+    #   지침 §3.1.1 — 표는 글상자로 감싸고 머리행 아래에 구분선을 둔다.
+    return "\n".join(_print_frame(out, mode, header=len(rows) > 1))
+
+
+# 묵자 초안에서 표 테두리·구분선을 나타내는 표시. 점자 쪽 【글상자】·【표 구분선】과 짝이다.
+_PRINT_BOX_TOP, _PRINT_BOX_BOTTOM, _PRINT_RULE = "┌", "└", "├"
+
+
+def _print_frame(lines: list[str], mode: str, *, header: bool) -> list[str]:
+    """묵자 초안에 테두리·구분선을 두른다.
+
+    `unfold`(테두리 없음)와 `numbered`(번호 체계)는 지침상 테두리를 두르지 않는다 —
+    표를 풀어 쓰는 형식이라 테두리가 뜻을 갖지 않는다. 나머지 셋은 두른다.
+    """
+    if mode in ("unfold", "numbered") or not lines:
+        return lines
+    body = list(lines)
+    note = None
+    if body and body[0].startswith("[점역자 주]"):
+        note = body.pop(0)                    # 주는 테두리 **밖**이다
+    out = [_PRINT_BOX_TOP]
+    # 구분선은 머리행이 있는 형식에만. `linear`(테두리만)는 이름대로 테두리만 두른다 —
+    # 안 그러면 table_grid 와 출력이 같아져 초안 둘이 겹친다.
+    if header and body and mode != "linear":
+        out += [body[0], _PRINT_RULE] + body[1:]
+    else:
+        out += body
+    out.append(_PRINT_BOX_BOTTOM)
+    return ([note] + out) if note else out
+
+
+# ── 묵자 테두리 되읽기(mode b) ────────────────────────────────────────────────
+# 점역사가 mode c 로 받은 묵자를 고쳐 되돌리면 위 `_print_frame` 이 그린 `┌ ├ └` 가
+# 그대로 올라온다. 점역기는 이 글자를 모르고 조용히 버려서, 테두리 줄이 통째로 0셀이
+# 되고 소실 가드가 `[처리 불가: 점역 불가 문자 ┌]` 를 찍었다(대표 지적 2026-09-08).
+# 우리가 쓴 형식은 우리가 읽는다 — 태그로 되돌려 mode c 와 같은 표 체인에 태운다.
+_PRINT_FRAME_RE = re.compile(
+    rf"^{_PRINT_BOX_TOP}[^\S\n]*\n(.*?)\n[^\S\n]*{_PRINT_BOX_BOTTOM}[^\S\n]*$",
+    re.DOTALL | re.MULTILINE)
+_PRINT_COL_GAP_RE = re.compile(r"[ \t]{2,}")
+# 짝이 깨진 테두리 글자(점역사가 위·아래 한쪽만 지운 경우). 블록으로 못 읽으므로
+# 표로 되살릴 수 없다 — 글자만 지운다. 내용이 없는 줄이라 잃는 게 없고, 남겨 두면
+# 그 줄이 통째로 0셀이 돼 다시 `[처리 불가]` 가 된다.
+_PRINT_FRAME_STRAY_RE = re.compile(
+    rf"^[{_PRINT_BOX_TOP}{_PRINT_BOX_BOTTOM}{_PRINT_RULE}][^\S\n]*(\n|$)", re.MULTILINE)
+
+
+def _print_frame_row(line: str) -> list[str]:
+    """묵자 초안 한 줄 → 셀 목록. `print_layout` 이 쓴 구분을 되짚는다.
+
+    · 격자·전치: `행머리: 값  값` — 행머리는 `": "` 로, 값 사이는 두 칸으로 갈린다.
+    · 선형:      `값  값  값`    — 두 칸만.
+    `(빈칸)` 은 `print_layout` 이 빈 셀 자리에 쓴 표시라 빈 셀로 되돌린다(§3.1.3(9)).
+
+    ponytail: 셀 안에 `": "` 나 두 칸이 들어 있으면 가르는 자리가 어긋난다. 칸 정보를
+    안 잃으려면 FE 가 편집분을 `<!칸>` 으로 실어 보내야 한다(계약 변경 — pm 보고 대상).
+    """
+    head, sep, rest = line.strip().partition(": ")
+    cells = ([head] + _PRINT_COL_GAP_RE.split(rest)) if sep \
+        else _PRINT_COL_GAP_RE.split(line.strip())
+    return ["" if c.strip() == "(빈칸)" else c.strip() for c in cells]
+
+
+def parse_print_frames(src: str) -> str:
+    """묵자 표 테두리 블록(`┌ … └`)을 `<!표>` 태그 형식으로 되돌린다. 없으면 원문 그대로."""
+    if not src or _PRINT_BOX_TOP not in src:
+        return src
+
+    def _sub(m: "re.Match") -> str:
+        rows = [_print_frame_row(ln) for ln in m.group(1).splitlines()
+                if ln.strip() and ln.strip() != _PRINT_RULE]
+        return build_table_tags(rows) if rows else m.group(0)
+
+    return _PRINT_FRAME_STRAY_RE.sub("", _PRINT_FRAME_RE.sub(_sub, src))
+
+
+def _transpose_text(corrected_text: str) -> str:
+    """'|' 구분 표 텍스트의 행↔열을 바꾼다."""
+    rows = [[c.strip() for c in ln.split("|")] for ln in corrected_text.splitlines() if ln.strip()]
+    if not rows:
+        return corrected_text
+    n_cols = max(len(r) for r in rows)
+    rows = [r + [""] * (n_cols - len(r)) for r in rows]
+    cols = list(zip(*rows))
+    return "\n".join(" | ".join(col) for col in cols)
+
+
+class TableBraille:
+    """LLMOutput 목록 → BrailleOutput 목록 (표). 격자/전치/선형 3안."""
+
+    def translate(self, optimized: list[LLMOutput]) -> list[BrailleOutput]:
+        # 요소별 격리: 한 표 점역 실패가 다른 요소를 막지 않는다.
+        return safe_translate(optimized, self._translate_one)
+
+    def _translate_one(self, opt: LLMOutput) -> BrailleOutput:
+        text = opt.corrected_text
+
+        if text.startswith("[처리 불가") or text.startswith("[표 수동"):
+            lines = [text]
+            return BrailleOutput(
+                element_id=opt.element_id, braille_lines=lines,
+                # 플레이스홀더는 점역 안 된 원문 그대로 — 내용 규정 emit 금지(환각 0).
+                rule_trail=_base_trail(lines, text, content=False),
+            )
+
+        # <!표> 구조 태그 → 내부 '|' 격자로 변환해 기존 4안 렌더러에 위임(1:1).
+        parsed_rows = parse_table_tags(text)
+        if parsed_rows is not None:
+            text = "\n".join(" | ".join(r) for r in parsed_rows)
+
+        if parsed_rows is None and "|" not in text:  # 비정형 → TN 단일안
+            # ★ `parsed_rows is None` 을 같이 본다(2026-08-29, N031). `<!표>` 태그가 있어도
+            #   **1열**이면 `" | ".join(["한 칸"])` 이 파이프를 안 남겨 여기서 TN 으로 새어
+            #   나갔다. gold 는 그 자리를 글상자로 적는다(테두리 + 각 항목 2칸).
+            #   태그가 파싱됐으면 열이 하나여도 격자 렌더러로 보낸다.
+            tn = opt.tn_text or text
+            lines, breaks = translate_with_breaks(tn)  # 음절 줄바꿈(NLD-1.2.1)
+            bo = BrailleOutput(
+                element_id=opt.element_id,
+                braille_lines=lines,
+                break_points=breaks,
+                rule_trail=_base_trail(lines, tn),
+            )
+            append_nested(bo, opt.nested_text)   # 표 안 그림(Q11) 글상자 1단 덧붙임
+            return bo
+
+        # 표 유형별 레이아웃 (셀 값 동일, 조판만 다름). 기본=풀어쓰기(NLD-3.1.2 원칙).
+        unfold_lines = _render_unfold(text)
+        grid_lines = _render_grid(text)
+        # 전치 초안도 점역자 주를 태그로 낸다 — 옛 구현은 _translate(_TN_TRANSPOSE)라
+        # 양끝 마커 ⠠⠄가 빠져 '그냥 한 줄 문장'으로 나갔고 rule_trail도 안 잡혔다.
+        transposed_lines = [_tn_transpose_line()] + _render_grid(_transpose_text(text))
+        linear_lines = _render_linear(text)
+        # §3.1.1 (1)③ 번호 체계 — 열 항목이 문장인 표의 정본 형식(2026-09-02 신설).
+        numbered_lines = _render_numbered(text)
+        # 자동 경로가 전치했으면 그 점역자 주가 출력에 실린다 → 태그를 트레일 원본에 얹어
+        # NLD-1.2.6이 emit되게 한다(_base_trail은 원본에 태그가 있을 때만 emit).
+        unfold_src = text + ("\n" + _TN_SRC if any(_TN_SRC_MARK in ln for ln in unfold_lines) else "")
+        drafts = [
+            Draft(option=1, text=print_layout(text, "unfold"), render_mode="unfold", label="테두리 없음",
+                  braille_lines=unfold_lines,
+                  rule_trail=_base_trail(unfold_lines, unfold_src) + [make_rule("NLD-3.1.2")]),
+            Draft(option=2, text=print_layout(text, "table_grid"), render_mode="table_grid", label="테두리+구분선",
+                  braille_lines=grid_lines, rule_trail=_base_trail(grid_lines, text)),
+            Draft(option=3, text=print_layout(text, "transposed"), render_mode="transposed", label="행열 바꿈",
+                  braille_lines=transposed_lines,
+                  rule_trail=_base_trail(transposed_lines, text + "\n" + _TN_SRC)
+                             + [make_rule("NLD-3.1.2")]),
+            Draft(option=4, text=print_layout(text, "linear"), render_mode="linear", label="테두리만",
+                  braille_lines=linear_lines, rule_trail=_base_trail(linear_lines, text)),
+            Draft(option=5, text=print_layout(text, "numbered"),
+                  render_mode="numbered", label="번호 체계", braille_lines=numbered_lines,
+                  rule_trail=_base_trail(numbered_lines, text) + [make_rule("NLD-3.1.1")]),
+        ]
+        # 기본 선택 = opt 추론 render_mode (없으면 풀어쓰기). 나머지는 대안 초안.
+        sel = {"unfold": 0, "table_grid": 1, "transposed": 2, "linear": 3,
+               "numbered": 4}.get(opt.render_mode, 0)
+        bo = BrailleOutput(
+            element_id=opt.element_id,
+            braille_lines=drafts[sel].braille_lines,
+            rule_trail=list(drafts[sel].rule_trail),
+            drafts=drafts,
+            selected_idx=sel,
+        )
+        append_nested(bo, opt.nested_text)   # 표 안 그림(Q11) 글상자 1단 덧붙임
+        return bo

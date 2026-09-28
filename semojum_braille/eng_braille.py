@@ -1,0 +1,273 @@
+"""영어 점자 Grade 2(약자 점역) — 국어 문장 속 영어 구간 전담 모듈.
+
+**권위**: 한국 점자 규정 [부록 1] 외국어 점자 제1항 — "외국어 점자는 해당 국가의 점자
+규정에 따라 적는다". 부록의 영어 절(제2장 제1절)은 알파벳과 문장 부호만 정하고 약자는
+정하지 않으므로, 약자는 영어권 표준(English Braille Grade 2)을 따른다. 즉 이 표의
+정본은 한국 규정이 아니라 영어 점자 표준이며, 코퍼스와 독립이라 과적합 소지가 없다.
+
+**왜 별도 모듈인가**: 종전에는 영어 구간도 braillify(한국 점자 엔진)가 처리했는데,
+letter-group 약자(th·ed·st·er·ow·en·in·ch·gh·be)만 구현돼 단어 약자·어미 약자·단축형이
+통째로 빠져 있었다(실측 2026-07-19: the → ⠹⠑ 출력, 정답 ⠮ / running → …⠔⠛, 정답 ⠬).
+수식을 kor_math_rules가 소유하듯 영어는 이 모듈이 소유한다 — translator는 구간을 넘기고
+결과만 받는다.
+
+**셀 충돌 규칙**: 이 파일의 표들은 같은 점형을 여러 항목이 쓰는 일이 정상이다 — 알파벳
+↔ 단독 단어 약자(⠃=b/but), 강약자 ↔ 단독 단어 약자(⠡=ch/child), 아래칸 약자 ↔ 첫머리
+음절 약자(⠆=bb/be)는 **위치·단독 여부로 갈리므로** 영어 점자 표준 그대로다. 반면
+**같은 dict·같은 위치 계층에서 셀이 겹치면 오류다** — ble/gg가 둘 다 ⠶였던 것이 그 예다
+(2026-07-27 정정, 전수 점검 스크립트 `V2/temp/i2_cellaudit.py`).
+
+**ble = 3456점(⠼) 근거**: EBAE(구 영어 점자)에서 ble은 3456점이다 — UEB 해설이
+"the former 'ble' contraction, dots 3456, is defined as a prefix in UEB"라고 명시한다
+(duxburysystems.com/js-adapting_UEB.asp). UEB는 이 약자를 폐지했으나 이 표는 ation·ally와
+같은 이유로 **EBAE 관행을 따른다**(정답 코퍼스가 EBAE형이다). 코퍼스 실측도 같은 방향:
+-ble 낱말의 gold 점형은 ⠼형 133건 : ⠶형 0건(val 116:0 · dev 17:0).
+
+**적용 순서**(영어 점자 표준의 우선순위):
+  1. 단독 단어 약자(alone)      — 앞뒤가 공백/문장부호일 때만
+  2. 단축형(short form)          — 단어 전체가 일치할 때만
+  3. 강약자(strong groups)       — 위치 무관, 긴 것 우선
+  4. 첫글자 약자 / 끝글자 약자   — 위치 제약(첫/끝 음절 근처)
+  5. 남은 글자 → 알파벳
+"""
+from __future__ import annotations
+
+import re
+from functools import lru_cache
+from typing import Iterator
+
+_CAPITAL = "⠠"          # 대문자 기호표 (규정 부록1 영어 절)
+
+ALPHABET: dict[str, str] = {
+    "a": "⠁", "b": "⠃", "c": "⠉", "d": "⠙", "e": "⠑", "f": "⠋", "g": "⠛",
+    "h": "⠓", "i": "⠊", "j": "⠚", "k": "⠅", "l": "⠇", "m": "⠍", "n": "⠝",
+    "o": "⠕", "p": "⠏", "q": "⠟", "r": "⠗", "s": "⠎", "t": "⠞", "u": "⠥",
+    "v": "⠧", "w": "⠺", "x": "⠭", "y": "⠽", "z": "⠵",
+}
+
+# ── 1. 강약자(strong contractions) — 단어 어디에 있어도 쓴다 ──────────────────
+STRONG_GROUPS: dict[str, str] = {
+    "and": "⠯", "for": "⠿", "of": "⠷", "the": "⠮", "with": "⠾",
+    "ch": "⠡", "gh": "⠣", "sh": "⠩", "th": "⠹", "wh": "⠱",
+    "ed": "⠫", "er": "⠻", "ou": "⠳", "ow": "⠪",
+    # ble = 3456점(⠼). 2356점(⠶)은 gg 자리라 같은 dict 안에서 셀이 겹쳤었다(~2026-07-27).
+    # ⠼는 한글 점자에서 수표(제40항)와 같은 점형이다 — 두 뜻을 가르는 판정은 number_sign.py.
+    "st": "⠌", "ing": "⠬", "ar": "⠜", "ble": "⠼",
+    "bb": "⠆", "cc": "⠒", "dd": "⠲", "ff": "⠖", "gg": "⠶",
+    "in": "⠔", "en": "⠢",
+    "ea": "⠂",
+}
+# 아래칸 약자(ea·bb·cc·dd·ff·gg)는 **낱말 첫머리·끝에 못 쓴다**(영어 점자 표준).
+# 위아래 칸이 비어 다른 셀과 혼동되기 때문이다.
+_LOWER_CELL = {"ea", "bb", "cc", "dd", "ff", "gg"}
+# 낱말 첫머리 전용 음절 약자 — 같은 셀이 낱말 중간에서는 겹자음(bb·cc·dd) 뜻이라
+# 위치로 갈린다(영어 점자 표준). be/con/dis 는 첫머리에서만 쓴다.
+WORD_INITIAL_SYLLABLE: dict[str, str] = {"be": "⠆", "con": "⠒", "dis": "⠲", "com": "⠤"}
+# 위치 제약: 낱말 첫머리에는 쓰지 않는 약자(영어 점자 표준).
+_NOT_WORD_INITIAL = {"ing", "ble"} | _LOWER_CELL
+
+# ── 2. 단독 단어 약자(alone) — 그 낱말 하나로 설 때만 ────────────────────────
+WORDSIGNS: dict[str, str] = {
+    "but": "⠃", "can": "⠉", "do": "⠙", "every": "⠑", "from": "⠋", "go": "⠛",
+    "have": "⠓", "just": "⠚", "knowledge": "⠅", "like": "⠇", "more": "⠍",
+    "not": "⠝", "people": "⠏", "quite": "⠟", "rather": "⠗", "so": "⠎",
+    "that": "⠞", "us": "⠥", "very": "⠧", "will": "⠺", "it": "⠭",
+    "you": "⠽", "as": "⠵", "child": "⠡", "shall": "⠩", "this": "⠹",
+    "which": "⠱", "out": "⠳", "still": "⠌", "enough": "⠢", "were": "⠶",
+    "his": "⠦", "in": "⠔", "was": "⠴", "be": "⠆",
+    # 아래칸 단어기호 — 앞뒤 낱말에 붙여 적는다(영어 점자 표준)
+    "to": "⠖", "by": "⠴", "into": "⠔⠖",
+}
+
+# ── 3. 첫글자 약자 — 기호표 + 첫 글자 ────────────────────────────────────────
+INITIAL_5: dict[str, str] = {          # 점5(⠐) + 글자
+    "day": "⠙", "ever": "⠑", "father": "⠋", "here": "⠓", "know": "⠅",
+    "lord": "⠇", "mother": "⠍", "name": "⠝", "one": "⠕", "part": "⠏",
+    "question": "⠟", "right": "⠗", "some": "⠎", "time": "⠞", "under": "⠥",
+    "work": "⠺", "young": "⠽", "there": "⠮", "character": "⠡", "through": "⠹",
+    "where": "⠱", "ought": "⠳",
+}
+INITIAL_45: dict[str, str] = {         # 점45(⠘) + 글자
+    "upon": "⠥", "word": "⠺", "these": "⠮", "those": "⠹", "whose": "⠱",
+}
+INITIAL_456: dict[str, str] = {        # 점456(⠸) + 글자
+    "cannot": "⠉", "had": "⠓", "many": "⠍", "spirit": "⠎", "world": "⠺",
+    "their": "⠮",
+}
+
+# ── 4. 끝글자 약자 — 기호표 + 글자 (낱말 끝·중간) ────────────────────────────
+FINAL_46: dict[str, str] = {           # 점46(⠨) + 글자
+    "ound": "⠙", "ance": "⠑", "sion": "⠝", "less": "⠎", "ount": "⠞",
+}
+FINAL_56: dict[str, str] = {           # 점56(⠰) + 글자
+    "ence": "⠑", "ong": "⠛", "ful": "⠇", "tion": "⠝", "ness": "⠎",
+    "ment": "⠞", "ity": "⠽",
+}
+# ⚠ ation·ally 는 EBAE에 있고 UEB에서 폐지됐다. 코퍼스 실측으로 채택 여부를 정한다
+#   (temp/eng_variant_ab.py) — 기본은 사용(코퍼스가 구 EBAE 관행으로 확인됨).
+FINAL_EBAE_ONLY: dict[str, str] = {"ation": "⠠⠝", "ally": "⠠⠽"}
+
+# ── 5. 단축형(short form) — 낱말 전체가 일치할 때만 ──────────────────────────
+SHORT_FORMS: dict[str, str] = {
+    "about": "⠁⠃", "above": "⠁⠃⠧", "according": "⠁⠉", "across": "⠁⠉⠗",
+    "after": "⠁⠋", "afternoon": "⠁⠋⠝", "afterward": "⠁⠋⠺", "again": "⠁⠛",
+    "against": "⠁⠛⠌", "almost": "⠁⠇⠍", "already": "⠁⠇⠗", "also": "⠁⠇",
+    "although": "⠁⠇⠹", "altogether": "⠁⠇⠞", "always": "⠁⠇⠺",
+    "because": "⠆⠉", "before": "⠆⠿", "behind": "⠆⠓", "below": "⠆⠇",
+    "beneath": "⠆⠝", "beside": "⠆⠎", "between": "⠆⠞", "beyond": "⠆⠽",
+    "blind": "⠃⠇", "braille": "⠃⠗⠇", "children": "⠡⠝", "conceive": "⠒⠉⠧",
+    "could": "⠉⠙", "deceive": "⠙⠉⠧", "declare": "⠙⠉⠇", "either": "⠑⠊",
+    "first": "⠋⠌", "friend": "⠋⠗", "good": "⠛⠙", "great": "⠛⠗⠞",
+    "herself": "⠓⠻⠋", "him": "⠓⠍", "himself": "⠓⠍⠋", "immediate": "⠊⠍⠍",
+    "its": "⠭⠎", "itself": "⠭⠋", "letter": "⠇⠗", "little": "⠇⠇",
+    "much": "⠍⠡", "must": "⠍⠌", "myself": "⠍⠽⠋", "necessary": "⠝⠑⠉",
+    "neither": "⠝⠑⠊", "oneself": "⠐⠕⠋", "ourselves": "⠳⠗⠧⠎",
+    "paid": "⠏⠙", "perceive": "⠏⠻⠉⠧", "perhaps": "⠏⠻⠓", "quick": "⠟⠅",
+    "receive": "⠗⠉⠧", "rejoice": "⠗⠚⠉", "said": "⠎⠙", "should": "⠩⠙",
+    "such": "⠎⠡", "themselves": "⠮⠍⠧⠎", "thyself": "⠹⠽⠋", "today": "⠞⠙",
+    "together": "⠞⠛⠗", "tomorrow": "⠞⠍", "tonight": "⠞⠝", "would": "⠺⠙",
+    "your": "⠽⠗", "yourself": "⠽⠗⠋", "yourselves": "⠽⠗⠧⠎",
+}
+
+_WORD_RE = re.compile(r"[A-Za-z']+")
+# 낱말 **안**의 아포스트로피 — 양옆이 로마자일 때만(제61항 ⠄). 홀로 선 `'` 는 제49항
+# 작은따옴표일 수 있어 여기 안 걸린다.
+_INNER_APOS_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
+_APOS_CELL = "⠄"
+
+
+def iter_words(text: str) -> Iterator[str]:
+    """text 안의 영어 낱말 토큰 — 이 모듈이 약자를 적용하는 단위 그대로.
+
+    number_sign.py가 '영어 약자가 만든 ⠼'를 세는 데 쓴다(수표와 같은 점형이라 구분 필요).
+    """
+    return (m.group() for m in _WORD_RE.finditer(text))
+
+
+def _apply_groups(word: str) -> str:
+    """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수."""
+    # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
+    # year·near·clear에서 ar(⠜)이 ea(⠂)를 이겨야 한다(실측 12건: 우리 ⠂⠗ vs 정답 ⠑⠜).
+    keys = sorted(set(STRONG_GROUPS) | set(FINAL_EBAE_ONLY) | set(WORD_INITIAL_SYLLABLE)
+                  | set(FINAL_46) | set(FINAL_56)
+                  | set(INITIAL_5) | set(INITIAL_45) | set(INITIAL_456),
+                  key=lambda k: (-len(k), k in _LOWER_CELL))
+    out: list[str] = []
+    i = 0
+    while i < len(word):
+        for k in keys:
+            if not word.startswith(k, i):
+                continue
+            if k in WORD_INITIAL_SYLLABLE:
+                # 첫머리 음절 약자는 뒤에 글자가 더 있어야 한다(be/con/dis 단독 아님)
+                if i != 0 or len(word) <= len(k):
+                    continue
+                out.append(WORD_INITIAL_SYLLABLE[k])
+            elif k in STRONG_GROUPS:
+                if i == 0 and k in _NOT_WORD_INITIAL:
+                    continue
+                if k in _LOWER_CELL:
+                    if i + len(k) >= len(word):
+                        continue    # 아래칸 약자는 낱말 끝에도 못 온다
+                    # 한 칸 물러서면 윗칸 약자가 시작되는 자리면 그쪽을 쓴다.
+                    # year는 y+ea+r(⠽⠂⠗)이 아니라 y+e+ar(⠽⠑⠜)이다(실측 12건).
+                    if any(word.startswith(k2, i + 1)
+                           for k2 in STRONG_GROUPS if k2 not in _LOWER_CELL):
+                        continue
+                out.append(STRONG_GROUPS[k])
+            elif k in FINAL_EBAE_ONLY:
+                if i == 0:          # 끝글자 약자는 낱말 첫머리에 못 온다
+                    continue
+                out.append(FINAL_EBAE_ONLY[k])
+            elif k in FINAL_46 or k in FINAL_56:
+                if i == 0:
+                    continue
+                out.append(("⠨" + FINAL_46[k]) if k in FINAL_46 else ("⠰" + FINAL_56[k]))
+            else:                    # 첫글자 약자 — 낱말 첫머리에서만
+                if i != 0:
+                    continue
+                if k in INITIAL_5:
+                    out.append("⠐" + INITIAL_5[k])
+                elif k in INITIAL_45:
+                    out.append("⠘" + INITIAL_45[k])
+                else:
+                    out.append("⠸" + INITIAL_456[k])
+            i += len(k)
+            break
+        else:
+            out.append(ALPHABET.get(word[i], word[i]))
+            i += 1
+    return "".join(out)
+
+
+def _is_abbrev(word: str) -> bool:
+    """약어·단위인가 — 전부 대문자(ATP·DNA)이거나 대소문자가 섞인 형태(mV·pH·mmHg).
+
+    영어 점자에서 약어·기호는 약자로 줄이지 않는다. 첫 글자만 대문자인 보통 낱말
+    (The·Korea)은 약어가 아니므로 제외한다.
+    """
+    letters = [c for c in word if c.isalpha()]
+    if len(letters) < 2:
+        return False
+    if all(c.isupper() for c in letters):
+        return True
+    return any(c.isupper() for c in letters[1:])
+
+
+def translate_word(word: str) -> str:
+    """영어 낱말 하나 → Grade 2 점자.
+
+    약어·단위는 축약하지 않고 글자 그대로 적는다 — 축약하면 ATP·mV·pH·mmHg 같은
+    과학 표기가 깨진다(표 축 실측 2026-07-19: 악화 셀이 전부 이 계열이었다).
+    전부 대문자인 낱말은 대문자 단어표 ⠠⠠를 앞세운다(규정 제35항 [붙임]과 동형).
+    """
+    if not word:
+        return ""
+    # ── 낱말 안 아포스트로피 (#513 · 원장 R-26) ────────────────────────────────
+    # 「한국 점자 규정」 제61항 — 아포스트로피(’)는 `'`(⠄) 한 칸이다. 종전에는 ASCII
+    # 작은따옴표가 표에 없어 `ALPHABET.get(c, c)` 를 그대로 빠져나가 **점자 출력에
+    # 점자가 아닌 글자**가 실렸다(`don't` -> ⠙⠕⠝'⠞).
+    # ★ 자리마다 잘라 각각 점역하고 ⠄ 로 잇는다. 그러면 본문 경로(`translator`)가
+    #   이미 내던 답과 **한 글자도 안 달라진다** — 그쪽은 라틴 런을 아포스트로피에서
+    #   끊고 `_span_gap` 이 ⠄ 를 내므로 결과가 같은 꼴이다(실측 11낱말 전부 일치:
+    #   don't · It's · we've · patient's · I'll · they're · world's · can't · isn't ·
+    #   you're · O'Brien). 곧 이 수정은 **두 경로를 같게 맞추는 것**이지 본문 출력을
+    #   바꾸는 것이 아니다.
+    # ⚠ 낱말 **안**(양옆이 로마자)일 때만이다. 홀로 선 `'` 는 제49항 작은따옴표일 수
+    #   있어 건드리지 않는다.
+    if _INNER_APOS_RE.search(word):
+        return _APOS_CELL.join(translate_word(p) for p in _INNER_APOS_RE.split(word))
+    letters = [c for c in word if c.isalpha()]
+    if _is_abbrev(word):
+        if all(c.isupper() for c in letters):
+            return "⠠⠠" + "".join(ALPHABET.get(c.lower(), c) for c in word)
+        # 대소문자 혼합(mV·mmHg) — 대문자마다 대문자표를 붙이고 약자는 쓰지 않는다
+        out = []
+        for c in word:
+            if c.isupper():
+                out.append(_CAPITAL + ALPHABET.get(c.lower(), c))
+            else:
+                out.append(ALPHABET.get(c, c))
+        return "".join(out)
+    low = word.lower()
+    caps = _CAPITAL if word[0].isupper() else ""
+    if low in WORDSIGNS:
+        return caps + WORDSIGNS[low]
+    if low in SHORT_FORMS:
+        return caps + SHORT_FORMS[low]
+    return caps + _apply_groups(low)
+
+
+@lru_cache(maxsize=4096)
+def translate(text: str) -> str:
+    """영어 구간 문자열 → Grade 2 점자(낱말 단위 적용, 그 외 문자는 그대로).
+
+    캐시가 붙은 이유 — `_break_offsets`가 줄바꿈 지점을 찾으려고 문자 위치마다 접두를
+    통째로 재점역한다(O(n²)). 접두는 매번 다르지만 그 안의 **영어 구간은 같은 것이
+    반복**된다. 실측(표 요소 1,662자): 호출 69,853회 중 서로 다른 입력은 8개.
+    캐시로 그 요소 점역이 2,056ms → 664ms(3.1배), 출력은 바이트 동일이다.
+
+    순수 함수라 캐시가 안전하다 — 입력 문자열만 보고 모듈 전역 표(WORDSIGNS·SHORT_FORMS)로
+    변환한다. 표가 런타임에 바뀌지 않으므로 무효화할 일이 없다.
+    """
+    return _WORD_RE.sub(lambda m: translate_word(m.group()), text)
