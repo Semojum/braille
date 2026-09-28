@@ -89,7 +89,8 @@ def sync_tests(ai: Path) -> None:
     listed = [l.strip() for l in (ROOT / "tools" / "tests_from_ai.txt").read_text(encoding="utf-8").splitlines()
               if l.strip() and not l.startswith("#")]
     dst_root = ROOT / "test"
-    for p in dst_root.rglob("test_*.py"):
+    assert all(rel.startswith("test/unit_test/") for rel in listed), "옮기는 시험은 test/unit_test/ 아래만"
+    for p in (dst_root / "unit_test").rglob("test_*.py"):   # 이 레포 고유 시험(test/test_*.py)은 둔다
         p.unlink()
     for rel in listed:
         text = (ai / rel).read_text(encoding="utf-8")
