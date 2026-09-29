@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]   # license = "..." (PEP 639) 는 77 부터다
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "semojum-braille"
 version = "3.4.0"
 description = "세모점 점역·역점역 엔진: 묵자를 한국어 점자로 옮기고, 점자를 묵자로 되돌린다"
 readme = "README.md"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 requires-python = ">=3.10"   # 하한이다. 3.10 · 3.12 · 3.13 에서 시험했다
 dependencies = [
     "braillify==2.0.1",
