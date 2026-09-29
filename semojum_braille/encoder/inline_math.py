@@ -23,6 +23,7 @@ translator는 이 모듈이 태그를 붙인 결과를 받아 기존 수식 경�
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 
 from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
 from semojum_braille.encoder.kor_math_rules import UNI_SUB, UNI_SUP, unicode_scripts_to_latex
@@ -84,10 +85,37 @@ _ABS_PAIR_RE = re.compile(
     r"\|[^|가-힣\s](?:[^|가-힣]*[^|가-힣\s])?\|"
 )
 _LETTER_RE = re.compile(r"[A-Za-zαβγδεζηθικλμνξπρστυφχψωΑΒΓΔΘΛΞΠΣΦΨΩ]")
+_BIN_OPS = "+-−×÷=<>≤≥≠"   # 두 피연산자 사이에 서는 연산·비교 기호(#941)
+
+
+# ★ 그리스 문자가 든 **단위 기호**(`μm`·`μg`)는 수식 신호가 아니다(#955). 「한국 점자 규정」
+#   제69항 [붙임 1](재추출 2710행) "그리스 문자가 포함된 단위 기호는 그 앞에 로마자표를 적고 그
+#   뒤에는 로마자 종료표를 적으며, 띄어쓰기는 묵자를 따른다" — 예문 `1 μm는` = `#a`0.mm4cz`
+#   (⠼⠁⠀⠴⠨⠍⠍⠲⠉⠵). 수식으로 감싸면 숫자 뒤 빈칸이 빠지고 구간 앞뒤에 제11항 두 칸이 붙었다
+#   (`⠼⠁⠴⠨⠍⠍⠲⠀⠀⠉⠵`). 라틴 단위 `1 mm` 는 원래 수식 신호가 없어 바르다.
+#   μ 바로 뒤에 로마자가 붙은 것만 뺀다. 홀로 선 μ(마찰 계수·평균)는 여전히 수식 신호다.
+_GREEK_UNIT_RE = re.compile(r"(?<![A-Za-z])μ(?=[A-Za-z])")
+
+
+# ── 수식 지면의 약한 신호(T16 · 원장 R-85) ─────────────────────────────────────────────
+# `_has_strong` 은 기호 종류만 보므로 `p-q`·`(x, y)` 처럼 `-`·`+`·쉼표·괄호뿐인 식을 못 잡아 글로 샜다.
+# 같은 꼴이 과목에 따라 gold 가 반대다 — 수학 009 `p-q의 값` = ⠀⠀⠏⠔⠟⠀⠀ (수식) · 사회 013 `t+10년` =
+# ⠴⠞⠲⠀⠢⠀⠼⠁⠚ (글) · 생명 001 `(Q, n)` = ⠴⠠⠟⠂⠀⠰⠝⠠⠴ (글). 피연산자 모양으로는 못 가르므로 **수식 지면**
+# (추출 effort 라우터와 같은 한컴 수식 글꼴 신호, 2027 수학 I 151/152 · 그 밖 모든 책 0)일 때만 켠다.
+# 쪽 문맥은 파이프라인이 요청 PDF 로 재서 세운다. 기본값 거짓 = 종전 동작.
+MATH_PAGE: ContextVar[bool] = ContextVar("inline_math_page", default=False)
+_OPND = r"(?:[A-Za-z]|\d+(?:\.\d+)?)"                  # 홑 로마자 또는 수
+_EXPR = rf"{_OPND}(?:\s*[-+−]\s*{_OPND})*"
+_ELEM = rf"[-+−]?\s*{_EXPR}"
+_WEAK_MATH_RE = re.compile(
+    rf"(?=.*[A-Za-z]){_OPND}\s*[-+−]\s*{_EXPR}"            # 홑 로마자가 든 덧셈·뺄셈 `p-q` · `n-1`(수 범위 `3-4쪽` 제외)
+    rf"|\(\s*{_ELEM}(?:\s*,\s*{_ELEM})+\s*\)"           # 괄호 순서쌍 `(x, y)` · `(m, n-1)` · `(4, 3)` · `(8, -1)`
+)                                                            #   009 gold 수 순서쌍 수식 꼴 50 · 글 꼴 0
 
 
 def _has_strong(core: str) -> bool:
     """구간이 수식인지 — 강한 신호가 하나라도 있으면 참."""
+    core = _GREEK_UNIT_RE.sub("", core)
     if _STRONG.search(core):
         return True
     return any(_LETTER_RE.search(m.group()) for m in _ABS_PAIR_RE.finditer(core))
@@ -235,7 +263,18 @@ def _wrap_tokens(seg: str) -> str:
         em = _ENUM_HEAD_RE.match(core)
         if em:
             head, core = em.group(), core[em.end():]
-        if not _has_strong(core):
+        if not _has_strong(core) and not (MATH_PAGE.get() and _WEAK_MATH_RE.fullmatch(core)):
+            return span
+        # ★ 피연산자가 구간 **밖 한글**인 연산(#941) — `반지름×3.14이다` 의 `×3.14` 는 수식이 아니라
+        #   한글 사이 연산이다(「한글 점자」 제46항 예문, 재추출 2066행). 감싸면 수식 구간 앞뒤에
+        #   제11항 두 칸이 붙고 뒤 조사(`이다`)까지 끊겨 `⠀⠀⠡⠼⠉⠲⠁⠙⠀⠀⠕⠊` 가 나갔다.
+        #   머리(꼬리)가 연산 기호이고 그 바깥 이웃이 한글 음절이며, 로마자·그리스 글자가 없을 때만 놓아 준다.
+        src = m.string
+        before = src[:m.start()].rstrip()[-1:]
+        after = src[m.end():].lstrip()[:1]
+        if not _LETTER_RE.search(core) and (
+                (core[0] in _BIN_OPS and "가" <= before <= "힣")
+                or (core[-1] in _BIN_OPS and "가" <= after <= "힣")):
             return span
         # 2자 토큰은 아래첨자·이온 전하를 지닌 것만 허용(O₂·t₂·H⁺). 그 밖은 3자 임계 유지.
         if len(core) < 3 and not (_SUB_CHARS.search(core) or _ION_CHARS.search(core)):

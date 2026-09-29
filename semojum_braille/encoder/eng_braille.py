@@ -50,13 +50,15 @@ STRONG_GROUPS: dict[str, str] = {
     "and": "⠯", "for": "⠿", "of": "⠷", "the": "⠮", "with": "⠾",
     "ch": "⠡", "gh": "⠣", "sh": "⠩", "th": "⠹", "wh": "⠱",
     "ed": "⠫", "er": "⠻", "ou": "⠳", "ow": "⠪",
-    # ble = 3456점(⠼). 2356점(⠶)은 gg 자리라 같은 dict 안에서 셀이 겹쳤었다(~2026-07-27).
-    # ⠼는 한글 점자에서 수표(제40항)와 같은 점형이다 — 두 뜻을 가르는 판정은 number_sign.py.
-    "st": "⠌", "ing": "⠬", "ar": "⠜", "ble": "⠼",
+    "st": "⠌", "ing": "⠬", "ar": "⠜",
     "bb": "⠆", "cc": "⠒", "dd": "⠲", "ff": "⠖", "gg": "⠶",
     "in": "⠔", "en": "⠢",
     "ea": "⠂",
 }
+# ble = 3456점(⠼) — EBAE 약자다. **UEB 가 폐지했다**(#946, 규정 제29항 예문 `Table of Contents` =
+#   ⠠⠞⠁⠃⠇⠑…). 정방향은 쓰지 않고, 역점역이 옛 EBAE 책을 되짚을 때만(`ebae=True`) 쓴다 — ation·ally(#932)와 같은 처리.
+#   2027 dev·val 묵자에 -ble 낱말은 0회다. ⠼는 한글 점자에서 수표(제40항)와 같은 점형이라 number_sign.py 가 가른다.
+EBAE_ONLY_GROUPS: dict[str, str] = {"ble": "⠼"}
 # 아래칸 약자(ea·bb·cc·dd·ff·gg)는 **낱말 첫머리·끝에 못 쓴다**(영어 점자 표준).
 # 위아래 칸이 비어 다른 셀과 혼동되기 때문이다.
 _LOWER_CELL = {"ea", "bb", "cc", "dd", "ff", "gg"}
@@ -154,7 +156,7 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
     """
     # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
     # year·near·clear에서 ar(⠜)이 ea(⠂)를 이겨야 한다(실측 12건: 우리 ⠂⠗ vs 정답 ⠑⠜).
-    keys = sorted(set(STRONG_GROUPS) | (set(FINAL_EBAE_ONLY) if ebae else set())
+    keys = sorted(set(STRONG_GROUPS) | (set(FINAL_EBAE_ONLY) | set(EBAE_ONLY_GROUPS) if ebae else set())
                   | set(WORD_INITIAL_SYLLABLE)
                   | set(FINAL_46) | set(FINAL_56)
                   | set(INITIAL_5) | set(INITIAL_45) | set(INITIAL_456),
@@ -169,8 +171,12 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
                 # 첫머리 음절 약자는 뒤에 글자가 더 있어야 한다(be/con/dis 단독 아님)
                 if i != 0 or len(word) <= len(k):
                     continue
+                # UEB — 첫 음절을 이룰 때만 쓴다. `dish` 는 d-i-sh 라 dis 가 음절이 아니다
+                #   (규정 제39항 예문 `dishes` = di%es, #950)
+                if k == "dis" and word[3:4] == "h":
+                    continue
                 out.append(WORD_INITIAL_SYLLABLE[k])
-            elif k in STRONG_GROUPS:
+            elif k in STRONG_GROUPS or k in EBAE_ONLY_GROUPS:
                 if i == 0 and k in _NOT_WORD_INITIAL:
                     continue
                 if k in _LOWER_CELL:
@@ -181,7 +187,7 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
                     if any(word.startswith(k2, i + 1)
                            for k2 in STRONG_GROUPS if k2 not in _LOWER_CELL):
                         continue
-                out.append(STRONG_GROUPS[k])
+                out.append(STRONG_GROUPS.get(k) or EBAE_ONLY_GROUPS[k])
             elif k in FINAL_EBAE_ONLY:
                 if i == 0:          # 끝글자 약자는 낱말 첫머리에 못 온다
                     continue
@@ -287,8 +293,40 @@ def translate_word(word: str, ebae: bool = False) -> str:
     return caps + _apply_groups(low, ebae)
 
 
+# 1종 지시자 ⠰ (「한글 점자」 제32항 → 통일영어점자 위임 · 원장 C-99) ─────────────────────
+# 홀로 선 낱자·낱자열이 약자와 셀이 같으면 약자로 읽힌다(V = very · CD = could · AB = about).
+# 그 앞에 ⠰ 를 적어 "글자 그대로" 임을 밝힌다. 표에서 뽑으므로 a·i·o(약자 아님)는 저절로 빠진다.
+_GRADE1 = "⠰"
+_WORDSIGN_CELLS = frozenset(v for v in WORDSIGNS.values() if len(v) == 1 and v in ALPHABET.values())
+_SHORTFORM_CELLS = frozenset(v for v in SHORT_FORMS.values() if all(c in ALPHABET.values() for c in v))
+# 10.9.3 — 긴 낱말 안에서도 쓰는 단축형(글자로만 된 것). (셀, 어디서나 쓰는가)
+_SHORTFORM_HEADS = tuple((SHORT_FORMS[w], w in ("braille", "great"))
+                         for w in ("braille", "great", "blind", "friend", "good", "letter", "little", "quick"))
+_VOWEL_Y_CELLS = frozenset(ALPHABET[c] for c in "aeiouy")
+
+
+def _looks_contracted(word: str) -> bool:
+    """글자 그대로 적은 낱말이 약자와 셀이 같은가 — 홑 낱자는 단어 약자, 둘 이상은 단축형."""
+    if not (word.isascii() and word.isalpha()):
+        return False
+    # 낱말 안쪽 대문자는 대문자표 ⠠ 가 셀 사이에 끼어 약자 모양이 깨진다 — `aB` = ⠁⠠⠃ 는 about(⠁⠃)로
+    #   안 읽힌다. gold 001 p0115 유전자형 `AB, Ab, aB, ab` 도 aB 만 ⠰ 가 없다.
+    if len(word) > 1 and not (word.isupper() or word[1:].islower()):
+        return False
+    cells = "".join(ALPHABET[c] for c in word.lower())
+    if cells in (_WORDSIGN_CELLS if len(word) == 1 else _SHORTFORM_CELLS):
+        return True
+    # 통일영어점자 10.9.5 — 단축형으로 **시작하는** 긴 낱자열도 적는다(`BLCUP` = ;,,blcup). 긴 낱말
+    #   안에서 단축형으로 읽히는 것은 10.9.3 의 열 개뿐이라 그 앞머리만 본다: braille·great 는 늘,
+    #   blind·friend·good·letter·little·quick 은 뒤가 모음·y 가 아닐 때. 2027 gold `GDP` ⠰ 12/12 ·
+    #   10.9.3 밖(ABC·ABO·ABD) 0/257(재현 `V2/temp/n14-acc/g1_prefix_measure.py`). 구판은 GDP 0/21(판본 역전).
+    # ponytail: 실물이 전부 대문자 약어라 대문자 낱말만 본다 — 소문자 낱말은 약자 적용 경로가 따로다.
+    return word.isupper() and any(cells.startswith(h) and (any_pos or cells[len(h):][:1] not in _VOWEL_Y_CELLS)
+                                  for h, any_pos in _SHORTFORM_HEADS)
+
+
 @lru_cache(maxsize=4096)
-def translate(text: str, ebae: bool = False) -> str:
+def translate(text: str, ebae: bool = False, grade1: str = "") -> str:
     """영어 구간 문자열 → Grade 2 점자(낱말 단위 적용, 그 외 문자는 그대로).
 
     캐시가 붙은 이유 — `_break_offsets`가 줄바꿈 지점을 찾으려고 문자 위치마다 접두를
@@ -298,5 +336,49 @@ def translate(text: str, ebae: bool = False) -> str:
 
     순수 함수라 캐시가 안전하다 — 입력 문자열만 보고 모듈 전역 표(WORDSIGNS·SHORT_FORMS)로
     변환한다. 표가 런타임에 바뀌지 않으므로 무효화할 일이 없다.
+
+    grade1 — 한국어 문장 속 로마자 구간에서만 켠다(`translator._split_english`). "lead" 는 이
+    문자열이 로마자표 ⠴ 바로 뒤에서 시작한다는 뜻이고 "cont" 는 구간 안에서 이어진다는 뜻이다.
+    규정 예문 여섯 곳과 2027 gold 가 같은 세 갈래다(재현 `V2/temp/n14-acc/g1_measure.py`):
+      로마자표 바로 뒤 첫 홑 낱자는 안 적는다(`v-x` 의 v · 제36항 표 V)     gold 0/4,896
+      이어지는 약자꼴 홑 낱자는 적는다(`a, b, c` 의 b·c · `George V`)       gold 347/347
+      두 글자 이상 약자꼴은 로마자표 바로 뒤라도 적는다(`CD 1장`)           gold 100/102
+    ⚠ 구판 gold 는 셋 다 안 적는다(판본 역전). 구판 수치로 판정하지 말 것.
     """
-    return _WORD_RE.sub(lambda m: translate_word(m.group(), ebae), text)
+    words = list(_WORD_RE.finditer(text))
+    passage: dict[int, str] = {}
+    # 대문자 구절표(UEB, #946) — 대문자로만 된 낱말이 빈칸만 사이에 두고 셋 이상 이어지면 ⠠⠠⠠ 로 열고
+    #   ⠠⠄ 로 닫는다. 규정 제28항 예문 `WELCOME TO KOREA` = ⠠⠠⠠⠺⠑⠇⠉⠕⠍⠑⠀⠞⠕⠀⠅⠕⠗⠑⠁⠠⠄.
+    #   낱말마다 ⠠⠠ 를 붙이던 종전 꼴은 UEB 가 아니다. 쉼표 등이 끼면(`DNA, RNA, ATP`) 구절로 안 본다.
+    #   두 글자 이상 낱말만 센다 — 홑 대문자 나열(`A B C D` 표 머리·라벨)은 종전대로 둔다.
+    run: list[int] = []
+
+    def _flush() -> None:
+        if len(run) >= 3:
+            for j, k in enumerate(run):
+                cells = "".join(ALPHABET.get(c.lower(), c) for c in words[k].group())
+                passage[k] = ("⠠⠠⠠" if j == 0 else "") + cells + ("⠠⠄" if j == len(run) - 1 else "")
+        run.clear()
+
+    for k, m in enumerate(words):
+        w = m.group()
+        # EBAE(옛 책 되짚기)는 낱말마다 ⠠⠠ 다. 홑 대문자 나열(`A B C D` 라벨)은 구절이 아니다(2027 실물 001 p0156).
+        caps = not ebae and len(w) >= 2 and w.isalpha() and w.isupper()
+        if caps and run and text[words[run[-1]].end():m.start()].strip(" ") == "":
+            run.append(k)
+            continue
+        _flush()
+        if caps:
+            run.append(k)
+    _flush()
+    out: list[str] = []
+    last = 0
+    for k, m in enumerate(words):
+        out.append(text[last:m.start()])
+        w = m.group()
+        mark = (grade1 and not ebae and k not in passage and _looks_contracted(w)
+                and not (grade1 == "lead" and k == 0 and m.start() == 0 and len(w) == 1))
+        out.append((_GRADE1 if mark else "") + (passage.get(k) or translate_word(w, ebae)))
+        last = m.end()
+    out.append(text[last:])
+    return "".join(out)

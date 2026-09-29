@@ -245,6 +245,26 @@ def format_page_change_line(orig_page_braille: str) -> str:
     return _PAGE_CHANGE_FILL * fill + orig_page_braille
 
 
+_BODY_TITLE_CELLS_RE = re.compile(r"^⠦⠆.*⠰⠴$")
+
+
+def _first_indented(lines: list[str]) -> set[int]:
+    """문단 들여쓰기를 받는 줄: 테두리 안 첫 내용 줄(원장 C-01b).
+
+    ★ B-15 — 그 줄이 테두리 바로 아래의 괄호 제목(`⠦⠆4문단 초고⠰⠴`)이면 **다음 본문 줄도**
+      새 문단으로 들인다. 제목은 원본에서 상자 안 첫 줄이고 본문은 그 아래 새 문단이다
+      (gold 화법과 작문 p0157 · 생명과학 p0022 둘 다 `⠀⠀제목` / `⠀⠀본문`).
+    """
+    idx = [i for i, ln in enumerate(lines) if ln.strip() and not _is_border_line(ln)]
+    if not idx:
+        return set()
+    out = {idx[0]}
+    if (len(idx) > 1 and idx[0] > 0 and _is_border_line(lines[idx[0] - 1])
+            and _BODY_TITLE_CELLS_RE.match(lines[idx[0]])):
+        out.add(idx[1])
+    return out
+
+
 def format_box_top() -> str:
     """글상자 위 테두리: ⠿ + ⠛×(32-2) + ⠿ (NLD 1장2절5)."""
     return _BOX_BORDER_END + _BOX_TOP_FILL * (_COLS - 2) + _BOX_BORDER_END
@@ -642,8 +662,7 @@ class LayoutBraille:
         # 버리면 글상자 안 문단이 0칸에서 시작해 gold와 어긋난다(원장 C-01b) — 첫 들여쓰기를
         # **테두리 안 첫 줄**로 옮긴다. ★ `_indent_lines`(통 문자열)와 같은 판정이어야 한다.
         # -1 = 테두리뿐인 요소(시각자료 껍데기) — 아무 줄도 들이지 않는다.
-        first_at = next((i for i, ln in enumerate(bo.braille_lines)
-                         if ln.strip() and not _is_border_line(ln)), -1)
+        first_at = _first_indented(bo.braille_lines)
 
         orig_lines = list(bo.braille_lines)   # 조판 전 스냅샷(좌표 재매핑 기준)
         # 규정 골격 요소(만화 5칸 장면/3칸 대사·시각자료 제목 5칸)는 줄마다 들여쓰기가 다르다.
@@ -661,7 +680,7 @@ class LayoutBraille:
         keep_indent = etype == "table"
         for li, orig in enumerate(orig_lines):
             indent = (per_line[li] if per_line is not None
-                      else (first_indent if li == first_at else 0))
+                      else (first_indent if li in first_at else 0))
             fw = (_COLS - indent) if indent else None
             br = ([] if wordwrap_by_word()
                   else bo.break_points[li] if li < len(bo.break_points) else [])
@@ -926,8 +945,7 @@ class LayoutBraille:
         # 32칸 테두리 줄은 들이면 폭을 넘어 깨진다. 그렇다고 요소 전체의 들여쓰기를 버리면
         # 글상자 안 문단이 0칸에서 시작해 gold와 어긋난다(원장 C-01b) — 첫 들여쓰기를
         # **테두리 안 첫 줄**로 옮긴다.
-        first_at = next((i for i, ln in enumerate(lines)
-                         if ln.strip() and not _is_border_line(ln)), -1)
+        first_at = _first_indented(lines)
         if is_heading and hlevel == 1:
             lines = [ln.strip() for ln in lines]
             return lines, [max(0, (_COLS - _cell_count(ln)) // 2) if _cell_count(ln) < _COLS
@@ -943,7 +961,7 @@ class LayoutBraille:
         if per_line is not None:
             return lines, list(per_line)
         # 표는 들여쓰기를 줄 문자열에 이미 박아 낸다(§3.1.1(1)②) — 여기서 또 넣으면 두 번 들어간다.
-        return lines, [first_indent if i == first_at else 0 for i in range(len(lines))]
+        return lines, [first_indent if i in first_at else 0 for i in range(len(lines))]
 
     def _first_indent(
         self, bo: BrailleOutput, etype: str, is_heading: bool, hlevel: int
@@ -1308,9 +1326,9 @@ def _fold_full_lines(lines: list[str], pads: list[int],
     밀려 끊긴 줄이 개행으로 남아 있었다. 실측 점자 요소의 25%가 안쪽 개행을 물고 나갔고,
     그중 32%가 이 얼굴이다(eval 2026-08-17).
 
-    ★ 개행과 점자 공백은 **둘 다 1문자**라 이 치환은 오프셋을 안 바꾼다 — `_flat_trail`이
-      쓰는 `starts` 계산(`+1`)이 그대로 맞는다. 그래서 줄 문자열에는 손대지 않는다
-      (표식을 줄에 붙이면 `len(ln)`이 1 늘어 오프셋이 밀린다 — 한 번 밟았다).
+    ★ 줄 문자열에는 손대지 않는다(표식을 줄에 붙이면 `len(ln)`이 1 늘어 오프셋이
+      밀린다 — 한 번 밟았다). 구분자는 개행·점자 공백(1문자)이거나, 앞 줄이 이미 ⠀ 로
+      끝나면 빈 문자열이다. `_flat_trail`은 seps 를 받아 구분자 길이로 센다.
       이어 붙는 줄의 들여쓰기만 0으로 돌리고, 그 pads를 두 함수가 같이 쓴다.
 
     ⚠ 짧은 줄 뒤 개행은 안 건드린다 — 시행·대사·목록처럼 줄바꿈이 내용인 자리다.
@@ -1345,7 +1363,10 @@ def _fold_full_lines(lines: list[str], pads: list[int],
         if (width >= _FULL_LINE_MIN and lines[i + 1].strip()
                 and not _is_border_line(lines[i])
                 and not _is_border_line(lines[i + 1])):
-            seps[i] = "⠀"
+            # 원문 줄 끝 빈칸이 이미 ⠀ 로 와 있으면 구분자를 비운다 — 종전에는 빈칸이 두 칸
+            # (`정확한⠀⠀정보를`) 들었다. 2027 8권 실측 4,182곳. 빈 구분자는 오프셋을 바꾸므로
+            # `_flat_trail` 이 seps 를 받아 센다.
+            seps[i] = "" if lines[i].endswith("⠀") else "⠀"
             out_pads[i + 1] = 0
     return out_pads, seps
 
@@ -1355,7 +1376,7 @@ def _pad_join(lines: list[str], pads: list[int],
     """줄별 들여쓰기를 점자 공백 셀로 박아 한 문자열로 잇는다.
 
     `seps`를 주면 줄 사이 구분자를 자리마다 고른다(`_fold_full_lines` 참조).
-    구분자는 전부 1문자라 오프셋 계산이 그대로 맞는다.
+    구분자가 빈 문자열일 수 있다 — `_flat_trail`에 같은 seps 를 넘겨야 오프셋이 맞는다.
     """
     parts = [_PAD * p + ln for ln, p in zip(lines, pads)]
     if not seps:
@@ -1368,7 +1389,7 @@ def _pad_join(lines: list[str], pads: list[int],
 
 def _flat_trail(
     trail: list[RuleApplication], lines: list[str], prefix_len: int, body_len: int,
-    pads: Optional[list[int]] = None,
+    pads: Optional[list[int]] = None, seps: Optional[list[str]] = None,
 ) -> list[RuleApplication]:
     """요소-로컬 (line_no, col) → 통 문자열 문자 오프셋. line_no는 0으로 고정한다.
 
@@ -1380,7 +1401,7 @@ def _flat_trail(
     for i, ln in enumerate(lines):
         pad = pads[i] if pads and i < len(pads) else 0
         starts.append(acc + pad)    # 들여쓴 칸 수만큼 본문 시작이 뒤로 밀린다
-        acc += pad + len(ln) + 1    # +1 = 줄 끝 개행
+        acc += pad + len(ln) + (len(seps[i]) if seps and i < len(seps) else 1)   # 줄 사이 구분자
     out: list[RuleApplication] = []
     for r in trail:
         c = r.model_copy()
@@ -1470,7 +1491,7 @@ def flatten_elements(
             drafts.append(prefix + _pad_join(d_lines, d_pads) + suffix)
         out[bo.element_id] = FlatElement(
             text=prefix + text_body + suffix,
-            trail=_flat_trail(bo.rule_trail, lines, len(prefix), len(text_body), pads),
+            trail=_flat_trail(bo.rule_trail, lines, len(prefix), len(text_body), pads, seps),
             prefix=prefix,
             suffix=suffix,
             draft_texts=tuple(drafts),
