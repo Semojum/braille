@@ -1,0 +1,22 @@
+name: 시험
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+        extras: ["test", "test,kiwi"]      # kiwi 가 있을 때와 없을 때를 둘 다 본다
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install ".[${{ matrix.extras }}]"
+      - run: pytest -q
+      - run: python tools/check_docs.py
