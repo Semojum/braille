@@ -1,10 +1,10 @@
+#   test/unit_test/braille/test_math_regulation_pairs.py
+#   test/unit_test/braille/test_mixed_input.py
+#   test/unit_test/braille/test_regulation_sweep.py
+#   test/unit_test/braille/test_word_accuracy.py
 # AI 저장소 test/ 에서 옮겨 오는 점역 시험. 경로는 AI 저장소 기준. sync_from_ai.py 가 읽는다.
 # 고른 기준: 엔진(app.ai.braille)을 부르고, AI 서버 모듈·역점역·정답 코퍼스를 안 부르는 것.
 # 뺀 것(test_data/ 의 규정쌍·낱말쌍·혼합쌍을 읽는다 — 코퍼스는 옮기지 않는다):
-#   test/unit_test/braille/test_word_accuracy.py
-#   test/unit_test/braille/test_regulation_sweep.py
-#   test/unit_test/braille/test_mixed_input.py
-#   test/unit_test/braille/test_math_regulation_pairs.py
 test/unit_test/braille/test_ampersand_regulation.py
 test/unit_test/braille/test_attached_ops.py
 test/unit_test/braille/test_bar_residue_r78.py
@@ -19,6 +19,8 @@ test/unit_test/braille/test_chain_isolation.py
 test/unit_test/braille/test_context_split_c19.py
 test/unit_test/braille/test_dash_roman_colon.py
 test/unit_test/braille/test_eng_apostrophe_cell.py
+test/unit_test/braille/test_eng_caps_terminator.py
+test/unit_test/braille/test_eng_ueb_no_ation_ally.py
 test/unit_test/braille/test_fold_full_lines.py
 test/unit_test/braille/test_footer_roman.py
 test/unit_test/braille/test_footnote_star_regulation.py
@@ -45,6 +47,7 @@ test/unit_test/braille/test_rule_engine.py
 test/unit_test/braille/test_rule_registry.py
 test/unit_test/braille/test_shape_symbols_b10.py
 test/unit_test/braille/test_straight_quote_and_list_comma.py
+test/unit_test/braille/test_syllable_break_offsets.py
 test/unit_test/braille/test_symbol_path_consistency.py
 test/unit_test/braille/test_table_numbered_hierarchy.py
 test/unit_test/braille/test_table_tn_not_in_braille.py

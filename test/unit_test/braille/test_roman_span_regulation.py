@@ -52,6 +52,15 @@ CASES = [
     ("33-a", "우리나라 기차에는 KTX, 새마을호, 무궁화호 등이 있다.",
      "``m\"oc\"<`@o;<ncz`0,,ktx\"`,re<!``ju\"`em@m7jvju`i{7o`o/i4", "33"),
     ("33-b", "WHO: 세계 보건 기구", "0,,who\"1`,n@/`~u@)`@o@m", "33"),
+    # 제33항 [다만](재추출 1682~1698행) — 점형이 같은 `. ! ...` 는 부호 **뒤에** 종료표를 안 적는다
+    ("33-다만-a", "Ms.는 미혼·기혼의 구별이 없는 여성의 존칭이다.",
+     "``0,ms4cz`eoj(\"2@oj(w`@m~|o`sb'`cz`:,]w`.(;o7oi4", "33"),
+    ("33-다만-q", "그 영화에서 가장 유명한 곡은 What Is A Youth?이다.",
+     "``@{`}jvn,s`$.7`%e}j3`@xz`0,:at`,is`,a`,y|?8oi4", "33"),
+    ("33-다만-b", "연주가 끝나자 사람들은 Bravo!를 외쳤다.",
+     "``*.m$`,@{8c.`l\"<5i!z`0,bravo6\"!y;:/i4", "33"),
+    ("33-다만-c", "헷갈리거나 확신이 없을 때에는 Umm ...이라고 말한다.",
+     "``jn'$1\"o@sc`jva,qo`sb'!`,irncz`0,umm`444o\"<@u`e1j3i4", "33"),
 ]
 
 
@@ -87,3 +96,32 @@ def test_규정_로마자구간_예시(label: str, src: str, gold_brf: str, arti
 def test_규정_32a_grade1_지시부호() -> None:
     """제32항 'a, b, c' — gold는 낱자 b·c 앞에 grade-1 지시부호 ⠰를 둔다."""
     assert _ours("다음 a, b, c의") == _gold("``i<{5`0a1`;b1`;c4w")
+
+
+
+def _body(text: str) -> str:
+    """제품 본문 경로(`translate_body`) — 제34항 뒤처리는 줄 문맥(_RomanCtx)이 있어야 돈다."""
+    return _cells("".join(translator.translate_body(text)[0]))
+
+
+@pytest.mark.parametrize("src,gold_brf", [
+    # 제34항(재추출 1709~1719행) 규정 예문
+    ("문 앞에 “Open”이라고 쓰여 있었다.", "``eg`<4n`80,op50o\"<@u`,,{:`o/s/`i4"),
+    ("링컨(Lincoln)은 미국의 제16대 대통령이다.", "``\"o7f)8'0,l9coln,0z`eo@maw`.n```#af`ir`irh=\"}oi4"),
+])
+def test_제34항_규정_예문(src: str, gold_brf: str) -> None:
+    assert _body(src) == _gold(gold_brf)
+
+
+@pytest.mark.parametrize("src,gold", [
+    # 2027 gold 실물 — 한글이 같이 묶인 자리(제34항). dev 004 p0082 · dev 001 p0009 · val 005 p0189
+    ("‘카드 A’를", "⠠⠦⠋⠊⠪⠴⠠⠁⠴⠄⠐⠮"),
+    ("(DNA 또는 RNA)이다", "⠦⠄⠴⠠⠠⠙⠝⠁⠲⠠⠊⠥⠉⠵⠴⠠⠠⠗⠝⠁⠠⠴⠕⠊"),
+    ("‘이 PD’는", "⠠⠦⠕⠴⠠⠠⠏⠙⠴⠄⠉⠵"),
+])
+def test_제34항_한글과_함께_묶인_로마자(src: str, gold: str) -> None:
+    assert _body(src) == gold
+
+
+def test_제34항_여는_짝_없는_번호_머리는_묶인_것이_아니다() -> None:
+    assert _body("그림 A) 참고").startswith("⠈⠪⠐⠕⠢⠴⠠⠁⠲")

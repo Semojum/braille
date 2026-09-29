@@ -103,8 +103,11 @@ FINAL_56: dict[str, str] = {           # 점56(⠰) + 글자
     "ence": "⠑", "ong": "⠛", "ful": "⠇", "tion": "⠝", "ness": "⠎",
     "ment": "⠞", "ity": "⠽",
 }
-# ⚠ ation·ally 는 EBAE에 있고 UEB에서 폐지됐다. 코퍼스 실측으로 채택 여부를 정한다
-#   (temp/eng_variant_ab.py) — 기본은 사용(코퍼스가 구 EBAE 관행으로 확인됨).
+# ⚠ ation·ally 는 EBAE에 있고 UEB에서 폐지됐다. **정방향 점역에는 쓰지 않는다**(#932 · 원장 R-79).
+#   「한국 점자 규정」 제28항이 로마자를 「통일영어점자 규정」(UEB)에 맡긴다. 종전엔 쓰고 있었는데
+#   근거('코퍼스가 구 EBAE 관행')가 구판(2012) 실측이었다. 2027 gold 는 ation/ally 낱말 7개 중
+#   EBAE꼴 0 · UEB꼴 6(`globalization` = …⠵⠁⠰⠝). 사전은 남긴다 — 역점역(`braille_back`)이
+#   옛 EBAE 책을 읽을 때 쓴다.
 FINAL_EBAE_ONLY: dict[str, str] = {"ation": "⠠⠝", "ally": "⠠⠽"}
 
 # ── 5. 단축형(short form) — 낱말 전체가 일치할 때만 ──────────────────────────
@@ -144,11 +147,15 @@ def iter_words(text: str) -> Iterator[str]:
     return (m.group() for m in _WORD_RE.finditer(text))
 
 
-def _apply_groups(word: str) -> str:
-    """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수."""
+def _apply_groups(word: str, ebae: bool = False) -> str:
+    """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수.
+
+    `ebae=True` 는 역점역 왕복 검사 전용이다 — 옛 EBAE 책 줄(`DON,N` = donation)을 되짚는다.
+    """
     # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
     # year·near·clear에서 ar(⠜)이 ea(⠂)를 이겨야 한다(실측 12건: 우리 ⠂⠗ vs 정답 ⠑⠜).
-    keys = sorted(set(STRONG_GROUPS) | set(FINAL_EBAE_ONLY) | set(WORD_INITIAL_SYLLABLE)
+    keys = sorted(set(STRONG_GROUPS) | (set(FINAL_EBAE_ONLY) if ebae else set())
+                  | set(WORD_INITIAL_SYLLABLE)
                   | set(FINAL_46) | set(FINAL_56)
                   | set(INITIAL_5) | set(INITIAL_45) | set(INITIAL_456),
                   key=lambda k: (-len(k), k in _LOWER_CELL))
@@ -200,6 +207,16 @@ def _apply_groups(word: str) -> str:
     return "".join(out)
 
 
+# 대문자 런 / 대문자 아닌 런 — 혼합 낱말의 대문자 표기 단위(#934)
+_CASE_RUN_RE = re.compile(r"[A-Z]+|[^A-Z]+")
+
+
+def _is_element_seq(word: str) -> bool:
+    """낱말 전체가 원소 기호(대문자 + 소문자 0~1자)의 이음인가 — HCl·NaCl 은 예, ABd·SDGs 는 아니오."""
+    from semojum_braille.kor_math_rules import _ELEMENTS   # 순환 import 회피(지연)
+    return bool(word) and all(t in _ELEMENTS for t in re.findall(r"[A-Z][a-z]?|.", word))
+
+
 def _is_abbrev(word: str) -> bool:
     """약어·단위인가 — 전부 대문자(ATP·DNA)이거나 대소문자가 섞인 형태(mV·pH·mmHg).
 
@@ -214,7 +231,7 @@ def _is_abbrev(word: str) -> bool:
     return any(c.isupper() for c in letters[1:])
 
 
-def translate_word(word: str) -> str:
+def translate_word(word: str, ebae: bool = False) -> str:
     """영어 낱말 하나 → Grade 2 점자.
 
     약어·단위는 축약하지 않고 글자 그대로 적는다 — 축약하면 ATP·mV·pH·mmHg 같은
@@ -236,18 +253,30 @@ def translate_word(word: str) -> str:
     # ⚠ 낱말 **안**(양옆이 로마자)일 때만이다. 홀로 선 `'` 는 제49항 작은따옴표일 수
     #   있어 건드리지 않는다.
     if _INNER_APOS_RE.search(word):
-        return _APOS_CELL.join(translate_word(p) for p in _INNER_APOS_RE.split(word))
+        return _APOS_CELL.join(translate_word(p, ebae) for p in _INNER_APOS_RE.split(word))
     letters = [c for c in word if c.isalpha()]
     if _is_abbrev(word):
         if all(c.isupper() for c in letters):
             return "⠠⠠" + "".join(ALPHABET.get(c.lower(), c) for c in word)
-        # 대소문자 혼합(mV·mmHg) — 대문자마다 대문자표를 붙이고 약자는 쓰지 않는다
+        # 대소문자 혼합(mV·mmHg·ABd) — 약자는 쓰지 않는다. 대문자 표기는 통일영어점자대로(#934):
+        #   홑 대문자는 ⠠ 하나(mV·AaBb), 둘 이상 이어지면 대문자 단어표 ⠠⠠ 를 쓰고
+        #   같은 낱말에 소문자가 이어지면 대문자 종료표 ⠠⠄ 로 닫는다.
+        #   2027 gold: `ABd` = ⠠⠠⠁⠃⠠⠄⠙ · `HFCs` = ⠠⠠⠓⠋⠉⠠⠄⠎ · `SDGs` = ⠠⠠⠎⠙⠛⠠⠄⠎.
+        #   ⚠ 원소 기호로 끊기는 낱말(HCl · NaCl · CaCO)은 종전대로 원소마다 ⠠ 다 — 「과학 점자」
+        #   제1항이 원소 기호를 제29항 로마자로 적게 하고 gold 도 `HCl` = ⠠⠓⠠⠉⠇ 로 쓴다.
+        if _is_element_seq(word):
+            return "".join((_CAPITAL + ALPHABET.get(c.lower(), c)) if c.isupper()
+                           else ALPHABET.get(c, c) for c in word)
         out = []
-        for c in word:
-            if c.isupper():
-                out.append(_CAPITAL + ALPHABET.get(c.lower(), c))
+        for m in _CASE_RUN_RE.finditer(word):
+            run = m.group()
+            cells = "".join(ALPHABET.get(c.lower(), c) for c in run)
+            if not run[0].isupper():
+                out.append(cells)
+            elif len(run) == 1:
+                out.append(_CAPITAL + cells)
             else:
-                out.append(ALPHABET.get(c, c))
+                out.append(_CAPITAL * 2 + cells + ("⠠⠄" if m.end() < len(word) else ""))
         return "".join(out)
     low = word.lower()
     caps = _CAPITAL if word[0].isupper() else ""
@@ -255,11 +284,11 @@ def translate_word(word: str) -> str:
         return caps + WORDSIGNS[low]
     if low in SHORT_FORMS:
         return caps + SHORT_FORMS[low]
-    return caps + _apply_groups(low)
+    return caps + _apply_groups(low, ebae)
 
 
 @lru_cache(maxsize=4096)
-def translate(text: str) -> str:
+def translate(text: str, ebae: bool = False) -> str:
     """영어 구간 문자열 → Grade 2 점자(낱말 단위 적용, 그 외 문자는 그대로).
 
     캐시가 붙은 이유 — `_break_offsets`가 줄바꿈 지점을 찾으려고 문자 위치마다 접두를
@@ -270,4 +299,4 @@ def translate(text: str) -> str:
     순수 함수라 캐시가 안전하다 — 입력 문자열만 보고 모듈 전역 표(WORDSIGNS·SHORT_FORMS)로
     변환한다. 표가 런타임에 바뀌지 않으므로 무효화할 일이 없다.
     """
-    return _WORD_RE.sub(lambda m: translate_word(m.group()), text)
+    return _WORD_RE.sub(lambda m: translate_word(m.group(), ebae), text)
