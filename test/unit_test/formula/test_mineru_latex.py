@@ -3,7 +3,7 @@ r"""MinerU식 LaTeX 입력 정규화 회귀 테스트.
 MinerU는 공백 많은 LaTeX(`\frac {1}{a _ {i}}`)·`$$` 구분자·`\left( \right)`·코드펜스를
 낸다. convert_latex가 이를 정규화해 구조(분수·첨자·근호)를 점역하는지 확인한다.
 """
-from semojum_braille.kor_math_rules import convert_latex, _normalize_latex_input
+from semojum_braille.encoder.kor_math_rules import convert_latex, _normalize_latex_input
 
 
 class TestNormalizeMinerULatex:
@@ -133,7 +133,7 @@ class TestScienceBraille:
 
         `\overline{\mathrm{PQ}}^2`(선분 PQ의 제곱)에 로마자표가 붙는 사고가 실제로 났다.
         """
-        from semojum_braille.kor_math_rules import _looks_chemical
+        from semojum_braille.encoder.kor_math_rules import _looks_chemical
         for s in (r"\overline {{\mathrm{PQ}}} ^ {2} = \overline {{\mathrm{OP}}} ^ {2}",
                   r"\triangle \mathrm{ABC}",
                   r"\mathrm{AB} \perp \mathrm{CD}",
@@ -148,6 +148,6 @@ class TestScienceBraille:
 
     def test_원소기호_하나만으로는_화학식이_아니다(self):
         # 판정은 \mathrm·반응 화살표 + 원소 기호 2개 이상. 변수 x·함수 f를 삼키면 안 된다.
-        from semojum_braille.kor_math_rules import _looks_chemical
+        from semojum_braille.encoder.kor_math_rules import _looks_chemical
         assert not _looks_chemical(r"\mathrm{C} = 2 \pi r")
         assert _looks_chemical(r"\mathrm{H} _ {2} \mathrm{O}")

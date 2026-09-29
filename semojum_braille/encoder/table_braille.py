@@ -13,13 +13,13 @@ from __future__ import annotations
 import os
 import re
 
-from semojum_braille.isolation import safe_translate
-from semojum_braille.nested_block import append_nested
-from semojum_braille.regulations import make_rule, make_rule_at
-from semojum_braille.symbol_rules import symbol_rule_spans
-from semojum_braille.text_braille import content_rules
-from semojum_braille.translator import translate_tagged_text as _translate
-from semojum_braille.translator import (
+from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.nested_block import append_nested
+from semojum_braille.encoder.regulations import make_rule, make_rule_at
+from semojum_braille.encoder.symbol_rules import symbol_rule_spans
+from semojum_braille.encoder.text_braille import content_rules
+from semojum_braille.encoder.translator import translate_tagged_text as _translate
+from semojum_braille.encoder.translator import (
     border_marker_spans,
     emphasis_marker_spans,
     tn_marker_spans,
@@ -66,7 +66,7 @@ def _base_trail(
         trail += content_rules(source, lines)
     return trail
 
-from semojum_braille.constants import COLS as _COLS  # noqa: E402 (공용 상수)
+from semojum_braille.encoder.constants import COLS as _COLS  # noqa: E402 (공용 상수)
 _BORDER  = "⠿"  # 표 테두리
 _EMPTY_CELL = "⠿⠿"  # 빈 셀 (NLD-3.1.2(4))
 _SEP     = "⠒"  # 행·셀 구분선

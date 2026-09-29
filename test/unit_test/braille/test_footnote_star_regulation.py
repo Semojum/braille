@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
-from semojum_braille.translator import translate_body  # noqa: E402
+from semojum_braille.encoder.translator import translate_body  # noqa: E402
 
 
 def _body(text: str) -> str:

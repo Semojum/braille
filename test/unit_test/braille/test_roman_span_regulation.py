@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from semojum_braille import translator
+from semojum_braille.encoder import translator
 from braille_ascii import ascii_to_unicode
 
 _BLANK = "⠀"

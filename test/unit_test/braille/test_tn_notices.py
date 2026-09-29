@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from semojum_braille import tn_notices as tn
+from semojum_braille.encoder import tn_notices as tn
 
 
 class TestParticle:
@@ -58,7 +58,7 @@ class TestOtherNotices:
         우리 table_braille은 예3-2와 셀 단위로 일치하는 쪽을 쓴다. 한 예시만 보고
         "이유가 빠졌다"며 고쳤다가 대조가 깨진 적이 있다(같은 날).
         """
-        from semojum_braille.table_braille import _TN_TRANSPOSE
+        from semojum_braille.encoder.table_braille import _TN_TRANSPOSE
 
         assert _TN_TRANSPOSE == tn.TRANSPOSE_JARYO
         assert tn.TRANSPOSE != tn.TRANSPOSE_JARYO

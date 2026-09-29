@@ -8,7 +8,7 @@ r"""순환소수·소수점 — 수학 점자 제8항.
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder.kor_math_rules import convert_latex
 from braille_ascii import unicode_to_ascii
 
 

@@ -213,7 +213,7 @@ _CASE_RUN_RE = re.compile(r"[A-Z]+|[^A-Z]+")
 
 def _is_element_seq(word: str) -> bool:
     """낱말 전체가 원소 기호(대문자 + 소문자 0~1자)의 이음인가 — HCl·NaCl 은 예, ABd·SDGs 는 아니오."""
-    from semojum_braille.kor_math_rules import _ELEMENTS   # 순환 import 회피(지연)
+    from semojum_braille.encoder.kor_math_rules import _ELEMENTS   # 순환 import 회피(지연)
     return bool(word) and all(t in _ELEMENTS for t in re.findall(r"[A-Z][a-z]?|.", word))
 
 

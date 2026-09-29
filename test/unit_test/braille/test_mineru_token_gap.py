@@ -18,7 +18,7 @@ CER 은 빈칸 셀을 지우고 견주므로 이 결함을 못 잰다. 칸수 �
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder.kor_math_rules import convert_latex
 
 # (칸 낀 MinerU 꼴, 칸 없는 같은 수식)
 SAME = [

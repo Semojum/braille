@@ -7,7 +7,7 @@
 """
 import re
 
-from semojum_braille.translator import translate_plain
+from semojum_braille.encoder.translator import translate_plain
 
 _LETTERS = {c: chr(ord("a") + i) for i, c in enumerate("⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠅⠇⠍⠝⠕⠏⠟⠗⠎⠞⠥⠧⠺⠭⠽⠵")}
 _STAR = "⠐⠔"          # 별표 한 개의 점형

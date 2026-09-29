@@ -23,8 +23,8 @@ import uuid
 
 import pytest
 
-from semojum_braille import isolation
-from semojum_braille.translator import strip_leader_dots, translate_tagged_text
+from semojum_braille.encoder import isolation
+from semojum_braille.encoder.translator import strip_leader_dots, translate_tagged_text
 from semojum_braille.schemas import BrailleOutput, LLMOutput
 
 

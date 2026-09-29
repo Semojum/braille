@@ -8,7 +8,7 @@ import sys
 
 _CHECK = (
     "import logging, os\n"
-    "import semojum_braille.translator, semojum_braille.gates\n"
+    "import semojum_braille.encoder.translator, semojum_braille.encoder.gates, semojum_braille.decoder\n"
     "assert logging.getLogger().handlers == [], logging.getLogger().handlers\n"
     "assert not os.path.exists('storage'), os.listdir('.')\n"
 )

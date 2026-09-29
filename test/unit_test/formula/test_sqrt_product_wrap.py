@@ -17,7 +17,7 @@ import os
 
 import pytest
 
-from semojum_braille import kor_math_rules as k
+from semojum_braille.encoder import kor_math_rules as k
 
 OPEN = "⠷"
 

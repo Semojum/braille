@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder.translator import translate_tagged_text
 from braille_ascii import ascii_to_unicode
 
 
@@ -67,7 +67,7 @@ class TestGlyphs:
         from pathlib import Path
 
         tbl = json.loads(
-            (Path(__file__).parents[3] / "semojum_braille/symbol_table.json")
+            (Path(__file__).parents[3] / "semojum_braille/encoder/symbol_table.json")
             .read_text(encoding="utf-8"))["문장부호"]
         assert tbl[mark] == _reg(reg_brf), note
 

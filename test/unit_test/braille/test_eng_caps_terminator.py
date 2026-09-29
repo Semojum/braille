@@ -6,7 +6,7 @@
 """
 import pytest
 
-from semojum_braille import eng_braille
+from semojum_braille.encoder import eng_braille
 
 
 @pytest.mark.parametrize("word,gold", [

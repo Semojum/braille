@@ -1,0 +1,241 @@
+"""로마자표 없는 영문 문단 — #842 잔여분 (2026-09-12, 원장 R-77).
+
+#846 뒤에도 영어 지면 245쪽에서 로마자 148,401자(53%)가 한글로 샜다. `_english_line` 이
+None 을 돌려주는 줄을 부류별로 세어 큰 것부터 고쳤다(동결 코퍼스 1,251쪽 gold BRF 전수).
+
+1. 낱말 **중간**의 첫글자 약자(⠐⠑ ever · ⠐⠳ ought · ⠸⠍ many)에서 런이 끊겼다 — `however`.
+2. 낱말 안 하이픈 ⠤(`high-profile`)·빗금 ⠸⠌(`prevent/protect`)에서 런이 끊겼다.
+3. 낱말 중간 ⠠⠝·⠠⠽ 가 ation·ally(EBAE 끝글자 약자)가 아니라 대문자로 읽혀 가드에 걸렸다.
+4. 낱말 앞 로마자표 ⠴·이탤릭표 ⠨·대문자표 붙은 홑 약자(⠠⠦ His)·작은따옴표 ⠠⠦ ⠴⠄ 를 못 뗐다.
+5. **증거 게이트** — 낱말은 다 읽히는데 기능어가 둘이 안 되는 줄(2,940줄·66,000셀)이 가장 컸다.
+   제29항 [다만]의 단위는 문단이다. 앞뒤 줄이 영어로 읽힌 줄은 문맥으로 받는다(`_english_ctx`).
+   한글 줄이 끌려오지 않게 영어 음운 거르개(`_ENG_JUNK_RE`)를 둔다.
+6. BRF 의 쪽 나눔 `\\f` 가 첫 낱말에 붙어 줄 판정을 막았다.
+
+측정(두 팔 같은 커밋): 영어 지면 로마자 회수율 45.9% → 89.5%(쪽 단위 역점역), 한글 우세
+1,006쪽의 로마자 21,817 → 21,953자(+136). 문맥으로 뒤집힌 한글 줄 4(전수).
+"""
+from __future__ import annotations
+
+import pytest
+
+from braille_ascii import ascii_to_unicode
+from semojum_braille.decoder.back import _english_line, decode
+
+
+@pytest.mark.parametrize("cells, expected", [
+    # 이슈 #842 본문의 대표 줄(gold 외국어 p016) — ⠐⠑(ever)가 낱말 중간에 온다
+    (ascii_to_unicode(',:5 ! PA9T+S 7 F/ 4COV]$1 H["E1', backtick="cell"),
+     "When the paintings were first discovered, however,"),
+    ("⠞⠀⠭⠀⠝⠐⠑⠀⠕⠒⠥⠗⠗⠫⠀⠖⠓⠍⠀⠖⠇⠕⠕⠅⠀⠿", "that it never occurred to him to look for"),
+    ("⠮⠀⠞⠗⠕⠕⠏⠎⠀⠷⠀⠠⠛⠻⠸⠍⠀⠯⠀⠠⠋⠗⠁⠝⠉⠑", "the troops of Germany and France"),
+    # 낱말 안 하이픈
+    ("⠁⠎⠎⠕⠉⠊⠁⠞⠑⠀⠮⠍⠧⠎⠀⠾⠀⠓⠊⠣⠤⠏⠗⠕⠋⠊⠇⠑", "associate themselves with high-profile"),
+    # 낱말 중간 ⠠⠝ = ation (EBAE) — 종전 `informN`
+    ("⠏⠗⠕⠧⠊⠙⠑⠎⠀⠽⠀⠾⠀⠧⠁⠇⠥⠁⠼⠀⠔⠿⠍⠠⠝⠀⠁⠃", "provides you with valuable information about"),
+    # 낱말 앞 로마자표(제29항)는 벗긴다 · 대문자표 붙은 홑 약자 · 작은따옴표 ⠠⠦ ⠴⠄
+    ("⠴⠠⠎⠉⠜⠉⠑⠀⠠⠗⠑⠎⠳⠗⠉⠑⠎⠀⠷⠀⠮⠀⠑⠜⠹", "Scarce Resources of the earth"),
+    ("⠠⠦⠀⠋⠁⠮⠗⠀⠺⠁⠎⠀⠁⠀⠞⠂⠡⠻⠲", "His father was a teacher."),
+    ("⠮⠀⠺⠕⠗⠙⠀⠠⠦⠕⠧⠻⠃⠕⠕⠅⠴⠄⠀⠔⠀⠮⠀⠏⠁⠎⠎⠁⠛⠑", "the word ‘overbook’ in the passage"),
+])
+def test_로마자표_없는_영문_줄이_끝까지_읽힌다(cells, expected):
+    assert decode(cells) == expected
+
+
+def test_이웃_줄이_영어면_기능어_없는_줄도_문맥으로_읽는다():
+    """`Controlling Idea.` 는 기능어가 하나도 없어 홀로는 영어가 아니다(제29항 [다만]은 문단 단위)."""
+    line = "⠠⠒⠞⠗⠕⠇⠇⠬⠀⠠⠊⠙⠑⠁⠲"
+    assert _english_line(line) is None
+    assert _english_line(line, ctx=True) == "Controlling Idea."
+    para = ("⠠⠍⠁⠝⠥⠋⠁⠉⠞⠥⠗⠬⠀⠉⠕⠌⠎⠀⠩⠗⠁⠝⠅⠀⠞⠺⠢⠞⠽\n"
+            "⠏⠻⠉⠢⠞⠀⠔⠀⠮⠀⠋⠊⠗⠌⠀⠽⠑⠜⠀⠷⠀⠮⠀⠏⠇⠁⠝⠲\n" + line)
+    assert decode(para).split("\n") == [
+        "Manufacturing costs shrank twenty",
+        "percent in the first year of the plan.",
+        "Controlling Idea.",
+    ]
+
+
+def test_영어_줄_옆의_한글_줄은_문맥에_끌려오지_않는다():
+    """발문 꼬리 `적절한 것은?`(gold 외국어 p052)은 영어로도 끝까지 읽히지만 음운이 영어가 아니다."""
+    para = "⠏⠻⠉⠢⠞⠀⠔⠀⠮⠀⠋⠊⠗⠌⠀⠽⠑⠜⠀⠷⠀⠮⠀⠏⠇⠁⠝⠲\n" + ascii_to_unicode(".?.TJ3 _SZ8", backtick="cell")
+    assert decode(para).split("\n")[1] == "적절한 것은?"
+
+
+@pytest.mark.parametrize("cells, expected", [
+    ("⠚⠻⠕⠀⠴⠠⠭⠤⠠⠽⠲⠕⠑⠡", "형이 X-Y이면"),        # 하이픈 뒤 ⠠⠽ 는 ally 가 아니다
+    ("⠚⠻⠕⠀⠴⠠⠗⠗⠠⠽⠽⠲⠕⠝", "형이 RrYy이에"),      # 로마자표 런의 낱말 중간 대문자는 진짜다(유전 기호)
+    ("⠴⠇⠁⠞⠑⠀⠼⠁⠊⠙⠚⠎⠂⠀⠞⠕⠲", "late 1940s, to"),  # 낱말 앞 ⠴ 는 by 가 아니라 로마자표(R-77)
+])
+def test_로마자표로_연_런은_종전대로다(cells, expected):
+    assert decode(cells).strip() == expected
+
+
+def test_쪽_나눔_form_feed_는_줄_경계다():
+    brf = "! PA9T+S T ADORN$ ! WALLS\f! PA9T+S T ADORN$ ! WALLS"
+    cells = ascii_to_unicode(brf, backtick="cell")
+    assert "\f" in cells and "[?" not in cells
+    assert decode(cells).split("\n") == ["the paintings that adorned the walls"] * 2
+
+
+# ── #894 · 쪽 단위 씨앗 ────────────────────────────────────────────────────
+# 이웃 번짐은 **바로 옆**에서만 이어져, 같은 쪽에 영어 블록이 둘 이상인데 사이에 한글
+# 지시문·빈 줄·표 구분선이 끼면 뒤 블록이 통째로 한글로 떨어졌다.
+# 전권 실측: 씨앗은 있는데 안 닿은 줄 1,199개 중 **바로 옆인데 안 닿은 것은 0개**다.
+# 제29항 [다만](재추출 1507행)이 단위를 문단으로 두므로 같은 쪽에 씨앗이 둘 이상이면
+# 그 쪽 본문 줄 전부를 문맥 후보로 본다.
+# BRF 줄은 정답 도서 실물이다(수능특강 영어 body p0016).
+
+# 씨앗 — 혼자서도 엄격 관문을 통과하는 줄 둘. 하나로는 안 연다(아래 시험).
+_SEED = [
+    "s9ce`%e`_h`la/`visit$`!`>ea`\":",      # since she had last visited the area where
+    "awkw>dly`look$`>.d`at`h}",             # awkwardly looked around at her
+]
+_CHOICE = [
+    "#1`3fus$`;|o`pl1s$",                   # ① confused → pleased
+    "#2`3fid5t`;|o`emb>rass$",              # ② confident → embarrassed
+]
+
+
+def _page(brf_lines: list[str]) -> str:
+    """이 파일의 BRF 는 `unicode_to_ascii` 가 뱉은 꼴이라 백틱이 **빈칸**이다.
+
+    코퍼스 원본 파일은 백틱이 ⠈(ㄱ) 인 `cell` 규약을 쓴다. 두 규약을 섞으면 안 된다 —
+    `cell` 로 읽으면 낱말 사이가 ⠈ 로 붙어 영어가 한 낱말도 안 읽힌다(실측).
+    """
+    from braille_ascii import ascii_to_unicode
+    return ascii_to_unicode("\n".join(brf_lines), backtick="space")
+
+
+def test_빈_줄_너머의_보기_줄이_영어로_읽힌다():
+    """씨앗과 보기 줄 사이에 빈 줄이 있어도 같은 쪽이면 문맥이 닿는다."""
+    from semojum_braille.decoder.back import decode
+    got = decode(_page(_SEED + ["", ""] + _CHOICE))
+    assert "confused" in got and "pleased" in got, got
+    assert "confident" in got and "embarrassed" in got, got
+
+
+def test_씨앗이_하나뿐이면_안_연다():
+    """씨앗 하나는 우연히 영어로 읽힌 한 줄일 수 있다 — 둘을 요구한다."""
+    from semojum_braille.decoder.back import decode
+    got = decode(_page(_SEED[:1] + ["", ""] + _CHOICE))
+    assert "confused" not in got, got
+
+
+def test_되돌림_스위치가_종전_동작으로_되돌린다(monkeypatch):
+    """`BR_CTX_PAGE_SEED=0` — 점역사 자문 회신이 오면 되돌릴 수 있어야 한다(#839 와 같은 방식)."""
+    import importlib
+    import semojum_braille.decoder.back as bb
+    monkeypatch.setenv("BR_CTX_PAGE_SEED", "0")
+    importlib.reload(bb)
+    try:
+        got = bb.decode(_page(_SEED + ["", ""] + _CHOICE))
+        assert "confused" not in got, got
+    finally:
+        monkeypatch.delenv("BR_CTX_PAGE_SEED", raising=False)
+        importlib.reload(bb)
+
+
+# ── #895 · 한글 그럴듯함 가드 (다섯째 축) ──────────────────────────────────
+# 쪽 단위 씨앗(#894)이 연 쪽에서도 **한글 본문 줄**이 섞여 있으면 그 줄이 영어로 뒤집혔다.
+# `이 줄이 영어인가` 를 묻는 거르개 넷은 전부 이득을 같이 깎아 기각됐다(#895).
+# 다섯째 축은 반대로 묻는다 — **되돌린 한글이 한국어답게 읽히면 그건 한글 줄이다.**
+# 문턱 -4.5 는 묵자 재추출 분포(중앙값 -5.39)와 77줄 전수 눈검사로 잡았다.
+_KOR_LINE = "⠕⠌⠊⠲"        # '있다.' — 영어로 읽으면 'osti.' 가 된다(전권 6회)
+
+
+def test_그럴듯한_한글은_문맥에_끌려가지_않는다():
+    """가드는 **쪽 단위 씨앗**이 여는 자리에만 건다 — 이웃 번짐에는 안 건다.
+
+    번짐 고리에도 걸면 `school.`·`now.` 처럼 **진짜 영어 짧은 줄**이 전부 판정 대상이 되고,
+    한 줄을 막으면 그 쪽 영어 문맥이 무너져 가드가 손대지도 않은 줄까지 깨진다.
+    전 코퍼스 A/B: 번짐까지 걸면 이득 42·손해 76, 씨앗만 걸면 이득 12·손해 0.
+    그래서 한글 줄은 **영어 줄과 바로 붙어 있지 않을 때** 지켜진다.
+    """
+    from semojum_braille.decoder.back import decode
+    got = decode(_page(_SEED + ["", ""] + _CHOICE + [""]) + "\n" + _KOR_LINE).split("\n")
+    assert got[-1] == "있다.", got
+    assert "confused" in got[-4], got          # #894 이득은 그대로다
+
+
+def test_깨진_한글로_읽히는_줄은_계속_영어가_된다():
+    """#894 회귀 — 보기 줄의 한글 읽기는 점수가 문턱 아래라 가드가 안 걸린다."""
+    from semojum_braille.decoder.back import decode
+    got = decode(_page(_SEED + ["", ""] + _CHOICE))
+    assert "confused" in got and "embarrassed" in got, got
+
+
+def test_한글_두_음절_미만은_판정하지_않는다():
+    from semojum_braille.decoder.back import _kor_plausibility
+    assert _kor_plausibility("1 closed") is None
+    assert _kor_plausibility("가") is None
+    assert _kor_plausibility("있다") is not None
+
+
+def test_가드_스위치가_종전_동작으로_되돌린다(monkeypatch):
+    """`BR_CTX_KOR_GUARD=0` — 문턱 근거가 바뀌면 되돌릴 수 있어야 한다."""
+    import importlib
+    import semojum_braille.decoder.back as bb
+    monkeypatch.setenv("BR_CTX_KOR_GUARD", "0")
+    importlib.reload(bb)
+    try:
+        got = bb.decode(_page(_SEED + ["", ""] + _CHOICE + [""]) + "\n" + _KOR_LINE).split("\n")
+        assert got[-1] == "osti.", got
+    finally:
+        monkeypatch.delenv("BR_CTX_KOR_GUARD", raising=False)
+        importlib.reload(bb)
+
+
+# ── #905 · 토막 단위 영어 되찾기 ────────────────────────────────────────────
+# gold 는 제29항 [다만](로마자표 생략 단위 = 문단)대로 낱말마다 로마자표를 안 붙인다.
+# 줄 단위로만 영어를 판정하면 한글이 한 토막이라도 섞인 줄은 판정이 통째로 실패한다.
+# 영어책에서만 켠다 — 호출부가 과목을 알고 `english=True` 를 넘긴다.
+_READING = "⠴⠠⠗⠂⠙⠬⠀⠈⠯⠀⠠⠺⠗⠊⠞⠬⠲"          # 'Reading 과 Writing.'
+_GRANDDAUGHTER = "⠠⠷⠉⠱⠀⠼⠁⠐⠂⠀⠴⠠⠛⠗⠁⠝⠙⠏⠁⠂"   # '손녀 1: Grandpa,'
+
+
+def test_영어책에서_한글_섞인_줄의_영어_낱말을_되찾는다():
+    from semojum_braille.decoder.back import decode
+    assert decode(_READING, english=True) == "Reading 굴 Writing."
+
+
+def test_영어책이_아니면_안_바꾼다():
+    """책 단위 경계 — ⠠ 는 초성 ㅅ 이기도 해서 비영어책에선 `습윤`·`세슘` 이 영어로 뒤집힌다."""
+    from semojum_braille.decoder.back import decode
+    assert decode(_READING) == "Reading 굴 싀애덜요."
+
+
+def test_실재하는_한국어_낱말은_안_바꾼다():
+    """영어책에도 한국어 풀이가 있다 — `손녀`·`셔츠를`·`띄다` 는 kiwi 가 아는 낱말이다."""
+    from semojum_braille.decoder.back import _is_real_korean, decode
+    assert decode(_GRANDDAUGHTER, english=True) == "손녀 1: Grandpa,"
+    assert _is_real_korean("셔츠를") and _is_real_korean("띄다") and _is_real_korean("싹이")
+    assert _is_real_korean("딸인")   # 서술격 조사 `이` 는 내용 형태소가 아니다
+    # 사전에 없어 추측한 명사·자모 조각·라틴이 낀 읽기는 낱말이 아니다
+    assert not _is_real_korean("샐표") and not _is_real_korean("섞엦")
+    assert not _is_real_korean("싲a외")
+
+
+def test_여는_작은따옴표를_대문자표로_오인하지_않는다():
+    """`⠠⠦`(여는 작은따옴표)·`⠠⠄`(점역자주)도 ⠠ 로 시작한다 — 그 둘은 뺀다."""
+    from semojum_braille.decoder.back import _eng_token
+    assert _eng_token("⠠⠦⠇⠥⠞", "‘루트") is None
+
+
+def test_영어가_없는_줄에서는_안_돈다():
+    """줄 관문 — 이게 없으면 `섞여`가 `Thawh`로 뒤집힌다(전 코퍼스 12,130줄)."""
+    from semojum_braille.decoder.back import decode
+    got = decode("⠝⠁⠺⠀⠠⠎⠐⠮⠀⠈⠯", english=True)
+    assert "Se" not in got and "S" not in got, got
+
+
+def test_토막_되찾기_스위치가_종전_동작으로_되돌린다(monkeypatch):
+    import importlib
+    import semojum_braille.decoder.back as bb
+    monkeypatch.setenv("BR_ENG_TOKEN", "0")
+    importlib.reload(bb)
+    try:
+        assert bb.decode(_READING, english=True) == "Reading 굴 싀애덜요."
+    finally:
+        monkeypatch.delenv("BR_ENG_TOKEN", raising=False)
+        importlib.reload(bb)

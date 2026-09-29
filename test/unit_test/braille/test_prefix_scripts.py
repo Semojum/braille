@@ -18,8 +18,8 @@ import re
 
 import pytest
 
-import semojum_braille.translator  # noqa: F401  (한글 훅 등록 — import 부작용)
-from semojum_braille.kor_math_rules import convert_latex
+import semojum_braille.encoder.translator  # noqa: F401  (한글 훅 등록 — import 부작용)
+from semojum_braille.encoder.kor_math_rules import convert_latex
 
 _NON_BRAILLE = re.compile(r"[^⠀-⣿\n ]")
 _SUP = "⠘"   # 위첨자 기호

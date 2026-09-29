@@ -5,8 +5,8 @@
 """
 import pytest
 
-from semojum_braille import translator as _t  # noqa: F401 — \text{한글} 훅 등록
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder import translator as _t  # noqa: F401 — \text{한글} 훅 등록
+from semojum_braille.encoder.kor_math_rules import convert_latex
 
 
 def _b(t: str) -> str:

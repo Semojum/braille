@@ -10,7 +10,7 @@
 """
 import pytest
 
-from semojum_braille.translator import _restore_ion_signs, translate_tagged_text
+from semojum_braille.encoder.translator import _restore_ion_signs, translate_tagged_text
 
 
 @pytest.mark.parametrize("raw,expected", [

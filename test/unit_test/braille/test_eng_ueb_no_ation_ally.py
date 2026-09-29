@@ -8,7 +8,7 @@ ally(⠠⠽)를 폐지했다. 기대값은 2027 gold 실물이다(생산 코드�
 """
 import pytest
 
-from semojum_braille import eng_braille
+from semojum_braille.encoder import eng_braille
 
 
 @pytest.mark.parametrize("word,gold", [

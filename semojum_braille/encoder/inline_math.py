@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import re
 
-from semojum_braille.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
-from semojum_braille.kor_math_rules import UNI_SUB, UNI_SUP, unicode_scripts_to_latex
+from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
+from semojum_braille.encoder.kor_math_rules import UNI_SUB, UNI_SUP, unicode_scripts_to_latex
 
 # 캡셔닝 LLM이 쓰는 유니코드 수학 표기(QA 10번, 2026-08-08). 아래 _ATOM·_STRONG에
 # 넣어야 `Ca²⁺`·`aₙ₊₁`·`f′(x)`·`2ˣ`가 **한 구간**으로 잡힌다. 안 넣으면 구간이 그

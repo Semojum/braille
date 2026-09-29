@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from semojum_braille import text_braille as _tb
-from semojum_braille.isolation import safe_translate
-from semojum_braille.text_braille import TextBraille
+from semojum_braille.encoder import text_braille as _tb
+from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.schemas import BrailleOutput, LLMOutput
 
 

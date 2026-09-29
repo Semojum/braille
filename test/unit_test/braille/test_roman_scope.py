@@ -7,7 +7,7 @@
 
 본문 속에서 낱자 점형을 쓰면 로마자표 ⠴·종료표 ⠲ 가 빠져 그 셀이 한글로 읽힌다.
 """
-from semojum_braille.translator import translate_tagged_text as T
+from semojum_braille.encoder.translator import translate_tagged_text as T
 
 
 def test_본문_속_로마숫자는_로마자표를_붙인다():

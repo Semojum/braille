@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
-from semojum_braille.kor_math_rules import convert_latex  # noqa: E402
-from semojum_braille.translator import translate_body  # noqa: E402
+from semojum_braille.encoder.kor_math_rules import convert_latex  # noqa: E402
+from semojum_braille.encoder.translator import translate_body  # noqa: E402
 from braille_ascii import ascii_to_unicode  # noqa: E402
 
 

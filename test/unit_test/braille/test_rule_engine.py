@@ -13,13 +13,13 @@
 
 import pytest
 
-from semojum_braille.kor_math_rules import (
+from semojum_braille.encoder.kor_math_rules import (
     _DIGIT_MAP,
     _NUMBER_INDICATOR,
     convert_latex,
     digits_to_braille,
 )
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder.translator import translate_tagged_text
 
 
 class TestDigitMap:
@@ -278,7 +278,7 @@ class TestSymbolGlyphs:
         ("㉠", "⠶⠿⠁⠶"), ("㉮", "⠶⠫⠶"),  # 제64항 동그라미 문자(⠶ 래퍼 + 온표/약자)
     ])
     def test_symbol_glyph(self, symbol: str, expected: str) -> None:
-        from semojum_braille.symbol_rules import substitute_symbols
+        from semojum_braille.encoder.symbol_rules import substitute_symbols
         got = substitute_symbols(symbol)
         assert got == expected, f"{symbol!r} → {got!r}, 기대 {expected!r}"
 
@@ -297,7 +297,7 @@ class TestWrapPromotionBookStyle:
         """_IS_BOOK_STYLE은 import 시점 상수라 env만 바꿔선 안 먹는다 — reload가 필요하다."""
         import importlib
 
-        from semojum_braille import kor_math_rules
+        from semojum_braille.encoder import kor_math_rules
         monkeypatch.setenv("BRAILLE_STYLE", "book")
         importlib.reload(kor_math_rules)
         yield
@@ -305,7 +305,7 @@ class TestWrapPromotionBookStyle:
         importlib.reload(kor_math_rules)
 
     def _cv(self, latex: str) -> str:
-        from semojum_braille.kor_math_rules import convert_latex as cv
+        from semojum_braille.encoder.kor_math_rules import convert_latex as cv
         return cv(latex)
 
     def test_partial_paren_still_wraps_and_promotes(self) -> None:

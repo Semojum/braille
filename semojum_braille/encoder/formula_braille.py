@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from semojum_braille.isolation import safe_translate
-from semojum_braille.kor_math_rules import convert_latex, latex_rule_ids
-from semojum_braille.regulations import make_rule
+from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.kor_math_rules import convert_latex, latex_rule_ids
+from semojum_braille.encoder.regulations import make_rule
 from semojum_braille.schemas import BrailleOutput, LLMOutput
 
 

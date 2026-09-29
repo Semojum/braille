@@ -33,12 +33,12 @@
 
 from __future__ import annotations
 
-from semojum_braille import tag_names as _TAGS
-from semojum_braille.isolation import safe_translate
-from semojum_braille.nested_block import append_nested
-from semojum_braille.regulations import make_rule_at
-from semojum_braille.symbol_rules import symbol_rule_spans
-from semojum_braille.translator import (
+from semojum_braille.encoder import tag_names as _TAGS
+from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.nested_block import append_nested
+from semojum_braille.encoder.regulations import make_rule_at
+from semojum_braille.encoder.symbol_rules import symbol_rule_spans
+from semojum_braille.encoder.translator import (
     border_marker_spans,
     box_borders_from_source,
     translate_visual,

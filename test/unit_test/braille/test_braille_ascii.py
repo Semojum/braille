@@ -93,7 +93,7 @@ class TestCorpusCompleteness:
         """독립 엔진(translate_tagged_text)과 교차검증 — 옛 골드가 ⠛ 누락·z→⠿로 버그였던
         단어들에서 정방향 점역기가 내 ASCII 변환과 일치함을 확인한다(표준 ASCII 표 정당성).
         """
-        from semojum_braille.translator import translate_tagged_text
+        from semojum_braille.encoder.translator import translate_tagged_text
         # (한국어, brf_ascii) — 옛 braille_unicode가 버그였으나 정방향이 내 변환에 동의한 행들
         cross = [
             ("운동장", "gi=.7"), ("행운", "jr7g"), ("은하수", "zj,m"),

@@ -14,15 +14,15 @@ from uuid import uuid4
 
 import pytest
 
-from semojum_braille.visual_braille import CartoonBraille, ChartGraphBraille
-from semojum_braille.formula_braille import FormulaBraille
-from semojum_braille.visual_braille import ImageBraille
-from semojum_braille.regulations import all_rule_ids, make_rule
-from semojum_braille.table_braille import TableBraille
-from semojum_braille.text_braille import TextBraille
+from semojum_braille.encoder.visual_braille import CartoonBraille, ChartGraphBraille
+from semojum_braille.encoder.formula_braille import FormulaBraille
+from semojum_braille.encoder.visual_braille import ImageBraille
+from semojum_braille.encoder.regulations import all_rule_ids, make_rule
+from semojum_braille.encoder.table_braille import TableBraille
+from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.schemas import Draft, LLMOutput
 
-_APP_AI = pathlib.Path(__file__).resolve().parents[3] / "semojum_braille"
+_APP_AI = pathlib.Path(__file__).resolve().parents[3] / "semojum_braille" / "encoder"
 _MAKE_RULE_RE = re.compile(r"""make_rule\(\s*['"]([^'"]+)['"]""")
 
 

@@ -10,7 +10,7 @@ MinerU는 LaTeX를 토큰마다 띄어 내보낸다. 그 공백은 조판이 아
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder.kor_math_rules import convert_latex
 
 
 @pytest.mark.parametrize("spaced,tight", [

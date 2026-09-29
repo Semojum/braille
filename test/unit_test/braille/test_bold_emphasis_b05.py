@@ -10,8 +10,8 @@
          굵은 글자로 강조된 글자체는 `;- -2`으로 묶어 나타낸다.
   예문   서울은 대한민국의 **수도**이다.  →  `,s&z`irj3eq@maw`;-,miu-2oi4`
 """
-from semojum_braille import tag_names as _TAGS
-from semojum_braille.translator import _TAG_PAIR_MARKER, translate_tagged_text
+from semojum_braille.encoder import tag_names as _TAGS
+from semojum_braille.encoder.translator import _TAG_PAIR_MARKER, translate_tagged_text
 
 BOLD_OPEN, BOLD_CLOSE = "⠰⠤", "⠤⠆"
 EMPH_OPEN, EMPH_CLOSE = "⠠⠤", "⠤⠄"

@@ -12,7 +12,7 @@ gold 대조는 eval 실측(array 실패 35건 중 9건 + 비array 3건).
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder.kor_math_rules import convert_latex
 
 
 def _cells(s: str) -> str:

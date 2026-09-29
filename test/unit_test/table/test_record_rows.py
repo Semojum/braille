@@ -12,7 +12,7 @@ gold 실측(dev-2027 900쪽 표 186개): 행우선 127개 칸당 중앙 25자(p7
 """
 import pytest
 
-from semojum_braille import table_braille as tb
+from semojum_braille.encoder import table_braille as tb
 
 SHORT = "구분 | 갑 | 을\n키 | 170 | 165\n몸무게 | 60 | 55"
 LONG = ("구분 | 전통 사회 | 근대 이후의 사회\n"

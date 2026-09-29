@@ -8,7 +8,7 @@
 """
 import pytest
 
-from semojum_braille.translator import translate_with_breaks
+from semojum_braille.encoder.translator import translate_with_breaks
 
 
 def _cuts(text: str) -> list[tuple[str, str]]:

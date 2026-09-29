@@ -1,4 +1,4 @@
-"""점역 엔진 데이터 모델 — AI 서버 `app/schemas/content.py` 에서 엔진이 쓰는 다섯 타입만 옮겼다."""
+"""점역·역점역 데이터 모델 — AI 서버 `app/schemas/content.py` 에서 엔진이 쓰는 다섯 타입만 옮겼다."""
 from __future__ import annotations
 
 from typing import Optional

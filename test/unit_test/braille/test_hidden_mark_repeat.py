@@ -11,8 +11,8 @@
 """
 import pytest
 
-from semojum_braille.symbol_rules import symbol_rule_spans
-from semojum_braille.translator import merge_hidden_runs, translate_tagged_text
+from semojum_braille.encoder.symbol_rules import symbol_rule_spans
+from semojum_braille.encoder.translator import merge_hidden_runs, translate_tagged_text
 from braille_ascii import ascii_to_unicode
 
 

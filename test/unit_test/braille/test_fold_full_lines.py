@@ -6,7 +6,7 @@ proto §TextElement.contents는 통 문자열이고 32칸 자름은 FE·BE 몫�
 대표 기준(2026-08-16) 그대로다 — 칸수 초과 때문이면 한 줄로, 의도된 줄바꿈이면 살린다.
 셀 폭은 AI만 아니까 자리도 여기다.
 """
-from semojum_braille.layout_braille import _fold_full_lines, _pad_join, _flat_trail
+from semojum_braille.encoder.layout_braille import _fold_full_lines, _pad_join, _flat_trail
 from semojum_braille.schemas import RuleApplication
 
 

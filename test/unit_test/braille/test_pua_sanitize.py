@@ -4,7 +4,7 @@
 raw 코드포인트로 추출한다. 한 글자라도 braillify에 들어가면 "Invalid symbol character"
 예외로 요소 전체가 [처리 불가]가 되던 버그를 막는다(빈 결과 금지·요소 격리).
 """
-from semojum_braille.translator import sanitize_for_braille, translate_tagged_text
+from semojum_braille.encoder.translator import sanitize_for_braille, translate_tagged_text
 
 PUA = chr(0xE06D)        # 실제 PUA 글리프(수식 폰트가 쓰는 영역)
 PUA2 = chr(0xE047)

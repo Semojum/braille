@@ -14,8 +14,8 @@
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder.kor_math_rules import convert_latex
+from semojum_braille.encoder.translator import translate_tagged_text
 
 # 수식 경로와 본문 경로가 **의도적으로** 다른 기호. (기호, 수식, 본문, 근거)
 EXPECTED_SPLIT = [
@@ -114,7 +114,7 @@ def test_therefore_두_경로가_같다():
 ])
 def test_홑_기호는_수식으로_싸여도_같게_나간다(bare, wrapped):
     """묵자 그대로 온 것과 `$…$` 로 싸여 온 것이 한 글자도 다르면 안 된다."""
-    from semojum_braille.translator import translate_body
+    from semojum_braille.encoder.translator import translate_body
     assert translate_body(wrapped)[0] == translate_body(bare)[0]
 
 
@@ -130,7 +130,7 @@ def test_홑_기호_앞뒤는_한_칸이다(wrapped, cell):
     ∪·∩ 는 피연산자가 로마자라 로마자표 ⠴·종료표 ⠲ 가 함께 움직인다. 그 축은 이 건과
     별개라 여기서는 **기호 양옆 칸수만** 본다.
     """
-    from semojum_braille.translator import translate_body
+    from semojum_braille.encoder.translator import translate_body
     out = "\n".join(translate_body(wrapped)[0])
     i = out.index(cell)
     before = len(out[:i]) - len(out[:i].rstrip("⠀"))
@@ -140,6 +140,6 @@ def test_홑_기호_앞뒤는_한_칸이다(wrapped, cell):
 
 def test_진짜_수식은_제11항_두_칸을_지킨다():
     """홑 기호 예외가 수식 전체로 번지면 제11항이 무너진다."""
-    from semojum_braille.translator import translate_body
+    from semojum_braille.encoder.translator import translate_body
     out = "\n".join(translate_body(r"$x ^ { 2 } + 1$ 은")[0])
     assert "⠀⠀" in out, f"수식 경계 두 칸이 사라졌다: {out!r}"

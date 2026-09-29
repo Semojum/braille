@@ -12,8 +12,8 @@
 """
 import pytest
 
-from semojum_braille.number_sign import has_number_sign
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder.number_sign import has_number_sign
+from semojum_braille.encoder.translator import translate_tagged_text
 
 
 def _cells(src: str) -> str:

@@ -8,7 +8,7 @@ LaTeX 은 `\not` 을 앞에 따로 쓰므로 0e 단계에서 합친다.
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder.kor_math_rules import convert_latex
 
 
 def _b(t: str) -> str:

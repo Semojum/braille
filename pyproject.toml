@@ -4,20 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "semojum-braille"
-version = "0.1.1"
-description = "세모점 점역 엔진: 묵자(한국어·수식·표·시각 대체텍스트)를 한국어 점자로 옮긴다"
+version = "0.1.2"
+description = "세모점 점역·역점역 엔진: 묵자를 한국어 점자로 옮기고, 점자를 묵자로 되돌린다"
 readme = "README.md"
-requires-python = ">=3.10"   # 하한이다. 앱에 넣는 판은 3.13(Windows 임베더블 3.13.15)
+requires-python = ">=3.10"   # 하한이다. 3.10 · 3.12 · 3.13 에서 시험했다
 dependencies = [
     "braillify==2.0.1",
     "pydantic>=2.9,<3",
 ]
 
 [project.optional-dependencies]
+# 역점역의 한국어 낱말 판정을 형태소 분석기로 한다. 없으면 낱말 목록으로 한다(docs/decoder.md).
+# ★ 판을 묶는다. 판정 문턱 -14.5 가 kiwipiepy 0.23.2 점수로 맞춘 값이다. AI 저장소와 같은 범위다.
+kiwi = ["kiwipiepy>=0.23,<0.24"]
 test = ["pytest"]
 
 [tool.setuptools]
-packages = ["semojum_braille"]
+packages = ["semojum_braille", "semojum_braille.encoder", "semojum_braille.decoder"]
 
 [tool.setuptools.package-data]
-semojum_braille = ["*.json"]
+"semojum_braille.encoder" = ["*.json"]
+"semojum_braille.decoder" = ["*.json"]

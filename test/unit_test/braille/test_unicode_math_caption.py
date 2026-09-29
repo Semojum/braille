@@ -17,8 +17,8 @@ import re
 
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex, unicode_scripts_to_latex
-from semojum_braille.translator import translate_with_breaks
+from semojum_braille.encoder.kor_math_rules import convert_latex, unicode_scripts_to_latex
+from semojum_braille.encoder.translator import translate_with_breaks
 
 _NON_BRAILLE = re.compile(r"[^⠀-⣿\n ]")
 
@@ -82,7 +82,7 @@ class TestOverdetect방지:
 
     def test_화살표는_수식이_아니다(self) -> None:
         """캡셔닝 프롬프트가 흐름을 →로 적으라 지시한다(지침 6.1.4(6))."""
-        from semojum_braille import inline_math
+        from semojum_braille.encoder import inline_math
         src = "Client → WebBrowser: 요청"
         assert "<!수식>" not in inline_math.wrap(src)
 

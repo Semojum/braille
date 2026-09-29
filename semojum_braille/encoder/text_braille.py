@@ -5,10 +5,10 @@ LLMOutput.corrected_text → translator.translate_tagged_text() → BrailleOutpu
 
 from __future__ import annotations
 
-from semojum_braille.isolation import safe_translate
-from semojum_braille.regulations import make_rule_at
-from semojum_braille.symbol_rules import symbol_rule_spans
-from semojum_braille.translator import (
+from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.regulations import make_rule_at
+from semojum_braille.encoder.symbol_rules import symbol_rule_spans
+from semojum_braille.encoder.translator import (
     _BLANK_TAG_RULE,
     blank_marker_spans,
     border_marker_spans,

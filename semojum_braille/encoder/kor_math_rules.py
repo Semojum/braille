@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 
-from semojum_braille.symbol_rules import substitute_symbols
+from semojum_braille.encoder.symbol_rules import substitute_symbols
 
 # ── C5-critical: 숫자 점자 매핑 ─────────────────────────────────────────
 _NUMBER_INDICATOR = "⠼"  # 수표시 (dots 3,4,5,6) — 숫자 앞에 반드시 삽입

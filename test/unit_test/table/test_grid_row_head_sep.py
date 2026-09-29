@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from semojum_braille import table_braille as tb
+from semojum_braille.encoder import table_braille as tb
 
 # 낱말 수준 — gold(사회문화 p101)는 행 머리 뒤를 두 칸으로 적는다.
 WORD_TABLE = "구분|2020|2021\n초혼|88.9|89.2\n재혼|11.1|10.8"

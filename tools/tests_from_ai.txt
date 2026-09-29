@@ -1,10 +1,13 @@
+# AI 저장소 test/ 에서 옮겨 오는 시험. 경로는 AI 저장소 기준. sync_from_ai.py 가 읽는다.
+# 두 저장소(점역·역점역)의 목록을 2026-09-29 에 합쳤다. 겹치는 줄은 없었다.
+#
+# ── 점역(encoder) ──
+# 고른 기준: 엔진(app.ai.braille)을 부르고, AI 서버 모듈·역점역·정답 코퍼스를 안 부르는 것.
+# 뺀 것(test_data/ 의 규정쌍·낱말쌍·혼합쌍을 읽는다 — 코퍼스는 옮기지 않는다):
 #   test/unit_test/braille/test_math_regulation_pairs.py
 #   test/unit_test/braille/test_mixed_input.py
 #   test/unit_test/braille/test_regulation_sweep.py
 #   test/unit_test/braille/test_word_accuracy.py
-# AI 저장소 test/ 에서 옮겨 오는 점역 시험. 경로는 AI 저장소 기준. sync_from_ai.py 가 읽는다.
-# 고른 기준: 엔진(app.ai.braille)을 부르고, AI 서버 모듈·역점역·정답 코퍼스를 안 부르는 것.
-# 뺀 것(test_data/ 의 규정쌍·낱말쌍·혼합쌍을 읽는다 — 코퍼스는 옮기지 않는다):
 test/unit_test/braille/test_ampersand_regulation.py
 test/unit_test/braille/test_attached_ops.py
 test/unit_test/braille/test_bar_residue_r78.py
@@ -68,3 +71,58 @@ test/unit_test/formula/test_therefore_because_spacing.py
 test/unit_test/pipeline/test_c5_comma_digit.py
 test/unit_test/table/test_grid_row_head_sep.py
 test/unit_test/table/test_record_rows.py
+
+# ── 역점역(decoder) ──
+test/unit_test/braille/test_alpha_fallback.py
+test/unit_test/braille/test_angle_pair_linewrap.py
+test/unit_test/braille/test_araea_middot.py
+test/unit_test/braille/test_back_roundtrip.py
+test/unit_test/braille/test_bold_typeface.py
+test/unit_test/braille/test_box_char.py
+test/unit_test/braille/test_braille_back.py
+test/unit_test/braille/test_chemical_case.py
+test/unit_test/braille/test_emph_and_table_blank.py
+test/unit_test/braille/test_eng_456_contractions.py
+test/unit_test/braille/test_english_paragraph.py
+test/unit_test/braille/test_english_paragraph_context.py
+test/unit_test/braille/test_final_punct_greedy.py
+test/unit_test/braille/test_genotype_reverse.py
+test/unit_test/braille/test_greek_span_reverse.py
+test/unit_test/braille/test_hieut_final.py
+test/unit_test/braille/test_letter_sign_capital_j32.py
+test/unit_test/braille/test_log_and_asterisk.py
+test/unit_test/braille/test_lone_consonant_j10.py
+test/unit_test/braille/test_lone_punct_and_log.py
+test/unit_test/braille/test_lone_times.py
+test/unit_test/braille/test_lower_sign_contraction.py
+test/unit_test/braille/test_math_boundary_gap.py
+test/unit_test/braille/test_math_capital.py
+test/unit_test/braille/test_math_relation_signal.py
+test/unit_test/braille/test_math_reverse_gaps.py
+test/unit_test/braille/test_math_var_after_symbol.py
+test/unit_test/braille/test_number_sign_vs_ble.py
+test/unit_test/braille/test_number_wrap_j42.py
+test/unit_test/braille/test_old_hangul_decode.py
+test/unit_test/braille/test_page_row_prefix.py
+test/unit_test/braille/test_paren_linewrap.py
+test/unit_test/braille/test_period_before_closer.py
+test/unit_test/braille/test_perp_and_down_arrow.py
+test/unit_test/braille/test_quoted_roman_j34.py
+test/unit_test/braille/test_roman_paragraph_wordsigns.py
+test/unit_test/braille/test_roman_span_end.py
+test/unit_test/braille/test_roundtrip_dataset.py
+test/unit_test/braille/test_separator_mark.py
+test/unit_test/braille/test_set_element.py
+test/unit_test/braille/test_set_operators.py
+test/unit_test/braille/test_shape_run_reverse.py
+test/unit_test/braille/test_tilde_and_brackets.py
+test/unit_test/braille/test_trig_reverse.py
+test/unit_test/braille/test_typeface_and_box_pair.py
+test/unit_test/braille/test_ueb_underline.py
+test/unit_test/braille/test_underline_blank_reverse.py
+test/unit_test/braille/test_unit_after_number.py
+test/unit_test/braille/test_unit_symbol_roman.py
+test/unit_test/braille/test_vowel_jamo_decode.py
+test/unit_test/braille/test_ye_syllables.py
+test/unit_test/formula/test_latex_cmd_span_head.py
+test/unit_test/formula/test_latex_text_span.py

@@ -10,8 +10,8 @@
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder.kor_math_rules import convert_latex
+from semojum_braille.encoder.translator import translate_tagged_text
 
 
 class TestBareFunctionSurvives:

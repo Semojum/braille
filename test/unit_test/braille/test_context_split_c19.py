@@ -14,7 +14,7 @@
 **카테고리 순서**(수학연산이 문장부호보다 뒤)에 기대고 있어 JSON을 재배열하면 조용히
 숨김표로 뒤집힌다.
 """
-from semojum_braille.translator import translate_tagged_text, translate_with_breaks
+from semojum_braille.encoder.translator import translate_tagged_text, translate_with_breaks
 
 
 def _line(text: str) -> str:

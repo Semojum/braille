@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from semojum_braille import translator as _tr
-from semojum_braille.translator import (
+from semojum_braille.encoder import translator as _tr
+from semojum_braille.encoder.translator import (
     TN_MARKER,
     substitute_tags,
     tn_marker_spans,
@@ -156,7 +156,7 @@ class TestTnFalsePositivePipeline:
     def _trail(corrected_text: str):
         import uuid
 
-        from semojum_braille.text_braille import TextBraille
+        from semojum_braille.encoder.text_braille import TextBraille
         from semojum_braille.schemas import LLMOutput
 
         opt = LLMOutput(
@@ -195,7 +195,7 @@ class TestSymbolRuleEmit:
     def _trail(corrected_text: str):
         import uuid
 
-        from semojum_braille.text_braille import TextBraille
+        from semojum_braille.encoder.text_braille import TextBraille
         from semojum_braille.schemas import LLMOutput
 
         opt = LLMOutput(
@@ -208,23 +208,23 @@ class TestSymbolRuleEmit:
 
     def test_모든_매핑_rule_id_DB실재(self):
         # 환각 0: emit 가능한 모든 rule_id ⊆ regulations.json (make_rule KeyError 방지)
-        from semojum_braille.regulations import all_rule_ids
-        from semojum_braille.symbol_rules import SYMBOL_RULE_IDS
+        from semojum_braille.encoder.regulations import all_rule_ids
+        from semojum_braille.encoder.symbol_rules import SYMBOL_RULE_IDS
 
         db = all_rule_ids()
         missing = {r for r in SYMBOL_RULE_IDS.values() if r not in db}
         assert not missing, f"DB에 없는 rule_id: {missing}"
 
     def test_섭씨_세분인용(self):
-        from semojum_braille.symbol_rules import symbol_rule_spans
-        from semojum_braille.translator import translate_tagged_text
+        from semojum_braille.encoder.symbol_rules import symbol_rule_spans
+        from semojum_braille.encoder.translator import translate_tagged_text
 
         src = "온도는 25℃이다"
         spans = symbol_rule_spans(src, translate_tagged_text(src))
         assert any(rid == "MCST-한글-6.14.69" for _, _, rid in spans)
 
     def test_세분인용_가운뎃점_줄임표_쌍반점(self):
-        from semojum_braille.symbol_rules import SYMBOL_RULE_IDS
+        from semojum_braille.encoder.symbol_rules import SYMBOL_RULE_IDS
 
         # 태민 결정: 전용 항으로 세분 (제49 단일 아님)
         assert SYMBOL_RULE_IDS["·"] == "MCST-한글-6.13.50"
@@ -251,14 +251,14 @@ class TestSymbolRuleEmit:
 
     def test_미매핑기호_emit제외(self):
         # 미검증/규정DB 부재 기호(∥ 평행·노름 모호, ⋯ 생략, ↗ 점역자정의 대각)는 trail 없음(환각 0)
-        from semojum_braille.symbol_rules import SYMBOL_RULE_IDS
+        from semojum_braille.encoder.symbol_rules import SYMBOL_RULE_IDS
 
         for excluded in ("∥", "⋯", "↗"):
             assert excluded not in SYMBOL_RULE_IDS
 
     def test_근삿값_총합_근호_매핑(self):
         # ≒ 근삿값(제20항 2.20), ∑ 총합(제25항 2.25), √ 근호(제22항 2.22) — 규정 검증 후 추가
-        from semojum_braille.symbol_rules import SYMBOL_RULE_IDS
+        from semojum_braille.encoder.symbol_rules import SYMBOL_RULE_IDS
 
         assert SYMBOL_RULE_IDS["≒"] == "MCST-수학-2.20"
         assert SYMBOL_RULE_IDS["∑"] == "MCST-수학-2.25"
@@ -270,7 +270,7 @@ class TestSyllableBreaks:
     내부에는 줄바꿈 지점을 만들지 않고, 어절 경계는 항상 보장한다(접두 일관성)."""
 
     def test_숫자_단위_내부_미분리(self):
-        from semojum_braille.translator import translate_with_breaks
+        from semojum_braille.encoder.translator import translate_with_breaks
 
         lines, breaks = translate_with_breaks("답은 25일이다")
         ln, bk = lines[0], breaks[0]
@@ -278,14 +278,14 @@ class TestSyllableBreaks:
         assert not any(i < b < i + 3 for b in bk), f"수(⠼…) 내부 줄바꿈: off={bk}"
 
     def test_약자_내부_미분리(self):
-        from semojum_braille.translator import translate_with_breaks
+        from semojum_braille.encoder.translator import translate_with_breaks
 
         # '그래서' = 약자 ⠁⠎(2칸) → 내부 offset 1에 줄바꿈 없음
         lines, breaks = translate_with_breaks("그래서 우리는")
         assert 1 not in breaks[0], f"약자 내부 줄바꿈: {breaks[0]}"
 
     def test_점역자주_마커_내부_미분리(self):
-        from semojum_braille.translator import TN_MARKER, translate_with_breaks
+        from semojum_braille.encoder.translator import TN_MARKER, translate_with_breaks
 
         lines, breaks = translate_with_breaks("<!주>설명 내용<!/주>")
         ln, bk = lines[0], breaks[0]
@@ -296,7 +296,7 @@ class TestSyllableBreaks:
 
     def test_어절경계_항상_줄바꿈가능(self):
         # 한영 혼합 등 접두가 깨져도 공백(어절 경계)은 바닥선으로 보장
-        from semojum_braille.translator import translate_with_breaks
+        from semojum_braille.encoder.translator import translate_with_breaks
 
         lines, breaks = translate_with_breaks("ABC 그리고 DEF")
         ln, bk = lines[0], breaks[0]
@@ -315,7 +315,7 @@ class TestElementLocalCoords:
     def _bo(corrected_text: str):
         import uuid
 
-        from semojum_braille.text_braille import TextBraille
+        from semojum_braille.encoder.text_braille import TextBraille
         from semojum_braille.schemas import LLMOutput
 
         opt = LLMOutput(
@@ -335,7 +335,7 @@ class TestElementLocalCoords:
             assert 0 <= r.col_start <= r.col_end <= len(line)
 
     def test_점역자주_마커_좌표_정확(self):
-        from semojum_braille.translator import TN_MARKER
+        from semojum_braille.encoder.translator import TN_MARKER
 
         bo = self._bo("<!주>그림 설명<!/주>")
         marks = [r for r in bo.rule_trail if r.tag in ("tn_open", "tn_close")]
@@ -344,7 +344,7 @@ class TestElementLocalCoords:
             assert bo.braille_lines[r.line_no][r.col_start:r.col_end] == TN_MARKER
 
     def test_특수기호_좌표_글리프_일치(self):
-        from semojum_braille.symbol_rules import SYMBOL_TABLE
+        from semojum_braille.encoder.symbol_rules import SYMBOL_TABLE
 
         bo = self._bo("온도는 25℃이다")
         cel = [r for r in bo.rule_trail if r.rule_id == "MCST-한글-6.14.69"]  # 섭씨
@@ -358,8 +358,8 @@ class TestElementLocalCoords:
         # _apply_bullet_marker가 글리프를 축소(⠸⠚⠇→⠸⠚)해도 좌표가 셀을 정확히 가리킨다.
         import uuid
 
-        from semojum_braille.layout_braille import LayoutBraille
-        from semojum_braille.regulations import make_rule
+        from semojum_braille.encoder.layout_braille import LayoutBraille
+        from semojum_braille.encoder.regulations import make_rule
         from semojum_braille.schemas import BrailleOutput
 
         bo = BrailleOutput(
@@ -375,8 +375,8 @@ class TestElementLocalCoords:
         # 위 테두리 확장(빈 줄+테두리 삽입)으로 내용 줄이 밀려도 line_no가 갱신돼 셀을 가리킨다.
         import uuid
 
-        from semojum_braille.layout_braille import LayoutBraille
-        from semojum_braille.regulations import make_rule
+        from semojum_braille.encoder.layout_braille import LayoutBraille
+        from semojum_braille.encoder.regulations import make_rule
         from semojum_braille.schemas import BoxBorder, BrailleOutput
 
         top = "⠿" + "⠛" * 30 + "⠿"  # 32칸 위 테두리 마커
@@ -405,7 +405,7 @@ class TestStep17TrailScope:
     def _bo(text: str):
         import uuid
 
-        from semojum_braille.text_braille import TextBraille
+        from semojum_braille.encoder.text_braille import TextBraille
         from semojum_braille.schemas import LLMOutput
 
         return TextBraille().translate([LLMOutput(
@@ -448,7 +448,7 @@ class TestStep17TrailScope:
         rule_trail`)은 flatten 이 굳힌 좌표를 쓰므로 그 근거가 **한 건도 안 실렸다**.
         `_expand_box_borders` 를 직접 부르는 테스트만 있어 이 어긋남이 안 보였다.
         """
-        from semojum_braille.layout_braille import flatten_elements
+        from semojum_braille.encoder.layout_braille import flatten_elements
 
         bo = self._bo("<!상자>보기<!/상자>\n가나다\n<!상자끝><!/상자끝>")
         flat = flatten_elements([bo], None)[bo.element_id]

@@ -15,7 +15,7 @@ gold 실측(2027 코퍼스 18,892파일 전수): 위 테두리 제목에 '보기
   홑화살괄호 399 · 괄호 없는 맨몸 494 · 그 밖 53 · **부등호 0**.
   '보기'를 벌려 적은 제목(⠘⠥⠀⠈⠕) 도 **0**이다(붙임 946).
 """
-from semojum_braille.translator import translate_plain
+from semojum_braille.encoder.translator import translate_plain
 
 OPEN, CLOSE = "⠐⠶", "⠶⠂"      # 〈 · 〉
 BOGI = "⠘⠥⠈⠕"                 # 보기

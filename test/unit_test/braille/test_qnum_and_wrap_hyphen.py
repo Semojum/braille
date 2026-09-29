@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from semojum_braille.translator import (
+from semojum_braille.encoder.translator import (
     _QNUM_RE,
     translate_body,
     translate_visual,

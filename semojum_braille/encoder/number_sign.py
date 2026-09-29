@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import re
 
-from semojum_braille.eng_braille import iter_words, translate_word
-from semojum_braille.kor_math_rules import _DIGIT_MAP
+from semojum_braille.encoder.eng_braille import iter_words, translate_word
+from semojum_braille.encoder.kor_math_rules import _DIGIT_MAP
 
 NUMBER_SIGN = "⠼"
 # 숫자 셀 1~0 — kor_math_rules의 정본 맵을 그대로 쓴다(중복 정의로 갈리지 않게).

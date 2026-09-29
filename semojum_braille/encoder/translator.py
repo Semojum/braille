@@ -24,17 +24,17 @@ import collections
 import re
 from functools import lru_cache
 
-from semojum_braille.kor_math_rules import (convert_latex, digits_to_braille,
+from semojum_braille.encoder.kor_math_rules import (convert_latex, digits_to_braille,
                                           caps_phrase_run, caps_phrase_cells)
-from semojum_braille import eng_braille, inline_math
-from semojum_braille.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
-from semojum_braille.symbol_rules import (
+from semojum_braille.encoder import eng_braille, inline_math
+from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
+from semojum_braille.encoder.symbol_rules import (
     HIDDEN_TO_BULLET as _HIDDEN_TO_BULLET,
     SYMBOL_TABLE,
     substitute_symbols,
 )
-from semojum_braille import tag_names as _TAGS
-from semojum_braille import gates as _gates          # 관문 G3 — 무거운 의존 없음(gates 도크스트링)
+from semojum_braille.encoder import tag_names as _TAGS
+from semojum_braille.encoder import gates as _gates          # 관문 G3 — 무거운 의존 없음(gates 도크스트링)
 
 logger = logging.getLogger(__name__)
 
@@ -1343,7 +1343,7 @@ _BORDER_FILL: dict[str, tuple[str, str]] = {
     _TAGS.BOX_TOP:    ("⠿", "⠛"),  # 위: 첫/끝 = , 중간 g
     _TAGS.BOX_BOTTOM: ("⠿", "⠶"),  # 아래: 첫/끝 = , 중간 7
 }
-from semojum_braille.constants import COLS as _BORDER_COLS  # noqa: E402 (공용 상수)
+from semojum_braille.encoder.constants import COLS as _BORDER_COLS  # noqa: E402 (공용 상수)
 _BORDER_BLANK     = "⠀"   # 점자 빈칸(U+2800)
 _BORDER_LEFT_FILL = 4     # 캡 뒤 채움 칸 → 제목 7칸에서 시작(NLD-1.2.5(4)②: 캡1+채움4+빈칸1)
 
@@ -2940,7 +2940,7 @@ def translate_plain(text: str) -> str:
 # 수식 속 \text{한글}을 한글 점자로 변환하는 훅 등록(P2). kor_math_rules는 translator를
 # import하지 않고(순환 회피) 런타임 주입만 받는다. 평문(한글)은 <!수식>·$ 가 없어
 # translate_tagged_text가 convert_latex로 재진입하지 않으므로 무한 재귀가 없다.
-from semojum_braille import kor_math_rules as _kor_math_rules  # noqa: E402
+from semojum_braille.encoder import kor_math_rules as _kor_math_rules  # noqa: E402
 
 _kor_math_rules.register_text_hook(translate_tagged_text)
 # 잔류 정화용 비재귀 훅 — _braillify는 수식 라우팅을 타지 않아 convert_latex로 되돌아오지

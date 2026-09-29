@@ -13,7 +13,7 @@
     제43항(1956행)이 자릿점이면 뒤 숫자에 수표를 다시 안 적는다고 하므로,
     빈칸과 수표가 따라오는 그 출력은 그 자체로 자기모순이었다.
 """
-from semojum_braille.translator import translate_with_breaks
+from semojum_braille.encoder.translator import translate_with_breaks
 
 OPEN_DQ, CLOSE_DQ = "⠦", "⠴"
 DIGIT_COMMA, LIST_COMMA = "⠂", "⠐"

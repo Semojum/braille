@@ -6,11 +6,11 @@ from uuid import uuid4
 
 import pytest
 
-from semojum_braille.formula_braille import FormulaBraille
-from semojum_braille.symbol_rules import substitute_symbols
+from semojum_braille.encoder.formula_braille import FormulaBraille
+from semojum_braille.encoder.symbol_rules import substitute_symbols
 from test.braille_style_equiv import canon_greek
-from semojum_braille.text_braille import TextBraille
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder.text_braille import TextBraille
+from semojum_braille.encoder.translator import translate_tagged_text
 from semojum_braille.schemas import BrailleOutput, LLMOutput, RuleApplication
 
 _RULE = RuleApplication(
@@ -59,7 +59,7 @@ class TestTextBrailleOutput:
 
     def test_each_line_within_32_cols(self):
         # 모듈은 논리 줄, 32칸 줄바꿈은 layout(NLD-1.2.1) → break_points wrap 후 검증
-        from semojum_braille.layout_braille import _wrap_line
+        from semojum_braille.encoder.layout_braille import _wrap_line
         r = TextBraille().translate([_text_out("가" * 100)])[0]
         for line, br in zip(r.braille_lines, r.break_points):
             assert all(len(seg) <= 32 for seg in _wrap_line(line, br, 32)[0])
@@ -188,7 +188,7 @@ class TestRuleTrailCompleteness:
 
     def test_text_braille_rule_trail_all_fields(self):
         """TextBraille가 추가하는 모든 rule_trail 항목이 필수 6개 필드를 가짐."""
-        from semojum_braille.text_braille import TextBraille
+        from semojum_braille.encoder.text_braille import TextBraille
         results = TextBraille().translate([_text_out("테스트")])
         for r in results[0].rule_trail:
             assert r.rule_id,  f"rule_id 없음: {r}"

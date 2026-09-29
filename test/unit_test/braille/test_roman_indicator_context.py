@@ -27,8 +27,8 @@ import re
 
 import pytest
 
-from semojum_braille import translator
-from semojum_braille.translator import translate_tagged_text
+from semojum_braille.encoder import translator
+from semojum_braille.encoder.translator import translate_tagged_text
 from braille_ascii import ascii_to_unicode
 
 _ROMAN = "⠴"          # 로마자표 (제29항)
@@ -146,7 +146,7 @@ class Test줄_문맥은_전역이_아니다:
         assert _ours(src) == first
 
     def test_접두_재점역이_본문을_바꾸지_않는다(self):
-        from semojum_braille.translator import translate_with_breaks
+        from semojum_braille.encoder.translator import translate_with_breaks
         src = "[A]는 무엇인가"
         lines, _ = translate_with_breaks(src)
         assert lines[0] == translate_tagged_text(src)

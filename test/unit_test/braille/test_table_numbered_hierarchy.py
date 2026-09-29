@@ -4,7 +4,7 @@
 (`1) 열제목: 값`). 규정은 2단계가 `가. 나. 다.` 이고, 항목마다 줄을 바꾼다.
 예 3-9 실물(같은 파일 2216~2232행)의 들여쓰기는 1단계 6칸 · 2단계 4칸 · 항목 2칸이다.
 """
-from semojum_braille.table_braille import _render_numbered
+from semojum_braille.encoder.table_braille import _render_numbered
 
 SRC = "구분|2000년|2005년\n초혼|88.9|89.2\n재혼|11.1|10.8"
 

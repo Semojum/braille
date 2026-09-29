@@ -6,7 +6,7 @@
   · 로마숫자 토큰 형태 — 로마자표형 5,762 : 낱자형 466 (92.5%)
 본문 경로는 바뀌지 않는다(문턱값 0.2 는 따로 측정된 값).
 """
-from semojum_braille.translator import translate_plain, translate_tagged_text
+from semojum_braille.encoder.translator import translate_plain, translate_tagged_text
 
 
 def test_한글이_없어도_로마자표를_붙인다():

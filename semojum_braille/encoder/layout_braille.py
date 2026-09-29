@@ -24,11 +24,11 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Optional
 
-from semojum_braille.tag_names import split_indent
-from semojum_braille.kor_math_rules import _NUMBER_INDICATOR, _DIGIT_MAP
-from semojum_braille.regulations import make_rule
-from semojum_braille.translator import _BOOK_STYLE  # 도서 관행 스위치(BRAILLE_STYLE)
-from semojum_braille.symbol_rules import HIDDEN_TO_BULLET as _HIDDEN_TO_BULLET_SRC
+from semojum_braille.encoder.tag_names import split_indent
+from semojum_braille.encoder.kor_math_rules import _NUMBER_INDICATOR, _DIGIT_MAP
+from semojum_braille.encoder.regulations import make_rule
+from semojum_braille.encoder.translator import _BOOK_STYLE  # 도서 관행 스위치(BRAILLE_STYLE)
+from semojum_braille.encoder.symbol_rules import HIDDEN_TO_BULLET as _HIDDEN_TO_BULLET_SRC
 from semojum_braille.schemas import BrailleOutput, RuleApplication
 
 if TYPE_CHECKING:  # 런타임 import 회피 (annotations 지연 평가)
@@ -36,7 +36,7 @@ if TYPE_CHECKING:  # 런타임 import 회피 (annotations 지연 평가)
 
 logger = logging.getLogger(__name__)
 
-from semojum_braille.constants import COLS as _COLS, ROWS as _ROWS  # noqa: E402 (공용 상수)
+from semojum_braille.encoder.constants import COLS as _COLS, ROWS as _ROWS  # noqa: E402 (공용 상수)
 
 # ── NLD 2장2절1 제목 단계별 빈 줄 (level → (앞, 뒤)) ───────────────────────
 # 근거 조항은 NLD 2장2절2 2)(2)① 하나다 — 빈 줄을 넣어도 되는 자리를 **열거**한다:

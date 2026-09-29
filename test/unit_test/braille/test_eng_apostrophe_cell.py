@@ -14,8 +14,8 @@
 """
 import pytest
 
-from semojum_braille.eng_braille import translate, translate_word
-from semojum_braille.translator import translate_body
+from semojum_braille.encoder.eng_braille import translate, translate_word
+from semojum_braille.encoder.translator import translate_body
 
 
 @pytest.mark.parametrize("word", [

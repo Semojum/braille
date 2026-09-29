@@ -4,7 +4,7 @@
 점자 파일에 ASCII 가 섞여, 셀을 세는 소비자가 다르게 읽고 앞 빈칸 통계도 어긋났다
 (생명과학 한 권 실측: ASCII 29칸 26줄 · 28칸 4줄 · 2칸 282줄).
 """
-from semojum_braille.layout_braille import LayoutBraille
+from semojum_braille.encoder.layout_braille import LayoutBraille
 
 
 def _line(footer="", orig="", page=109):

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from semojum_braille.translator import translate_plain
+from semojum_braille.encoder.translator import translate_plain
 
 
 @pytest.mark.parametrize("text, expected", [

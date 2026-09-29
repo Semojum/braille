@@ -12,7 +12,7 @@ gold 대조 3건(BRF 원문 그대로, 모두 두 칸):
 칸수 일치율(1,180쪽) 제11항 대리 74.18% → 83.63%, 전체 99.366% → 99.422%.
 CER 은 빈칸을 안 세므로 전후 셀 문자열이 1,180쪽 전부 동일하다(변화 0).
 """
-from semojum_braille.translator import translate_body
+from semojum_braille.encoder.translator import translate_body
 
 
 def _line(text: str) -> str:

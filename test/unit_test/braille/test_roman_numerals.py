@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from semojum_braille import translator
-from semojum_braille.translator import (
+from semojum_braille.encoder import translator
+from semojum_braille.encoder.translator import (
     _normalize_roman_numerals,
     translate_tagged_text,
 )

@@ -9,7 +9,7 @@
 """
 from uuid import uuid4
 
-from semojum_braille.table_braille import TableBraille, build_table_tags
+from semojum_braille.encoder.table_braille import TableBraille, build_table_tags
 from semojum_braille.schemas import LLMOutput
 
 ROWS = [["구분", "A", "B"], ["1차", "10", "20"], ["2차", "30", "40"]]
@@ -42,7 +42,7 @@ def test_격자로_읽히는_표는_초안_5안을_갖는다():
 
 def test_tn_글자가_점자에_안_섞인다():
     """tn 에만 있는 낱말('연도별')이 점자 어디에도 안 나온다."""
-    from semojum_braille.translator import translate_tagged_text
+    from semojum_braille.encoder.translator import translate_tagged_text
 
     bo = _translate("<!주>연도별 표임.<!/주>")
     needle = translate_tagged_text("연도별")

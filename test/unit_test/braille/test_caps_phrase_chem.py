@@ -8,8 +8,8 @@
 방아쇠가 넓어지면 본문이 깨진다(코퍼스 실측: 조건만 쓰면 91회 중 88회 오발동).
 그래서 **오발동 쪽도 같이 잠근다.**
 """
-from semojum_braille.kor_math_rules import caps_phrase_run
-from semojum_braille.translator import translate_plain
+from semojum_braille.encoder.kor_math_rules import caps_phrase_run
+from semojum_braille.encoder.translator import translate_plain
 
 
 def test_reg_example_cell_exact():

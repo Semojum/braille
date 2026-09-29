@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from semojum_braille.translator import box_borders_from_source, translate_visual
+from semojum_braille.encoder.translator import box_borders_from_source, translate_visual
 from semojum_braille.schemas import BoxBorder, BrailleOutput
 
 

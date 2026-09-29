@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Callable, Iterable
 
-from semojum_braille.regulations import make_rule
+from semojum_braille.encoder.regulations import make_rule
 from semojum_braille.schemas import BrailleOutput, LLMOutput
 
 logger = logging.getLogger(__name__)

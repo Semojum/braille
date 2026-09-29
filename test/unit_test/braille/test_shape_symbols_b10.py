@@ -3,7 +3,7 @@
 근거는 **규정**이다(제72항 글머리 · 제57항 숨김표 · 제58항 빠짐표).
 gold 대조는 확인용이고, ■ ● ▣ 용례는 holdout에 몰려 있어 dev·val 지표로는 안 보인다.
 """
-from semojum_braille.translator import translate_tagged_text as tr
+from semojum_braille.encoder.translator import translate_tagged_text as tr
 
 BULLET = "⠸⠲"          # 제72항 • 글머리
 MASK_1 = "⠸⠴⠇"         # 제57항 숨김표 ○ 한 개

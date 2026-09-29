@@ -10,7 +10,7 @@ r"""n제곱근 중첩·자릿점 표기·연산 기호 둘 — 수학 점자 제
 """
 import pytest
 
-from semojum_braille.kor_math_rules import convert_latex
+from semojum_braille.encoder.kor_math_rules import convert_latex
 from braille_ascii import unicode_to_ascii
 
 
