@@ -1,4 +1,4 @@
-"""사이드카 프로토콜(README 1절)이 README 에 적은 대로 도는지 본다."""
+"""사이드카 프로토콜(README 8절)이 README 에 적은 대로 도는지 본다."""
 import json
 import subprocess
 import sys
