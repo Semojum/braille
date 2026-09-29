@@ -2,6 +2,8 @@
 
 [![시험](https://github.com/Semojum/braille/actions/workflows/test.yml/badge.svg)](https://github.com/Semojum/braille/actions/workflows/test.yml)
 ![파이썬](https://img.shields.io/badge/python-3.10%20%7C%203.12%20%7C%203.13-blue)
+![판](https://img.shields.io/badge/version-3.4.0-blue)
+![라이선스](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
 
 한국어 묵자를 점자로 옮기고(점역), 점자를 묵자로 되돌리는(역점역) 파이썬 라이브러리입니다.
 
@@ -99,4 +101,7 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 
 ## 라이선스
 
-정하는 중입니다. 정해지면 `LICENSE` 파일에 적습니다.
+MIT 와 Apache License 2.0 중 **받는 쪽이 고릅니다**. `LICENSE-MIT` · `LICENSE-APACHE` 를 보십시오.
+
+⚠ 의존 라이선스 둘이 배포 전에 걸립니다. `NOTICE.md` 에 적었습니다.
+`kiwipiepy` 가 LGPL v3 라 선택 의존(`[kiwi]`)으로 뺐고, `braillify` 는 라이선스 표기가 없습니다.
