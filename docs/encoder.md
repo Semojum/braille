@@ -1,10 +1,6 @@
 # 점역 레퍼런스 · `semojum_braille.encoder`
 
-묵자를 한국어 점자로 옮기는 공개 함수 전부와 입출력 형식, 설정, 모듈 구성을 적는다.
-설치와 빠른 시작은 [README](../README.md), 파이썬이 아닌 곳에서 쓰는 법은 [sidecar.md](sidecar.md),
-규정 근거는 [regulations.md](regulations.md), 역점역은 [decoder.md](decoder.md) 에 있다.
-
-이 문서의 `>>>` 예는 모두 실제로 돌린 입출력이다. `python tools/check_docs.py` 가 문서에서 예를 꺼내 다시 돌려 맞춘다.
+`semojum_braille.encoder` 의 공개 함수, 입출력 형식, 설정, 모듈 구성.
 
 | 절 | 내용 |
 |---|---|
@@ -18,7 +14,7 @@
 
 공개 함수는 이 절에 적은 것이 전부다. 밑줄(`_`)로 시작하는 이름과 4절의 "계약 아님" 칸에 적은 이름은 판이 오르면 바뀔 수 있으니 기대지 않는다.
 
-아래 예는 이 준비 코드를 한 번 돌린 뒤의 입출력이다.
+아래 예는 이 준비 코드를 먼저 돌린 것이다.
 
 ```python
 import os, uuid
@@ -803,7 +799,7 @@ $ BRAILLE_STYLE=regulation python -c "from semojum_braille.encoder.kor_math_rule
 ⠦⠼⠁⠴⠭⠢⠼⠁⠒⠒⠼⠃ ⠖⠎⠷⠼⠃⠭⠾
 ```
 
-역점역 패키지의 스위치는 그 저장소 README 에 있다.
+역점역 스위치는 [decoder.md](decoder.md) 에 있다.
 
 ---
 

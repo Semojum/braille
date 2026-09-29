@@ -1,12 +1,10 @@
 # 역점역 레퍼런스 · `semojum_braille.decoder`
 
-한국어 점자를 묵자로 되돌리는 `decode` 와 도구 둘, 입출력 형식, 설정, 모듈 구성을 적는다.
+`semojum_braille.decoder` 의 `decode` 와 도구 둘, 입출력 형식, 설정, 모듈 구성.
 역점역은 점자 초안을 검토할 때 곁에 두고 보는 **확인용 글**을 만든다. 원문 복원이 아니다. 약자·약어 때문에
 여러 묵자가 같은 셀이 되므로 되돌린 글은 근사다.
 
-설치와 빠른 시작은 [README](../README.md), 점역은 [encoder.md](encoder.md), 파이썬이 아닌 곳에서 쓰는 법은
-[sidecar.md](sidecar.md), 규정 근거는 [regulations.md](regulations.md) 에 있다.
-이 문서의 `>>>` 예는 모두 실제로 돌린 입출력이고 `python tools/check_docs.py` 로 다시 맞춘다(`[kiwi]` 를 깐 환경 기준).
+아래 예는 `[kiwi]` 를 깐 환경에서 돌린 것이다.
 
 | 절 | 내용 |
 |---|---|
