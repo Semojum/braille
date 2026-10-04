@@ -12,6 +12,13 @@ FF 로 나눈 쪽이 26줄인 파일이 506개, FF 로 끝나는 파일이 432�
 """
 from __future__ import annotations
 
+import logging
+from collections import Counter
+
+from .encoder.gates import gate_hit
+
+logger = logging.getLogger(__name__)
+
 ROWS = 26
 COLS = 32
 
@@ -50,28 +57,47 @@ def to_brf_ascii(braille: str) -> str:
     return "".join(out)
 
 
-def serialize_brf(pages: list[list[str]], *, rows: int = ROWS, cols: int = COLS) -> bytes:
+def serialize_brf(pages: list[list[str]], *, rows: int = ROWS, cols: int = COLS,
+                  replaced: Counter | None = None) -> bytes:
     """점자 면 배열 → `.brf` 바이트.
 
     `pages` 는 면마다 줄 목록이다(유니코드 점자. BRF ASCII 를 줘도 된다). 줄이 `rows` 보다 적은 면은
-    빈 줄로 채운다. 면이 `rows` 줄을 넘거나, 줄이 `cols` 칸을 넘거나, 줄 안에 줄바꿈이 있거나,
-    BRF ASCII 로 못 옮기는 글자가 있으면 `ValueError` 다. 파일을 잘못된 꼴로 내지 않는다.
+    빈 줄로 채운다. 면이 `rows` 줄을 넘거나, 줄이 `cols` 칸을 넘거나, 줄 안에 줄바꿈이 있으면 `ValueError` 다
+    (조판 결함이다).
+
+    BRF ASCII 로 못 옮기는 글자(점자 블록 64셀 밖, 가는 띄움 U+2009 등)는 **빈칸으로 바꿔 내보낸다**.
+    고객 문서를 못 내보내는 것이 더 나쁘다(대표 결재 2026-10-04). 대신 삼켜지지 않게 셋으로 알린다:
+    G4 관문 계수(`gate_hit("G4", "BRF빈칸대체", n)`), WARNING 로그, `replaced` 에 넘긴 Counter(글자 → 횟수).
+    근본은 점역기가 막는다(Semojum/AI#1069). 여기는 마지막 방어선이다.
 
     >>> serialize_brf([["⠼⠁", "⠁⠃"]], rows=3)
     b'#a\\r\\nab\\r\\n\\r\\n\\x0c'
     """
     out: list[str] = []
+    bad: Counter = Counter()
     for p, page in enumerate(pages, 1):
         if len(page) > rows:
             raise ValueError(f"{p}면이 {len(page)}줄이다(최대 {rows}줄)")
         for k, line in enumerate(list(page) + [""] * (rows - len(page)), 1):
             if "\n" in line or "\r" in line:
                 raise ValueError(f"{p}면 {k}줄 안에 줄바꿈이 있다")
-            a = to_brf_ascii(line)
-            if any(not (" " <= c <= "~") for c in a):
-                raise ValueError(f"{p}면 {k}줄에 BRF ASCII 로 못 옮기는 글자가 있다: {a!r}")
+            cells = []
+            for ch in line:
+                a = " " if ch in ("⠀", " ") else _CELL_TO_ASCII.get(ch, ch if " " <= ch <= "~" else None)
+                if a is None:
+                    bad[ch] += 1
+                    a = " "
+                cells.append(a)
+            a = "".join(cells)
             if len(a) > cols:
                 raise ValueError(f"{p}면 {k}줄이 {len(a)}칸이다(최대 {cols}칸)")
             out.append(a + "\r\n")
         out.append("\x0c")
+    if bad:
+        n = sum(bad.values())
+        gate_hit("G4", "BRF빈칸대체", n)
+        logger.warning("G4 BRF 에 못 옮기는 글자 %d자를 빈칸으로 바꿨다 (%s)", n,
+                       " ".join(f"U+{ord(c):04X}×{k}" for c, k in bad.most_common()))
+        if replaced is not None:
+            replaced.update(bad)
     return "".join(out).encode("ascii")

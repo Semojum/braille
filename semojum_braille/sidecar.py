@@ -6,6 +6,7 @@
 표준입력이 닫히면 끝난다. 프로토콜은 docs/sidecar.md.
 """
 import json
+from collections import Counter
 import sys
 import threading
 import uuid
@@ -47,7 +48,10 @@ def handle(req: dict) -> dict:
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=bool(req.get("english")))}
     if op == "brf":
-        return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
+        bad = Counter()
+        brf = build_brf_file(req.get("job") or {}, replaced=bad).decode("ascii")
+        # 빈칸으로 바꾼 글자가 있으면 알린다(G4). 부르는 쪽이 점역사에게 보여 준다
+        return {"brf": brf, "replaced": {f"U+{ord(c):04X}": n for c, n in bad.items()}}
     if op == "ping":
         return {"ok": True}
     return {"error": f"모르는 op: {op!r}"}

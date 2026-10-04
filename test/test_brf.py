@@ -60,11 +60,24 @@ def test_빈_목록은_빈_파일():
     ([["⠁"] * (ROWS + 1)], "줄이다"),
     ([["⠁" * (COLS + 1)]], "칸이다"),
     ([["⠁\n⠃"]], "줄바꿈"),
-    ([["가"]], "못 옮기는"),
 ])
 def test_잘못된_꼴은_내지_않는다(pages, msg):
     with pytest.raises(ValueError, match=msg):
         serialize_brf(pages)
+
+
+def test_못_옮기는_글자는_빈칸으로_바꾸고_G4_로_알린다(caplog):
+    from collections import Counter
+
+    from semojum_braille.encoder import gates
+    gates.gate_reset()
+    got = Counter()
+    with caplog.at_level("WARNING"):
+        b = serialize_brf([["⠁\u2009⠃", "가"]], rows=2, replaced=got)
+    assert b == b"a b\r\n \r\n\x0c"                      # 파일은 나온다
+    assert got == Counter({"\u2009": 1, "가": 1})
+    assert gates.gate_counts() == {("G4", "BRF빈칸대체"): 2}
+    assert "U+2009" in caplog.text
 
 
 def _field_files() -> list[Path]:
