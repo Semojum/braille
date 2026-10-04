@@ -21,6 +21,14 @@
 '대한민국'
 ```
 
+점자 면 배열을 `.brf` 파일 바이트로 냅니다. 줄 끝은 `\r\n`, 쪽(26줄)마다 끝에 `\x0c` 입니다.
+
+```python
+>>> from semojum_braille.brf import serialize_brf
+>>> serialize_brf([["⠼⠁", "⠁⠃"]], rows=3)
+b'#a\r\nab\r\n\r\n\x0c'
+```
+
 글 속 수식은 `<!수식>` 태그로 감쌉니다.
 
 ```python
@@ -55,6 +63,7 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 - 표를 다섯 가지 조판 안으로: 풀어쓰기, 격자, 행열 바꿈, 테두리만, 번호 체계
 - 그림·그래프 설명. 초안이 여럿이면 초안마다
 - 32칸 × 26줄 쪽 조판: 제목 들여쓰기, 문단 들여쓰기, 쪽 번호 줄
+- 점자 면을 현장 유통본과 같은 꼴의 `.brf` 바이트로: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII, 32칸
 - 한글을 음절 단위로 끊을 수 있는 자리를 함께 반환
 - 요소마다 근거가 된 규정 조항(`rule_trail`)
 - 점자를 묵자로 되돌려 초안 검토용 글로
