@@ -26,12 +26,14 @@ import unicodedata
 from functools import lru_cache
 
 from semojum_braille.encoder.kor_math_rules import (convert_latex, digits_to_braille,
-                                          caps_phrase_run, caps_phrase_cells)
+                                          caps_phrase_run, caps_phrase_cells, bond_chain)
 from semojum_braille.encoder import eng_braille, inline_math
 from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
 from semojum_braille.encoder.symbol_rules import (
     HIDDEN_TO_BULLET as _HIDDEN_TO_BULLET,
     SYMBOL_TABLE,
+    square_unit_body,
+    square_unit_cells,
     substitute_symbols,
 )
 from semojum_braille.encoder import tag_names as _TAGS
@@ -206,6 +208,12 @@ def _book_roman_to_cells(text: str) -> str:
     return "".join(out)
 
 _FORMULA_RE      = re.compile(r"<!수식>(.*?)<!/수식>", re.DOTALL)
+# 수학 제11항(재추출 3234~3236행): 두 칸 대상인 수학적 표기에서 "분모와 분자가 수로 이루어진
+#   단순 분수와 소수를 제외"한다. 동그라미 숫자 선택지 뒤의 단순 수(정수 · 소수 · 음수 · 수/수 분수)는
+#   묵자 빈칸대로 한 칸이다 — 제64항 예(2585~2586행) `① ㄱ, ㄴ  ② ㄱ, ㄷ` = `#1`=a"`=3``#2…` (#1083).
+#   ⚠ 선택지 자리만 좁혔다. 자리를 안 가리는 넓은 꼴은 따로 재는 중이다(temp/n46/kjbl/결과_수식간격_N팔.md).
+_SIMPLE_NUM_MATH_RE = re.compile(r"\s*-?\s*(?:\\[dt]?frac\s*\{?\s*\d+\s*\}?\s*\{?\s*\d+\s*\}?|\d+(?:\.\d+)?)\s*")
+_CIRCLED_TAIL_RE = re.compile(r"[①-⑳]\s*$")
 _TAG_RE          = re.compile(r"<[^>]+>")
 # 잔여 <!…> 정식 태그만 안전 제거(아래 _ANGLE_LABEL_RE가 본문 <…>를 살린 뒤).
 _RESIDUAL_BANG_TAG_RE = re.compile(r"<!/?[^>]*>")
@@ -322,7 +330,7 @@ _SQ_UNIT_COMPOUND_RE = re.compile(
 #   뒤에 영어 낱말이 이어지면(`Top 10 in Korea`) 영어 문장이라 둔다. 글자는 약자 없이 낱자로 적는다(#958).
 _LATIN_UNIT = r"(?:mm|cm|km|nm|mg|kg|mL|ml|dL|dl|kcal|cal|kPa|kJ|ha|in)"
 _LATIN_UNIT_RE = re.compile(
-    rf"(?<![A-Za-z0-9.,])(\d+(?:[.,]\d+)*[^\S\n]?)({_LATIN_UNIT}(?:/(?:{_LATIN_UNIT}|[a-z]{{1,3}}))*)"
+    rf"(?<![A-Za-z0-9.,])(\d+(?:[.,]\d+)*[^\S\n]?)({_LATIN_UNIT}(?:/(?:{_LATIN_UNIT}|[a-z]{{1,3}}|[\u3380-\u33df]))*)"
     r"(?![A-Za-z])(?![^\S\n]*[A-Za-z])")
 # `킬로미터/h` 처럼 한글 단위 뒤 빗금의 로마자 단위(예문 `80킬로미터/h` = `…_/0h4`). 줄 끝에서 종료표가 빠졌다.
 _HANGUL_SLASH_UNIT_RE = re.compile(r"(?<=[가-힣])/([a-z]{1,3})(?![A-Za-z])(?![^\S\n]*[A-Za-z])")
@@ -339,6 +347,8 @@ def _unit_end(text: str, at: int) -> str:
 
 
 def _unit_cells(unit: str) -> str:
+    if not unit.isascii():             # 빗금 뒤 사각 단위(`kg/㎥`, T36) — 제69항 한 구간
+        return square_unit_body(unicodedata.normalize("NFKC", unit)) or unit
     return "⠸⠌".join("".join(("⠠" + _ALPHA_MAP[c.lower()]) if c.isupper() else _ALPHA_MAP[c] for c in part)
                      for part in unit.split("/"))
 
@@ -346,7 +356,9 @@ def _unit_cells(unit: str) -> str:
 def _wrap_latin_units(text: str) -> str:
     """제69항 — 숫자 뒤 로마자 단위를 ⠴…⠲ 한 구간으로(`_LATIN_UNIT_RE` 주석)."""
     def repl(m: re.Match) -> str:
-        return m.group(1) + "⠴" + _unit_cells(m.group(2)) + _unit_end(text, m.end())
+        cells = _unit_cells(m.group(2))
+        end = "" if re.search(r"⠘⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚]+$", cells) else _unit_end(text, m.end())   # ㎡ 표와 같이
+        return m.group(1) + "⠴" + cells + end
     text = _LATIN_UNIT_RE.sub(repl, text)
     return _HANGUL_SLASH_UNIT_RE.sub(
         lambda m: "/⠴" + _unit_cells(m.group(1)) + _unit_end(text, m.end()), text)
@@ -354,7 +366,15 @@ def _wrap_latin_units(text: str) -> str:
 
 def _wrap_square_unit_compound(text: str) -> str:
     """제69항 — 사각 단위 문자가 든 빗금 복합 단위를 한 로마자 구간으로(`_SQ_UNIT_COMPOUND_RE` 주석)."""
-    return _SQ_UNIT_COMPOUND_RE.sub(lambda m: _braillify_lib.translate_to_unicode(m.group()), text)
+    def repl(m: re.Match) -> str:
+        try:
+            return _braillify_lib.translate_to_unicode(m.group())
+        except ValueError:
+            # braillify 는 ㎥·㎤ 처럼 제 표에 없는 사각 단위를 받으면 **예외를 던진다**(#956 회귀, T36).
+            #   `kg/㎥` 가 든 요소가 통째로 [처리 불가]가 됐다. 같은 제69항 꼴을 직접 조립한다.
+            cells = square_unit_cells(m.group())
+            return cells if cells else m.group()
+    return _SQ_UNIT_COMPOUND_RE.sub(repl, text)
 
 
 _GREEK_RUN_RE = re.compile(r"[α-ωΑ-Ω]+")
@@ -1948,6 +1968,18 @@ _INLINE_SUB_HYPHEN_RE = re.compile(r"^-(?:[A-Za-z]+_\{?\d+\}?)+[A-Za-z]*-$")
 #   규정 예시도 한 칸이다 — `수소가 전자를 잃으면 H+가 된다` = …0[e*`0,h^5`$`iy3i4
 #   (백틱이 한 칸이고 이온 0,h^5 앞뒤가 각각 한 칸).
 _ION_TOKEN_RE = re.compile(r"^(?:[A-Z][a-z]?(?:_\{\d+\})?)+\^\{\d*[+-]\}$")
+# MinerU 는 이온을 `$\mathrm{Na}^{+}$` · `$Na^{+} - K^{+}$`(Na⁺-K⁺ 펌프) 꼴로도 준다(T36). 로만체 감쌈과
+#   빈칸을 걷고, 이온끼리 붙임표로 이은 이름은 붙임표 ⠤ 로 한 구간에 잇는다 — 2027 gold 생명
+#   `⠴⠠⠝⠁⠘⠢⠤⠠⠅⠘⠢`. 종전에는 수식으로 가 두 칸 + 빼기 ⠔(`⠀⠀⠠⠝⠁⠘⠢⠔⠠⠅⠘⠢⠀⠀`)였다.
+_ROMAN_WRAP_RE = re.compile(r"\\(?:mathrm|rm|text)\s*\{([^{}]*)\}")
+_ION_JOIN_RE = re.compile(r"(?<=\})-(?=[A-Z])")
+
+
+def _ion_parts(core: str) -> list[str] | None:
+    """이온 하나 또는 붙임표로 이은 이온들이면 조각 목록, 아니면 None."""
+    plain = _ROMAN_WRAP_RE.sub(r"\1", core).replace(" ", "")
+    parts = _ION_JOIN_RE.split(plain)
+    return parts if all(_ION_TOKEN_RE.match(p) for p in parts) else None
 # 홑 기호 하나만 든 수식 토막(`$\to$`·`$\cup$`)도 **제11항 두 칸의 예외**다 — 이슈 #715.
 #   제11항(재추출 3235~3237행)이 말하는 '수학적 표기'는 "분수·무한소수·순환소수·첨자·
 #   제곱근·절댓값 등이 포함된 표현"이다. 기호 하나는 거기 안 든다. 그 기호들은 저마다
@@ -1983,6 +2015,8 @@ def _inline_sub_braille(b: str, src: str = "") -> str:
       종료표를 적는다(4367-4368행 `0,,,ch;#c"cooh,'4`). 방아쇠 근거와 오발동 실측은
       `kor_math_rules.caps_phrase_run` 주석에 있다(코퍼스 1,361쪽 발동 3회·오발동 0).
     """
+    if "⠠⠠⠠" in b:                     # convert_latex 가 식 전체 구절표를 이미 적었다(T36 ②-b)
+        return _ROMAN_START + b + _ROMAN_END
     if src and caps_phrase_run(src):
         return _ROMAN_START + caps_phrase_cells(b, src) + _ROMAN_END
     return _ROMAN_START + b.replace(_CAPITAL_IND * 2, _CAPITAL_IND)
@@ -1990,6 +2024,8 @@ def _inline_sub_braille(b: str, src: str = "") -> str:
 
 def _translate_with_braillify(text: str, *, force_roman: bool = False,
                               qnum_period: bool = True) -> str:
+    if bond_chain(text.strip()):      # 줄 전체가 사슬 화합물 결합선(`H-O-H`, 과학 제10항) — 영어 붙임표로 새지 않게
+        return convert_latex(text.strip())
     parts = _FORMULA_RE.split(text)
     # (종류, 점자, 앞 원문공백, 뒤 원문공백). 종류: "t"=텍스트 "f"=수식 "i"=인라인 첨자 토큰
     chunks: list[tuple[str, str, bool, bool]] = []
@@ -2045,11 +2081,21 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
                 else:
                     chunks.append(("i", _BOOK_HYPHEN + inner + _BOOK_HYPHEN,
                                    False, False))
-            elif _ION_TOKEN_RE.match(core):
-                chunks.append(("n", convert_latex(core), False, False))
+            elif (ions := _ion_parts(core)) and len(ions) == 1 and inline_sub and caps_phrase_run(ions[0]):
+                # ★ 한 글자 원소 3연 이상 이온(HCO₃⁻)은 제4항 구절표로 묶고, 과학 제2항 [붙임] 다만
+                #   "이온 표시 뒤에 대문자 종료표가 올 때에는 로마자 종료표를 적는다" — 빈칸 없이 붙인다.
+                #   예문 `HCO₃⁻는` = `0,,,hco;#c^9,'4cz`(재추출 4350행). 2027 gold 생명 5회 전부 이 꼴(T36).
+                cells = convert_latex(ions[0])
+                if "⠠⠠⠠" not in cells:       # convert_latex 가 식 전체 구절표를 이미 적었으면 두 번 안 입힌다
+                    cells = caps_phrase_cells(cells, ions[0])
+                chunks.append(("i", _ROMAN_START + cells + _ROMAN_END, False, False))
+            elif ions:
+                chunks.append(("n", "⠤".join(convert_latex(x) for x in ions), False, False))
             else:
                 # "s" = 홑 기호(제70항·제60항 5호·제15항 한 칸). 그 밖은 "f"(제11항 두 칸).
-                chunks.append(("s" if _LONE_SPACED_SYM_RE.match(core) else "f",
+                simple = (_SIMPLE_NUM_MATH_RE.fullmatch(core)
+                          and _CIRCLED_TAIL_RE.search(parts[i - 1] if i else ""))
+                chunks.append(("p" if simple else "s" if _LONE_SPACED_SYM_RE.match(core) else "f",
                                convert_latex(part), False, False))
 
     # 수학 점자 규정 제11항: 수식 앞뒤 두 칸 공백(⠀⠀).
@@ -2061,7 +2107,10 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
         if not braille:
             pending_ws = pending_ws or lead_ws or trail_ws
             continue
-        if kind == "n" and prev_kind == "t":
+        if kind == "n" and (prev_kind == "t" or (prev_kind is None and inline_sub)):
+            # ★ 줄 머리 이온도 문장 속이면 ⠴ 를 앞세운다(T36). 규정은 "문장 속 H+"(0,h^5)와 "홀로 쓴 H+"(,h^5)를
+            #   가른다 — 앞 조각이 글이냐가 아니라 **줄에 한글이 있느냐**다. 종전에는 `Na⁺이 세포 밖으로` 처럼
+            #   이온이 줄 머리에 오면 빠졌다(2027 gold 줄 머리 `⠴⠠⠝⠁⠘⠢`).
             # 제69항 로마자표. 여는 ⠴만 붙이고 종료표는 안 붙인다(제2항 붙임).
             # gold 실측 195자리 중 161(83%)이 ⠴를 앞세우고, 나머지 34는 수식 안에서
             # 이온이 잇따르는 자리다. 규정도 홀로 쓴 H+는 ,h^5(⠴ 없음)이고 문장 속
@@ -2071,6 +2120,9 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
             if kind in ("n", "s") or prev_kind in ("n", "s"):
                 # 이온은 한 칸(과학 제2항 붙임), 홑 기호도 한 칸(제70항·제60항 5호·제15항)
                 result_parts.append("⠀")
+            elif kind == "p":
+                if pending_ws or lead_ws:             # 선택지 뒤 단순 수: 묵자 빈칸 그대로(한 칸), 제11항
+                    result_parts.append("⠀")
             elif kind == "i" or prev_kind == "i":
                 if pending_ws or lead_ws:
                     result_parts.append("⠀")
@@ -2106,6 +2158,13 @@ _SPECIAL_MAP = {
     #   2027 gold 는 대괄호 ⠦⠆…⠰⠴ 로 적는다(`【…에 …을】` 등). 리터럴 【점역자주】는
     #   [점역자주]가 되어 _LITERAL_TN_RE 가 그대로 받는다.
     "【": "[", "】": "]",
+    # ★ T30 — 기호표에 없어 **조용히 사라지던** 기호 중 규정 점형이 있거나 gold 가 짚는 것(원장 R-86).
+    #   · 홑 ♡ → 점역자 주 "하트". 「점자 자료 제작 지침」 2.5.3(2): 이모티콘은 그 자리에 점역자 주표로 뜻을
+    #     적는다(한글 점자 제66항). gold 는 갈린다 — 언어와 매체 p0121 소괄호 `(하트)` · p0120 생략(원장 R-86).
+    #     연속 ♡♡ 는 이름 가림이라 아래 _HEART_RUN_RE 가 숨김표로 먼저 바꾼다.
+    #   ⚠ ☞ 는 넣지 않았다 — gold 가 문법 해설에서는 → (⠒⠕, 2곳), 블로그 링크 `☞ 메뉴판(클릭)` 에서는
+    #     생략(3곳)으로 갈려 문자 단계 한 규칙으로 못 가른다(A/B dev 나빠짐 3쪽).
+    "♡": "[점역자주]하트[점역자주]",
     # ★ Q12(원장) — 도형 변종을 규정 기본형으로 정규화한다. 2026-08-22 대표 승인.
     #   규정 제57항 숨김표 표와 제72항 글머리 기호 표는 **테두리형만** 싣는다
     #   (○ U+25CB · △ U+25B3 · □ · ×). 아래 둘은 어느 표에도 없어 조용히 사라졌다.
@@ -2161,6 +2220,10 @@ _LEGACY_GLYPH_MAP = {
 }
 _LEGACY_GLYPH_RE = re.compile("[" + "".join(_LEGACY_GLYPH_MAP) + "]")
 _SPECIAL_MAP.update(_LEGACY_GLYPH_MAP)   # sanitize 경로(다른 호출자)에도 같은 표를 건다
+# ★ T30 — 괄호 한글 ㈀~㈍(자음)·㈎~㈛(음절)은 **그 글자가 곧 `(ㄱ)`·`(가)`** 다. braillify 가 받지 않아 사라졌다.
+#   2027 gold 생명과학 p0032·p0127 `㈀+㈁>6` = ⠦⠄⠿⠁⠠⠴⠢⠦⠄⠿⠒⠠⠴…(소괄호 + 자음 낱자표, 제49항·제8항).
+_SPECIAL_MAP.update({chr(0x3200 + i): f"({c})" for i, c in enumerate("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ")})
+_SPECIAL_MAP.update({chr(0x320E + i): f"({c})" for i, c in enumerate("가나다라마바사아자차카타파하")})
 
 
 def _restore_legacy_glyphs(s: str) -> str:
@@ -2319,10 +2382,14 @@ _HANGUL_HEAD_RE = re.compile(r"[가-힣]")
 #   #239 는 줄머리 홑 ▲(글머리 ⠸⠲)만 넣고 연속은 "근거를 한 건씩 못 짚었다"며 뺐다. 근거:
 #   2027 gold 언어와 매체 dv-004 p177 `▲▲일보` = ⠸⠬⠬⠇(△△ 숨김표, 제57항). 종전에는 통째로 지워졌다.
 _FILLED_TRI_RUN_RE = re.compile(r"▲{2,}")
+# ★ 연속 ♡♡ 도 이름 가림이다(T30). gold 화법과 작문 vl-005 p0201 `♡♡ 고등학교` = ⠸⠔⠔⠇ —
+#   제57항 [붙임] 제1 점역자 정의 숨김표(`_9l`), 우리 ☆ 와 같은 점형이다.
+_HEART_RUN_RE = re.compile(r"♡{2,}")
 
 
 def _normalize_special(s: str) -> str:
     s = _FILLED_TRI_RUN_RE.sub(lambda m: "△" * len(m.group()), s)
+    s = _HEART_RUN_RE.sub(lambda m: "☆" * len(m.group()), s)
     out = []
     for ch in s:
         o = ord(ch)
@@ -2505,6 +2572,7 @@ _MOJIBAKE_RE = re.compile(r"[ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜ�
 #   ② 괄호 숫자 ⑴⑵⑶ — 유니코드 이름이 PARENTHESIZED DIGIT 다. `(1)` 로 편다(19건).
 #   ③ C1 제어문자(U+0080~U+009F) — `_CTRL_RE` 가 C0 만 잡고 있었다(`\x93` 실측 37건).
 _ZEROWIDTH_RE = re.compile(r"[\u200b-\u200f\u2060\ufeff\u20d0-\u20f0]")
+_ODD_SPACE_RE = re.compile(r"[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")   # Zs 중 ASCII 공백 밖(#1067)
 _PAREN_DIGIT = {chr(0x2474 + i): f"({i + 1})" for i in range(20)}   # ⑴~⒇
 _PAREN_DIGIT_RE = re.compile("[" + "".join(_PAREN_DIGIT) + "]")
 
@@ -2688,6 +2756,14 @@ def _split_english(seg: str, ctx: "_RomanCtx | None" = None) -> str | None:
         link = ctx.hyphen_link and start == 0     # 붙임표로 이어진 구간 — ⠴ 를 다시 열지 않는다
         ctx.hyphen_link = False
         g1 = "cont" if link else ("lead" if (has_hangul or ctx.wants_roman()) else "")
+        # ★ 원소 기호 나열(`Li, Na, K`)에는 1종 지시자를 안 적는다(T36, eval T32 결함 4). 과학 점자 제1항
+        #   예문 `Li, Na, K는` = `0,li1`,na1`,k4cz`(재추출 4323행) — K 앞에 ⠰ 가 없다. 원소 기호는 약자가
+        #   아니라 제29항 로마자다. 두 글자 원소가 하나라도 있어야 원소 나열로 본다 — `a, b, c`·`B, C`
+        #   (개체·유전자 이름표)는 2027 gold 가 ⠰ 를 적는다(347/347, 원장 C-99). 넓히지 않는다.
+        words = [seg[a:b] for a, b in span]
+        if (len(words) >= 2 and any(re.fullmatch(r"[A-Z][a-z]", w) for w in words)   # `VI`·`II`(로마 숫자)는 아님
+                and all(len(w) <= 2 and eng_braille._is_element_seq(w) for w in words)):
+            g1 = ""
         for s, e in span:
             if s > pos:
                 body.append(_span_gap(seg[pos:s]))
@@ -2861,6 +2937,42 @@ def _safe_to_unicode(seg: str, _split_eng: bool = True,
         return lead + "".join(out) + trail
 
 
+# ── LaTeX 로 온 단순 화학식 → 유니코드 화학식(원장 B-24 · #1058) ──────────────────
+# `$\mathrm{CO}_{2}$` 는 평문 화학 경로(inline_math `_CHEM_TOK`)를 안 타고 수식 조판으로 가서
+# 규정 예문(과학 제7항 1호, 재추출 4435~4437행 `0,h;#b,o4v`0,o;#b`eo2`)과 달리 식 앞뒤에 빈칸을
+# 넣고 둘째 식부터 로마자표를 빠뜨렸다. 괄호 앞에는 종료표를 안 적는데(제34항 1709행) `(CO₂)` 를
+# `8'``0,c,o;#b4``,0` 로 냈다. 식 전체가 화학식일 때만 유니코드로 풀어 평문 화학 경로 하나로 보낸다.
+# 가드: `\mathrm` 안 대문자 토막이 전부 원소 기호이고, 전하가 있거나 원소가 둘 이상이어야 한다.
+# 원소 하나 + 아래첨자(`O₂`)는 수식 쪽(MATH_PAGE)이 아닐 때만 — 수학의 점 `\mathrm{P}_{1}` 을 안 건드린다.
+_LATEX_MATHRM_RE = re.compile(r"\\mathrm\{((?:[^{}]|\{[^{}]*\})*)\}")
+_LATEX_CHEM_BODY_RE = re.compile(r"(?:[A-Z][a-z]?|_\{?\d+\}?|\^\{?\d*[+-]\}?|\{-\}|\s)+")
+_SUB_DIGITS = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+_SUP_DIGITS = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
+
+
+def _latex_chem_to_unicode(text: str) -> str:
+    def one(m: re.Match) -> str:
+        body = m.group(1)
+        if "\\mathrm" not in body:
+            return m.group(0)
+        flat = _LATEX_MATHRM_RE.sub(r"\1", body)
+        if "\\" in flat or not _LATEX_CHEM_BODY_RE.fullmatch(flat):
+            return m.group(0)
+        els = re.findall(r"[A-Z][a-z]?", flat)
+        charge = bool(re.search(r"\^\{?\d*[+-]", flat))
+        sub = "_" in flat
+        if not els or not all(e in _kor_math_rules._ELEMENTS for e in els) or not (charge or sub):
+            return m.group(0)
+        if not charge and len(els) < 2 and inline_math.MATH_PAGE.get():
+            return m.group(0)
+        out = re.sub(r"_\{?(\d+)\}?", lambda x: x.group(1).translate(_SUB_DIGITS), flat)
+        out = re.sub(r"\^\{?(\d*[+-])\}?", lambda x: x.group(1).translate(_SUP_DIGITS), out)
+        return re.sub(r"\s+", "", out.replace("{-}", "-"))
+    if not _HANGUL_SYL_RE.search(text):      # 식 하나만 선 줄은 수식 경로 그대로(로마자표·종료표를 거기서 붙인다)
+        return text
+    return re.sub(r"\$([^$\n]+)\$", one, text)
+
+
 def _normalize_inline_math(text: str) -> str:
     """텍스트 속 LaTeX 수식 구분자($…$ 등)를 <!수식>…<!/수식> 태그로 정규화한다.
 
@@ -2935,6 +3047,40 @@ def merge_hidden_runs(braille: str) -> str:
         lambda m: "⠸" + m.group(2) * (len(m.group(0)) // 3) + "⠇", braille)
 
 
+# ── 「한글 점자」 제74항 — 컴퓨터 점자(URL·이메일)는 통일영어점자로 (eval 규정 전수 A 9, #1031) ──────
+# 재추출 2960~2965행: `https://www.korean.go.kr이다` = `0https3_/_/www4kor1n4go4kr4oi4`
+#   · `greenpark7150@korea.kr이다` = `0gre5p>k` + `#gaej@akorea4kr4oi4`(줄 끝 `"` 는 줄 이음 표시).
+# 종전에는 쌍점이 종료표+한글 쌍점(⠲⠐⠂)으로 나가고 `//`·`@` 뒤에서 로마자표 ⠴ 를 다시 열었다.
+# 주소 하나를 구간 하나로 묶는다: 낱말은 묶음 약자만(`go` 를 단어 약자 ⠛ 로 안 줄인다 — 예문 `go4`),
+# 부호는 UEB(`:`=⠒ · `/`=⠸⠌ · `.`=⠲ · `@`=⠈⠁ · `-`=⠤ · `_`=⠨⠤), 숫자는 수표 + a~j.
+_URL_RE = re.compile(
+    r"(?<![A-Za-z0-9@._%+-])(?:https?://[A-Za-z0-9._~:/?=&%#-]+|www\.[A-Za-z0-9.-]+"
+    r"|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+_URL_PUNCT = {":": "⠒", "/": "⠸⠌", ".": "⠲", "@": "⠈⠁", "-": "⠤", "_": "⠨⠤"}
+_DIGIT_LETTER = dict(zip("1234567890", "⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚"))
+
+
+def _url_cells(m: re.Match) -> str:
+    url = m.group().rstrip(".,")
+    tail = m.group()[len(url):]
+    out: list[str] = []
+    prev_digit = False
+    for tok in re.findall(r"[A-Za-z]+|[0-9]+|.", url):
+        if tok.isdigit():
+            out.append("⠼" + "".join(_DIGIT_LETTER[c] for c in tok))
+        elif tok.isalpha():
+            # 대문자가 섞인 토막은 약자 없이 글자대로(대문자표 ⠠) — 실물 URL 은 거의 소문자다
+            cells = eng_braille._apply_groups(tok) if tok.islower() else "".join(
+                ("⠠" if c.isupper() else "") + eng_braille.ALPHABET[c.lower()] for c in tok)
+            out.append(("⠰" if prev_digit and tok[0].lower() in "abcdefghij" else "") + cells)
+        elif tok in _URL_PUNCT:
+            out.append(_URL_PUNCT[tok])
+        else:
+            return m.group()                  # 모르는 부호가 끼면 손대지 않는다
+        prev_digit = tok.isdigit()
+    return "⠴" + "".join(out) + "⠲" + tail
+
+
 def translate_tagged_text(text: str, *, force_roman: bool = False,
                           qnum_period: bool = True) -> str:
     """<!수식> 태그가 포함된 텍스트를 점자 BRF로 변환."""
@@ -2960,7 +3106,7 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     #   지우고 있었으므로 그 경로의 동작은 안 바뀐다(같은 결과, 더 이른 자리).
     text = _TAGS._INDENT_TAG_RE.sub("", text)
     if not force_roman and _english_sentence_with_hangul(text):
-        return _translate_english_sentence(text)   # 제39항(#950)
+        return _ODD_SPACE_RE.sub("⠀", _translate_english_sentence(text))   # 제39항(#950) · #1067
     text = _restore_legacy_glyphs(text)     # 오디코딩 5자(⇂¤‹˘⇨)
     text = _restore_broken_subscripts(text)  # 깨진 아래첨자 ¡™£¢§ → ₁₂₃₄₆ (수식 라우팅 전, r16)
     text = _restore_ion_signs(text)         # 이온 전하 ±— → ⁺⁻ (과학점자 제2항, 아래첨자 복원 뒤)
@@ -2974,9 +3120,13 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     # convert_latex이 곱셈 ⠡ 셋으로 낸다(규정 예시는 ⠸⠭⠭⠭⠇).
     text = _HIDDEN_X_RUN_RE.sub(lambda m: "⠸" + "⠭" * len(m.group()) + "⠇", text)
     # 숫자 뒤 ′″는 프라임이 아니라 단위 분·초다(제69항) — 같은 이유로 라우팅보다 먼저.
+    if _HANGUL_SYL_RE.search(text):          # 제74항 URL·이메일 — 한글 문장 속일 때만(순수 영어 줄은 종전대로)
+        text = _URL_RE.sub(_url_cells, text)
     text = _UNIT_PRIME_RE.sub(lambda m: SYMBOL_TABLE[m.group()], text)
     text = _UNIT_BACKTICK_RE.sub("", text)
     text = _BACKTICK_MATH_RE.sub(lambda m: f"<!수식>{m.group(1).rstrip()}<!/수식> ", text)
+    text = _latex_chem_to_unicode(text)     # B-24 LaTeX 단순 화학식 → 평문 화학 경로
+    text = inline_math.chem_chains(text)    # 반응식 식 경계(C-132) — $…$ 를 풀기 전에
     text = _normalize_inline_math(text)     # $…$/\(…\) → <!수식> (P1: 수식 라우팅)
     # 구분자 없는 평문 수식(cos 2α=1-2 sin² α)도 같은 경로로 보낸다 — 수학 본문의
     # 16%가 이 형태다(inline_math 모듈이 오탐 없이 구간만 골라 태그를 붙인다).
@@ -2994,8 +3144,13 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
         text = _book_roman_to_cells(text)   # 로마 숫자 섹션번호 → 낱자 점형(도서 관행, 수식 밖만)
     text = _normalize_roman_numerals(text)  # 로마 숫자 → 로마자(제36항), braillify 거부 방지
     text = sanitize_for_braille(text)        # PUA·제어문자 정화(요소 전체 소실 방지)
-    return merge_hidden_runs(_translate_with_braillify(
-        text, force_roman=force_roman, qnum_period=qnum_period))
+    # ★ #1067 — 유니코드 공백 구분자(Zs)가 셀열에 남으면 빈칸 셀로 바꾼다. 영어 낱말이 섞인 경로가 원문의
+    #   가는 띄움(U+2009)을 그대로 옮겼다(수학 I 원본 58쪽 `각각 \u2009p, q이고` → G4 `U+2009×2`). 그러면 BRF 에
+    #   `⟨2009⟩` 가 찍히거나 파일을 못 낸다. **입구가 아니라 출구에서** 바꾼다 — 입구에서 보통 공백으로 바꾸면
+    #   줄 바꿈 없는 공백 뒤 로마자(`생명과학\u00a0I`)가 수식 경로로 빠져 383 요소가 달라졌다. 출구에서는 새던
+    #   글자만 바뀐다. 한 글자를 한 글자로 바꾸므로 끊을 자리 오프셋은 안 밀린다.
+    return _ODD_SPACE_RE.sub("⠀", merge_hidden_runs(_translate_with_braillify(
+        text, force_roman=force_roman, qnum_period=qnum_period)))
 
 
 # ── 음절 단위 줄바꿈 지점 산출 (NLD-1.2.1) ──────────────────────────────────

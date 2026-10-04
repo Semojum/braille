@@ -22,9 +22,13 @@ _NEEDS_KIWI = {
 
 
 # AI 저장소 develop 에서도 같은 자리가 깨진다(원인과 확인한 커밋).
-_BROKEN_IN_AI = {
-    "test/unit_test/braille/test_subscript_paren_t26.py::test_첨자_괄호는_소괄호":
-        "AI 8dc7e7b 에서도 깨진다. #975 시험의 CO₂ 기대값(⠠⠉⠕)이 #977 대문자표 수정(⠠⠉⠠⠕) 전 꼴이다",
+_BROKEN_IN_AI: dict[str, str] = {
+    # 2026-10-05: test_첨자_괄호는_소괄호 는 AI 가 CO₂ 기대값을 고쳐(⠠⠉⠠⠕) 빠졌다.
+}
+
+# AI 저장소 소스 경로(`app/`)를 직접 읽는 시험. 이 레포엔 그 경로가 없고, 같은 소스를 AI 쪽 시험이 지킨다.
+_AI_SOURCE_ONLY = {
+    "test/unit_test/formula/test_recurring_decimal.py::test_앱_소스에_숫자_범위식이_없다",
 }
 
 
@@ -34,5 +38,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if no_kiwi and item.nodeid in _NEEDS_KIWI:
             item.add_marker(skip)
+        if item.nodeid in _AI_SOURCE_ONLY:
+            item.add_marker(pytest.mark.skip(reason="AI 저장소 app/ 소스를 읽는 시험(AI 쪽에서 돈다)"))
         if item.nodeid in _BROKEN_IN_AI:
             item.add_marker(pytest.mark.xfail(reason=_BROKEN_IN_AI[item.nodeid], strict=True))
