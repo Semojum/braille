@@ -22,6 +22,7 @@ test/unit_test/braille/test_braille_ascii.py
 test/unit_test/braille/test_bullet_reg72.py
 test/unit_test/braille/test_caps_phrase_chem.py
 test/unit_test/braille/test_chain_isolation.py
+test/unit_test/braille/test_circled_simple_num_spacing.py
 test/unit_test/braille/test_context_split_c19.py
 test/unit_test/braille/test_dash_roman_colon.py
 test/unit_test/braille/test_element_caps_t27.py
@@ -43,9 +44,11 @@ test/unit_test/braille/test_item_gap_two_cells.py
 test/unit_test/braille/test_latin_unit_958.py
 test/unit_test/braille/test_leader_and_cjk.py
 test/unit_test/braille/test_lenticular_brackets_t26.py
+test/unit_test/braille/test_log_arg_group.py
 test/unit_test/braille/test_markup_fragment_leak.py
 test/unit_test/braille/test_mask_runs_t25.py
 test/unit_test/braille/test_mineru_token_gap.py
+test/unit_test/braille/test_odd_space_separator.py
 test/unit_test/braille/test_old_hangul.py
 test/unit_test/braille/test_page_line_pad.py
 test/unit_test/braille/test_prefix_scripts.py

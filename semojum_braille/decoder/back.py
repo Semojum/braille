@@ -419,7 +419,7 @@ if _LC_GREEK_REV != "⠨":
 _GREEK_TOKENS = {k for k, v in _MATH_REV_MULTI.items()
                  if len(k) == 2 and k[0] in "⠨⠈" and v in "αβγδεζηθικλμνξοπρστυφχψω"}
 
-# ── 그리스 문자 구간 (규정 제31항 · 원장 R-27) ─────────────────────────────
+# ── 그리스 문자 구간 (규정 제31항 · 원장 R-89) ─────────────────────────────
 # 제31항: "국어 문장 안에 그리스 문자가 나올 때에는 그 앞에 로마자표 ⠴를 적고 그 뒤에
 # 로마자 종료표 ⠲를 적는다." 제30항이 소문자 ⠨+자음 · 대문자 ⠠⠨+자음으로 정한다
 # (ΔΕΛΦΟΙ=⠠⠠⠨⠙⠨⠑⠨⠇⠨⠋⠨⠕⠨⠊ 처럼 대문자 단어표 ⠠⠠ 도 쓴다).
@@ -3369,7 +3369,7 @@ _BOX_BORDER_RE = re.compile(
 #     조사 : 붙임 48 (100%) · 한 칸 0
 #     낱말 : 한 칸 80 (91.9%) · 붙임 7 (전부 `Rh⁺형` 꼴)
 #   낱말 쪽(통로·펌프·농도 …)은 묵자가 띄우므로 **그대로 둔다.**
-_ION_SUP_RE = re.compile(r"⠘(?:⠼[⠁-⠚]{1,2})?[⠢⠔]+$")     # 토큰 끝의 `^+` `^-` `^2-`
+_ION_SUP_RE = re.compile(r"⠘(?:⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚]{1,2})?[⠢⠔]+$")     # 토큰 끝의 `^+` `^-` `^2-`
 # ⚠ `이므로` 는 2026-09-07 추가 — 서술격조사 `이-` 활용형이라 홀로 설 수 없다(`% 이므로`
 #   라는 묵자는 없다). 정방향이 제69항 [붙임 2] 칸을 넣기 시작하면서 왕복이 여기서 갈렸다.
 _JOSA_ONLY_RE = re.compile(
@@ -4315,6 +4315,14 @@ def _decode_line(s: str, *, sep: bool = True) -> str:
         if _m:
             out.append(_MATH_REV_MULTI[s[i:i + _m]])
             i += _m
+            continue
+        # 대문자표 + 낱자 — 로마자표 없이 선 대문자 기호표(제30항 [붙임], 재추출 1480~1482행).
+        # 아래 수식 역표가 `⠠` 를 지워 `⠠⠠⠁⠁⠂ ⠠⠁⠁`(AA, Aa · 001 body p0130 유전자형)가
+        # `AA, aa` 로 읽혔다. 한글로 못 푼 자리라 낱자 폴백과 같은 조건이다.
+        if (ch == _CAPITAL and s[i + 1:i + 2] in _ALPHA_REV
+                and os.environ.get("BRAILLE_ALPHA_FALLBACK", "1") == "1"):
+            out.append(_ALPHA_REV[s[i + 1]].upper())
+            i += 2
             continue
         if ch in _MATH_REV_SINGLE:
             out.append(_MATH_REV_SINGLE[ch])
