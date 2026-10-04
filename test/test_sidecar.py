@@ -23,6 +23,15 @@ def test_handle_answers_ping_and_reports_unknown_op():
     assert "error" in sidecar.handle({"op": "fold"})
 
 
+def test_brf_gives_field_form_file():
+    job = {"pages": [{"orig_page_no": 7, "elements": [{"text": "⠁⠃"}]}]}
+    brf = sidecar.handle({"op": "brf", "job": job})["brf"]
+    assert brf.count("\r\n") == brf.count("\n") == 26 and brf.endswith("\x0c")
+    lines = brf.split("\r\n")
+    assert lines[0] == "ab"
+    assert lines[25].startswith("#g") and lines[25].endswith("#a")   # 페이지행: 원본 쪽 7 · 점자 면 1
+
+
 def test_stdio_keeps_id_and_survives_bad_line():
     p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
                        input='{"id": 7, "op": "ping"}\nnot json\n{"id": 8, "op": "ping"}\n',

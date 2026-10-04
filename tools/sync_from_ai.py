@@ -33,7 +33,8 @@ DEC = PKG / "decoder"
 OWN = {
     PKG / "__init__.py",
     PKG / "sidecar.py",
-    PKG / "brf.py",               # .brf 파일 꼴(현장 유통본 바이트). AI 에 없다
+    PKG / "brf.py",
+    PKG / "assist.py",            # 조판 공용 함수(braille-assist 에서 옮김). AI 에 없다               # .brf 파일 꼴(현장 유통본 바이트). AI 에 없다
     ENC / "__init__.py",          # AI 쪽 `app/ai/braille/__init__.py` 는 빈 파일이다. 공개 이름을 여기서 내보낸다
     DEC / "__init__.py",
     DEC / "wordlist.py",          # kiwi 없이 쓰는 낱말 판정
