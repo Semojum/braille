@@ -484,10 +484,11 @@ def build_brf(job: dict) -> str:
                       for line in page)
 
 
-def build_brf_file(job: dict) -> bytes:
+def build_brf_file(job: dict, replaced=None) -> bytes:
     """BE 조립 JSON → **.brf 파일 바이트**(현장 꼴: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII).
 
     면 나누기는 `build_pages_from_job` 과 같고, 바이트 꼴만 `semojum_braille.brf.serialize_brf` 를 따른다.
+    `replaced`(Counter)를 주면 빈칸으로 바꾼 글자와 횟수를 채운다.
     """
     o = options_from_job(job)
-    return serialize_brf(build_pages_from_job(job), rows=o.rows, cols=o.cols)
+    return serialize_brf(build_pages_from_job(job), rows=o.rows, cols=o.cols, replaced=replaced)
