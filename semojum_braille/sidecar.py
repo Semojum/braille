@@ -11,6 +11,7 @@ import threading
 import uuid
 
 from semojum_braille.assist import build_brf_file
+from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
 from semojum_braille.encoder.layout_braille import LayoutBraille, _fold_full_lines, _pad_join
 from semojum_braille.encoder.text_braille import TextBraille
@@ -48,6 +49,8 @@ def handle(req: dict) -> dict:
         return {"text": decode(req.get("braille", ""), english=bool(req.get("english")))}
     if op == "brf":
         return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
+    if op == "read_brf":
+        return {"pages": parse_brf(req.get("brf", ""))}
     if op == "ping":
         return {"ok": True}
     return {"error": f"모르는 op: {op!r}"}

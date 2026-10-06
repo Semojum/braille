@@ -97,13 +97,14 @@ python -m semojum_braille.sidecar
 | op | 필드 | 타입 | 기본값 | 뜻 | 예 |
 |---|---|---|---|---|---|
 | 모두 | `id` | 아무 JSON 값 | 없음 | 응답에 그대로 돌아온다. 요청과 응답을 짝짓는 데 쓴다 | `2` |
-| 모두 | `op` | 문자열 | 없음 | `translate` · `decode` · `brf` · `ping` | `"translate"` |
+| 모두 | `op` | 문자열 | 없음 | `translate` · `decode` · `brf` · `read_brf` · `ping` | `"translate"` |
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` 중 하나. 들여쓰기가 이것에 따라 달라진다 | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
 | decode | `braille` | 문자열 | `""` | 점자. 여러 줄이면 `\n` 으로 잇는다 | `"⠊⠗⠚⠒…"` |
 | decode | `english` | 참거짓 | `false` | 영어 교과 책이면 `true`. 한글로 잘못 읽힌 영어 토막을 되찾는다. 다른 책에서는 켜지 않는다 | `true` |
 | brf | `job` | 객체 | `{}` | 조판할 문서. 쪽마다 점역된 요소 통 문자열을 담는다(아래). 조판 옵션도 여기 넣는다 | `{"pages": […]}` |
+| read_brf | `brf` | 문자열 | `""` | `.brf` 파일 내용(ASCII 그대로). 소문자+백틱 · 대문자+`@` 두 꼴을 다 받는다. 백틱은 ⠈(초성 ㄱ)로 읽는다 | `"#a\r\nab\r\n\x0c"` |
 
 **응답**
 
@@ -114,6 +115,7 @@ python -m semojum_braille.sidecar
 | translate | `breaks` | 정수 배열 | `cells` 안에서 줄을 바꿔도 되는 자리. 값 `b` 는 "`cells[b]` 앞에서 끊어도 된다" 는 뜻이다. 음절 경계와 빈칸 자리가 모두 들어 있다. 오름차순이다 |
 | decode | `text` | 문자열 | 역점역한 글. 원문 복원이 아니라 **검수용 근사**다. 줄바꿈은 그대로 둔다 |
 | brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
+| read_brf | `pages` | 문자열 배열의 배열 | 쪽마다 유니코드 점자 줄 목록. 빈칸은 `⠀`, 탭은 4칸 자리로 펼친다. 역점역하려면 줄(또는 `\n` 으로 이은 쪽)을 `decode` 에 넘긴다. BRF ASCII 가 아닌 글자가 있으면 `error` |
 | ping | `ok` | 참거짓 | 늘 `true` |
 | 실패 | `error` | 문자열 | `"예외이름: 내용"` 또는 설명. 이때 다른 필드는 없다 |
 
@@ -121,7 +123,7 @@ python -m semojum_braille.sidecar
 
 `brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
 
-**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0) -> dict`(`{"cells", "breaks"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes` 다.
+**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0) -> dict`(`{"cells", "breaks"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
 ## 5. 32칸 접기 (부르는 쪽이 할 일)
 

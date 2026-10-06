@@ -8,9 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from semojum_braille.brf import COLS, ROWS, serialize_brf, to_brf_ascii
-
-_ASCII_TO_CELL = {to_brf_ascii(chr(0x2800 + i)): chr(0x2800 + i) for i in range(64)}
+from semojum_braille.brf import (COLS, ROWS, from_brf_ascii, looks_like_ascii_braille, parse_brf,
+                                  serialize_brf, to_brf_ascii)
 
 
 def _form(b: bytes) -> dict:
@@ -26,13 +25,6 @@ def _form(b: bytes) -> dict:
         "max_cols": max((len(ln) for p in pages for ln in p.split(b"\r\n")), default=0),
         "ascii": all(32 <= c <= 126 or c in (10, 12, 13) for c in b),
     }
-
-
-def _pages_from_brf(b: bytes) -> list[list[str]]:
-    """BRF 바이트 → 면마다 유니코드 점자 줄. 시험에서 현장 파일을 다시 쓰려고 쓴다."""
-    pages = b.split(b"\x0c")[:-1]
-    return [["".join(_ASCII_TO_CELL[c] for c in ln.decode("ascii"))
-             for ln in p.split(b"\r\n")[:-1]] for p in pages]
 
 
 def test_꼴_세_가지가_선다():
@@ -92,5 +84,55 @@ def test_현장_파일을_다시_쓰면_바이트가_같다():
     assert len(files) == 5, "고른 현장 파일이 다섯이 안 된다"
     for f in files:
         b = f.read_bytes()
-        assert serialize_brf(_pages_from_brf(b)) == b, f.name
+        assert serialize_brf(parse_brf(b)) == b, f.name
         assert _form(b)["cr=lf=crlf"] and _form(b)["max_cols"] <= COLS, f.name
+
+
+# ── 읽기(parse_brf · from_brf_ascii) ──────────────────────────────────────────
+
+def test_읽기는_쓰기의_짝이다():
+    pages = [["⠼⠁⠃", "⠈⠣⠀⠘⠪"], ["⠿" * COLS]]
+    assert parse_brf(serialize_brf(pages)) == [p + [""] * (ROWS - len(p)) for p in pages]
+
+
+def test_현장_두_꼴을_다_받는다():
+    # 소문자 + 백틱(현장 60%) · 대문자 + @(36%) · 시프트형 { | } ~
+    assert from_brf_ascii("#ab `<") == from_brf_ascii("#AB @<") == "⠼⠁⠃⠀⠈⠣"
+    assert from_brf_ascii("{|}~") == from_brf_ascii("[\\]^") == "⠪⠳⠻⠘"
+
+
+def test_백틱은_기본이_초성_ㄱ_이다():
+    # `.brf` 를 space 로 읽으면 초성 ㄱ 이 사라진다. 기본값이 cell 인 이유.
+    assert from_brf_ascii("`m`") == "⠈⠍⠈"
+    assert from_brf_ascii("`m`", backtick="space") == "⠀⠍⠀"
+
+
+def test_우리가_낸_파일을_읽어_역점역하면_원문이다():
+    from semojum_braille.decoder import decode
+    from semojum_braille.encoder.translator import translate_tagged_text
+    src = "국가 관련 기관은 고구마를 키운다."
+    [[line, *_]] = parse_brf(serialize_brf([[translate_tagged_text(src)]]))
+    assert decode(line) == src
+
+
+def test_탭은_4칸_자리로_펼친다():
+    # 현장 파일 5개가 쪽 번호를 오른쪽에 맞추는 데 탭을 쓴다. 4칸으로 펼치면 32칸이다.
+    [[line]] = parse_brf("\t" * 7 + "  #d\r\n")
+    assert len(line) == COLS and line.endswith("⠼⠙")
+
+
+def test_BRF_ASCII_아닌_글자는_예외():
+    with pytest.raises(ValueError, match="BRF ASCII 가 아니다"):
+        from_brf_ascii("ab한")
+
+
+def test_유니코드_점자가_있으면_ASCII_가_아니다():
+    assert looks_like_ascii_braille("#ab `<") and not looks_like_ascii_braille("⠼⠁")
+
+
+@pytest.mark.skipif(not os.environ.get("SEMOJUM_FIELD_BRF"), reason="현장 점자 파일 폴더(SEMOJUM_FIELD_BRF)가 없다")
+def test_현장_파일은_다_읽힌다():
+    files = sorted(Path(os.environ["SEMOJUM_FIELD_BRF"]).rglob("*.brf"))
+    assert files
+    for f in files:
+        assert parse_brf(f.read_bytes()), f.name
