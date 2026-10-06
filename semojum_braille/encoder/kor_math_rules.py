@@ -1645,6 +1645,11 @@ def _stage4_log(result: str) -> str:
     return result.replace("\\log", _LOG_IND)
 
 
+# 계수 뒤 함수 이름 붙임(#1096) — 아래 5c. 앞 토막이 LaTeX 명령으로 끝나면(group 2) 손대지 않는다.
+_COEF_FN_JOIN = os.environ.get("COEF_FN_JOIN", "1") != "0"
+_COEF_FN_RE = re.compile(r"((\\[A-Za-z]+)|[0-9A-Za-z)\]}⠁-⣿])[ ]+(⠖[⠎⠉⠞⠣⠤⠳]⠓?|⠇⠝|⠸(?=[⠰⠠⠼⠦⠷A-Za-z0-9]))")
+
+
 def _stage5_trig(result: str) -> str:
     """5. 삼각함수 (제47~49항) + 5b. 함수 기호 뒤 단일 인수 붙임.
 
@@ -1659,7 +1664,14 @@ def _stage5_trig(result: str) -> str:
     # 5b. 규정 예시가 전부 붙임(6shx·6sx^#c·arc6s,A·LNx·#b6cx·!f8x0).
     # LaTeX 관습 공백("\sin x")을 제거한다.
     # 대상: 삼각(⠖?·⠖?⠓)·ln(⠇⠝)·맨 log(⠸)·적분(⠮) 뒤 한 칸.
-    return re.sub(r"(⠖[⠎⠉⠞⠣⠤⠳]⠓?|⠇⠝|⠮⠮?|⠸)[ ]+(?=\S)", r"\1", result)
+    result = re.sub(r"(⠖[⠎⠉⠞⠣⠤⠳]⠓?|⠇⠝|⠮⠮?|⠸)[ ]+(?=\S)", r"\1", result)
+    # 5c. 계수 뒤 함수 이름도 붙인다(#1096) — 제46항(재추출 3812행) `2log7` = `#B_#G` ·
+    #   제47항(3865행) `2cosx` = `#b6cx`. LaTeX 의 빈칸은 뜻이 없는데 MinerU 가 `2 \log` · `a \sin` 처럼
+    #   띄워 적어 그 빈칸이 점자 빈칸으로 나갔다. gold 009 전권: 수 계수 뒤 붙음 231 : 띄움 28,
+    #   로마자 계수 뒤 붙음 98 : 0. ⚠ 앞이 LaTeX 명령(`\times \log`)이면 연산이라 띄움을 둔다.
+    if _COEF_FN_JOIN:
+        result = _COEF_FN_RE.sub(lambda m: m.group(0) if m.group(2) else m.group(1) + m.group(3), result)
+    return result
 
 
 def _stage6_abs(result: str) -> str:
@@ -2011,6 +2023,12 @@ def _stage11c_math_context_symbols(result: str) -> str:
     #   만들었다 — 점자만 보면 그럴듯해 점역사가 못 찾는 오류였다.
     # 나머지 나열 쉼표(로마자·식 사이) = 문장부호 쉼표 ⠐
     # (규정 집합 예시 ,a337#b"#d"#f7 의 " = ⠐, 2026-07-19)
+    # ★ 쉼표 뒤는 **늘 한 칸**이다(#1115, 원장 M-09) — 4092행 `{1,2,3}` = `7#A"`#B"`#C7` ·
+    #   3102행 `{2,4,6,...}` = `7#b"`#d"`#f"`,,,7` · 3935·4003·4057행 `f(x,y)` = `F8X"`Y0`.
+    #   종전에는 쉼표 셀만 바꾸고 칸은 원문을 따라, 원문이 `{1,2,3}` 처럼 붙어 있으면 칸이 빠졌다.
+    #   gold 수학 네 권: `수,⠀수` 2,130 대 `수,수` 249. 뒤가 비었으면(식 끝 쉼표) 칸을 안 붙인다.
+    if _MATH_COMMA_SPACE:
+        result = re.sub(r",[ ]*(?=\S)", "⠐ ", result)
     result = result.replace(",", "⠐")
     # 계승(제62항 1호): 수식의 ! = ⠖ (gold 실측 #D6=4! 일치). 텍스트 느낌표와 분리.
     result = result.replace("!", "⠖")
@@ -2225,6 +2243,10 @@ def _finish_recurring(result: str) -> str:
     # 정수부 없는 소수는 위에서 수표+소수점을 직접 냈으므로, 11단계가 뒤 숫자에 붙인
     # 수표가 겹친다(`#4#dg`). 소수점 바로 뒤 수표만 걷는다.
     return _DEC_DUP_NUM_RE.sub(_NUMBER_INDICATOR + "⠲", t)
+
+
+# 수식 쉼표 뒤 한 칸(#1115) — A/B 스위치. 채택 뒤 굳힌다.
+_MATH_COMMA_SPACE = os.environ.get("MATH_COMMA_SPACE", "1") != "0"
 
 
 def convert_latex(latex: str) -> str:

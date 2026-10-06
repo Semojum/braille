@@ -455,6 +455,10 @@ def _greek_span_at(s: str, i: int) -> tuple[str, int] | None:
     return "".join(out), m.end()
 
 
+# 한글 음절과 점형이 겹쳐 **홀로 선 낱말일 때만** 기호로 읽는 것(#1112) — _decode_line 참조.
+_WORD_ONLY_SYMBOLS = frozenset(("⠮⠮", "⠗⠋", "⠠⠨⠊", "⠠⠨⠑"))
+
+
 def _build_symbol_rev() -> dict[str, str]:
     """symbol_table(문자→점자) 역인덱스. 충돌 시 먼저 등록된 문자 유지."""
     rev: dict[str, str] = {}
@@ -1922,9 +1926,12 @@ _SCRIPT_TAIL_RE = re.compile(r"[_^]\d+$")   # 첨자 숫자로 끝났나 (과학
 #     `P(x)`(⠠⠏⠦⠭⠴)가 초성 ㅅ+ㅝ+받침 ㅌ 으로 읽혀 `쉍옥”` 으로 나갔다.
 #     전권 실측 접두 `⠠낱자⠦…⠴` 1,433회·202쪽 중 지금 놓치는 것이 562회·122쪽·90꼴인데
 #     **순한글로 읽히는 꼴은 0종 0회**다 — 대문자표가 오히려 한글 오인을 줄인다.
+#   ★ 괄호 안 **그리스 낱자**(⠨ + 낱자, 「수학 점자」 제13항)도 받는다(#1097). `f(α), f(β), f(γ)` 가
+#     `캍작”, 캍잡”, 캍준”` 으로 나갔다(EBS-E26-009 ans 45 · body 80). ⠨ 는 초성 ㅈ 이라 **그리스 낱자 짝**으로만 든다.
 _FUNC_RE = re.compile(
     r"^⠠?[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠅⠇⠍⠝⠕⠏⠟⠗⠎⠞⠥⠧⠺⠭⠽⠵]"
-    r"⠦[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠅⠇⠍⠝⠕⠏⠟⠗⠎⠞⠥⠧⠺⠭⠽⠵⠼⠔⠢⠐⠌⠰⠘⠷⠾⠠]+⠴")
+    r"⠦(?:[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠅⠇⠍⠝⠕⠏⠟⠗⠎⠞⠥⠧⠺⠭⠽⠵⠼⠔⠢⠐⠌⠰⠘⠷⠾⠠]"
+    r"|⠨[⠁⠃⠛⠙⠑⠵⠱⠹⠊⠅⠇⠍⠝⠭⠏⠗⠎⠞⠥⠋⠯⠽⠺])+⠴")
 
 _PAREN_OPEN, _PAREN_CLOSE = "⠦", "⠴"   # 소괄호(제45항 `8`·`0`)
 _MATH_COLON = "⠐⠂"                     # 쌍점(「한글 점자」 문장 부호표 `"1`)
@@ -1964,6 +1971,11 @@ def _seq_inner(cells: str) -> str:
             out.append(_ALPHA_REV.get(c, c))
             i += 1
     return "".join(out)
+
+
+_PRIME = "⠤"                                       # 프라임(「수학 점자」 제17항)
+_PRIME_AFTER_RE = re.compile(r"[A-Za-zα-ωΑ-Ω)′]$")
+_HYPHEN_WORD_RE = re.compile(r"[a-z]{3}$")           # marble-greek 처럼 영단어 뒤 ⠤ 는 하이픈
 
 
 def _decode_math_token(tok: str) -> str:
@@ -2084,6 +2096,12 @@ def _decode_math_token(tok: str) -> str:
             out.append(_bond[0])
             i = _bond[1]
             continue
+        # 그리스 대문자 — 대문자표 ⠠ + 그리스 낱자(「수학 점자」 재추출 3937~3938행 `Δx`·`Δy` = `,.dx/,.dy`).
+        #   대문자표가 홀로 버려져 `Δx` 가 `δx` 로 나갔다(#1097).
+        if c == _CAPITAL and tok[i + 1:i + 3] in _MATH_REV_MULTI and tok[i + 1] == "⠨":
+            out.append(_MATH_REV_MULTI[tok[i + 1:i + 3]].upper())
+            i += 3
+            continue
         matched = False                             # 다중 셀 수학 기호(≠·÷·그리스 등)
         for ln in range(min(_MATH_MAX, n - i), 1, -1):
             if tok[i:i + ln] in _MATH_REV_MULTI:
@@ -2122,8 +2140,10 @@ def _decode_math_token(tok: str) -> str:
                 i and not _var_follows(tok, i) and _korean_tail(tok, i))):
             if tok[i + 1:i + 2] == _CAPITAL and tok[i + 2:i + 3] in _ALPHA_REV:
                 i += 2                                # 대문자 단어표 — 로마자 런 전체
-                while i < n and tok[i] in _ALPHA_REV:
-                    out.append(_ALPHA_REV[tok[i]].upper())
+                # 프라임 ⠤ 를 건너서도 이어진다 — 「수학 점자」 제39항 예(재추출 3734행) `A′B′` = `@c,,A-B-`.
+                #   종전에는 ⠤ 에서 끊겨 `A-b-` 로 나갔다(#1097).
+                while i < n and (tok[i] in _ALPHA_REV or (tok[i] == _PRIME and out)):
+                    out.append("′" if tok[i] == _PRIME else _ALPHA_REV[tok[i]].upper())
                     i += 1
                 continue
             if tok[i + 1:i + 2] in _ALPHA_REV:        # 대문자 기호표 — 한 글자
@@ -2216,6 +2236,15 @@ def _decode_math_token(tok: str) -> str:
                 out.append("^2")
                 i += 1
             continue
+        # 프라임 — 「수학 점자」 제17항(재추출 3526~3527행) "프라임(′)은 -으로 적는다" `x′` = `x-` ·
+        #   `a′b` = `a-b`. 수식의 뺄셈은 ⠔ 라 ⠤ 와 안 겹친다. 로마자 · 그리스 · 닫는 괄호 · 프라임 뒤의
+        #   ⠤ 만 프라임으로 읽는다(#1097). 종전에는 하이픈 `-` 로 나가 `S′` 가 `S-` 였다.
+        #   영단어(소문자 셋 이상) 뒤와 주소(앞에 / 가 있는 토큰) 속은 하이픈이라 뺀다(marble-greek · 2019/02/about-c).
+        if (c == _PRIME and out and _PRIME_AFTER_RE.search(out[-1])
+                and not _HYPHEN_WORD_RE.search("".join(out[-3:])) and "/" not in "".join(out)):
+            out.append("′")
+            i += 1
+            continue
         best = 0                                     # \text 한글·기호 폴백(긴 셀 우선)
         for ln in range(min(_MAX_CELLS, n - i), 0, -1):
             if tok[i:i + ln] in _COMBINED:
@@ -2234,6 +2263,10 @@ def _decode_math_token(tok: str) -> str:
 _RADIX_RE = re.compile(r"^⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠂⠲]+⠰⠦⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚]+⠴$")
 
 
+_LIM_HEAD = "⠇⠊⠍⠰"          # lim + 변수표(제51항)
+_ARROW_RIGHT = "⠒⠕"         # 화살표 →(제51항 극한)
+
+
 def _classify_token(tok: str) -> str:
     """토큰을 MATH/NUM/OP/TEXT로 분류(인라인 수식 감지용).
 
@@ -2244,6 +2277,10 @@ def _classify_token(tok: str) -> str:
     """
     if tok in _BARE_OPS:
         return "OP"
+    # 극한 기호 lim — 「수학 점자」 제51항(재추출 3908~3916행) `LIM;X`3o`=`F8X0`(lim x→∞ f(x)).
+    #   `⠇⠊⠍`+변수표 ⠰ 로 여는 토막이다. 종전에는 한글 `사두촉` 으로 읽혔다(#1100).
+    if tok.startswith(_LIM_HEAD):
+        return "MATH"
     if tok in _GREEK_TOKENS:
         return "GREEK"
     # 삼각함수 접두 ⠖(규정 제47항)로 시작하고 뒤가 등록된 함수면 수식이다.
@@ -3331,8 +3368,12 @@ _TABLE_RULE_RE = re.compile(r"^[⠀ ]*([⠐⠂⠤⠒⠶])\1{5,}[⠀ ]*$")
 # `⠼⠋⠤⠼⠛`(6-7) 같은 범위다.
 _PAGE_CHANGE_RE = re.compile(r"^⠤{5,}(⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠤⠼]*)$")
 
+# ★ 제목 든 테두리는 제목 앞 채움이 **3칸**인 책도 있다(#1100). 지침 예 2-5(「점자 자료 제작 지침」
+#   619~622행)는 `=gggg`^u@o`ggg…=` 로 4칸이지만, gold 에 `=ggg`제목`ggg…=` 가 31줄 있고
+#   모서리 ⠿ 가 약자 '옹', 채움 ⠛ 가 '운' 으로 읽혀 `옹운운운 보기 운운…옹` 이 나갔다.
+#   3칸은 **제목이 뒤따를 때만** 받는다. 제목 없는 테두리는 종전대로 4칸 이상이다.
 _BOX_BORDER_RE = re.compile(
-    r"[⠿⠖⠓](⠛|⠶|⠒|⠐)\1{3,}(?:[⠀ ](.+?)[⠀ ]\1{3,})?[⠿⠲⠚]")
+    r"[⠿⠖⠓](⠛|⠶|⠒|⠐)(?:\1{3,}|\1{2}(?=[⠀ ]))(?:[⠀ ](.+?)[⠀ ]\1{2,})?[⠿⠲⠚]")
 
 
 # ── 수식 경계의 두 칸은 점자 조판이다 (「수학 점자」 제11·12항 1호, 과학 제6항) ─────
@@ -3608,6 +3649,20 @@ def _english_ctx(lines: list[str]) -> list[bool]:
     return ctx
 
 
+# 두 칸 수식 토막(#1097) — 아래 _decode_line_router 참조. 끄는 스위치는 전후 대조용이다.
+_GAP_MATH = os.environ.get("BR_GAP_MATH", "1").lower() not in ("0", "false", "off")
+# 수식 구조 셀(⠼ 는 위 분류가 이미 본다, 절댓값 ⠳…⠳ 은 #1097 후속): 덧셈 · 뺄셈 · 아래 · 위첨자 · 근호 · 소괄호 · 대문자 + 낱자 · 그리스.
+_GAP_MATH_SIGNAL_RE = re.compile(r"[⠢⠔⠰⠘⠻⠜]|⠳.+⠳|⠦.*⠴|⠠[⠁-⠵]|⠨[⠁⠃⠛⠙⠑⠵⠱⠹⠊⠅⠇⠍⠝⠭⠏⠗⠎⠞⠥⠋⠯⠽⠺]")
+# 수식 뒤 조사(두 칸 띄고 오는 것). `이` 로 여는 낱말(`이용`)과 안 겹치게 조사 꼴만 든다.
+_GAP_PARTICLE_RE = re.compile(r"(?:의|이|가|을|를|은|는|와|과|에|에서|에게|로|으로|도|만|까지|부터|보다|처럼|"
+                              r"이고|이다|이며|이면|이라|이므로|이지|일|인|임|이라고|이라는|이라면|이므로)(?![가-힣])")
+# 깨끗한 수식 읽기: 로마자 · 숫자 · 그리스 · 연산 · 괄호만, 로마자나 그리스가 하나는 있어야 한다.
+#   `·`(⠐)은 뺀다 — 유전자형 `A*`(⠠⠁⠘⠐⠔)가 `A^·-` 로 읽혀 별표를 잃는다.
+#   끝이 연산 · 첨자 · 근호면 식이 덜 끝난 것이라 뺀다 — 글자를 두 칸씩 띄운 낱말 퍼즐 `생  명  이` 의
+#   `명`(⠑⠻)이 `e√` 로 읽혔다.
+_GAP_MATH_CLEAN_RE = re.compile(r"(?=.*[A-Za-zα-ωΑ-Ω])[A-Za-z0-9α-ωΑ-Ω+\-=×÷^_()\[\]/√<>≤≥≠,.|'′]*[A-Za-z0-9α-ωΑ-Ω\-)\]/,.|'′]")
+
+
 def _decode_line_router(line: str, math: bool, *, eng_ctx: bool = False,
                         eng_tok: bool = False) -> str:
     """줄을 공백 단위로 나눠 수식 토큰은 수학 디코더로, 나머지는 한글 디코더로 라우팅."""
@@ -3730,6 +3785,32 @@ def _decode_line_router(line: str, math: bool, *, eng_ctx: bool = False,
         for _j in (_i - 1, _i + 1):
             if _is_operand(tokens[_j]):
                 is_math[_j] = True
+    # ★ 두 칸 뒤에 조사가 오는 토막은 수식이다 — 「수학 점자」 제11항(재추출 3234행) "수식의 앞뒤는
+    #   두 칸씩 띄어 쓴다". 한글 낱말은 조사를 **붙여** 쓰므로 `토막 ⠀⠀ 조사` 는 수식 뒤에만 선다.
+    #   수표 ⠼ 가 없는 수식은 위 분류에 안 걸려 한글로 떨어졌다(#1097):
+    #   `m+n  의 값`(⠍⠢⠝) → `움에  의 값` · `Sₙ  이라`(⠠⠎⠰⠝) → `서체  이라`.
+    #   한글 읽기만으로는 못 가른다 — kiwi 는 `움에`·`서체` 를 낱말로 받는다. 그래서 자리로 가른다.
+    #   ① 앞 두 칸(줄 머리 들여쓰기 제외) ② 뒤 두 칸 + 조사 ③ 수식 구조 셀 ④ 수식 읽기가 깨끗하다
+    #   ⑤ 지금 읽기에 한글이 있다(로마자 · 로마 숫자로 이미 바르게 읽힌 토막은 안 건드린다).
+    #   ⚠ 토막 자신이 조사로 읽히면(`-2z=-12  에서  z=6`) 뒤 수식의 `z`(⠵=은)가 조사처럼 보여 걸린다 — 뺀다.
+    #     뒤 토막이 이미 수식이어도 뺀다. 점역자 주표 ⠠⠄ 를 품은 토막도 뺀다(표지를 먹는다).
+    if not math and _GAP_MATH:
+        for idx, tok in enumerate(tokens):
+            if (not tok or is_math[idx] or setop[idx] or leadop[idx] or upper[idx]
+                    or idx == 0 or not tokens[idx - 1] or len(seps[idx - 1]) < 2
+                    or idx + 1 >= len(tokens) or not tokens[idx + 1] or len(seps[idx]) < 2
+                    or not _GAP_MATH_SIGNAL_RE.search(tok)):
+                continue
+            ko = _decode_line(tok)
+            if (_TN_MARKER not in tok and not is_math[idx + 1]
+                    and _GAP_MATH_CLEAN_RE.fullmatch(_decode_math_token(tok))
+                    and _HANGUL_SYL_RE.search(ko) and not _GAP_PARTICLE_RE.fullmatch(ko)
+                    and _GAP_PARTICLE_RE.match(_decode_line(tokens[idx + 1]))):
+                is_math[idx] = True
+    # 극한의 점근값(제51항) — `lim 변수 → 값` 의 값 토막. 홀로 선 ∞(⠿)가 약자 '옹' 으로 읽혔다(#1100).
+    for idx in range(2, len(tokens)):
+        if tokens[idx - 1] == _ARROW_RIGHT and tokens[idx - 2].startswith(_LIM_HEAD):
+            is_math[idx] = True
     # ── 줄 관문 (#905) ───────────────────────────────────────────────────
     # 그 줄의 **읽기에 이미 영어가 있을 때만** 토막 규칙을 켠다(로마자표로 열린 구간이 그렇다).
     # 관문이 없으면 영어가 한 글자도 없는 한글 줄에서 규칙이 돌아, 전 코퍼스 A/B 에서
@@ -3956,12 +4037,33 @@ def _genotype_at(s: str, i: int) -> tuple[str, int] | None:
     return "".join(out), m.end()
 
 
-def _decode_line(s: str, *, sep: bool = True) -> str:
+# 낱말 가운데 로마자(#1097) — 위 _decode_line 참조. 끄는 스위치는 전후 대조용이다.
+_MIDWORD_ROMAN = os.environ.get("BR_MIDWORD_ROMAN", "1").lower() not in ("0", "false", "off")
+_MIDWORD_ROMAN_RE = re.compile(r"⠴([⠁-⠵]{1,4})⠲(?=[^⠀ \n⠲⠂⠆⠒⠦⠖⠴⠄⠐⠤⠸⠼])(?!⠠[⠴⠄]|⠦⠄)")
+
+
+def _decode_line(s: str, *, sep: bool = True, mid_roman: bool = True) -> str:
     # 구분표는 **토큰 경계이기도 하다.** 그냥 지우면 뒤 셀이 앞 음절의 받침으로 먹힌다 —
     # `⠣⠤⠌`(아예)가 `았`, `⠟⠺⠤⠌⠨⠕`(인의예지)가 `인읬지`, `⠠⠍⠤⠗⠁`(수액)이 `쉭` 이
     # 된다. 그래서 그 자리에서 **끊어 따로 읽고 붙인다**(드러냄표 센티넬과 같은 수법).
     if sep and _SEP_MARK_RE.search(s):
         return "".join(_decode_line(part) for part in _SEP_MARK_RE.split(s))
+    # ★ 낱말 **가운데** 로마자 — 「한글 점자」 제29항(재추출 1496행) 로마자표 ⠴ … 종료표 ⠲.
+    #   규정 예(3643행) `제n항까지의` = `.n0n4j7,$.ow`. ⠴ 는 낱말 가운데서 닫는 따옴표 · 받침 ㅎ 과
+    #   점형이 같아 음절 맞춤이 앞 모음과 함께 먹고 `제”에.항` 으로 나갔다(#1097).
+    #   한글 음절 바로 뒤 ⠴ 에서 낱자 1~4칸 + 종료표 ⠲ + **붙은 한글**일 때만 그 자리에서 끊어
+    #   로마자로 읽는다. 닫는 따옴표 · 마침표 뒤에 빈칸 없이 한글이 오는 꼴은 문장에 없다.
+    #   ⚠ ⠴ 는 받침 ㅎ 이기도 하다 — `않는다.)`(안+ㅎ · 는다 · 마침표)가 같은 꼴이다. 그래서 **종전 읽기가
+    #     실재하는 한국어 낱말이면**(kiwi) 손대지 않는다. 전권 첫 판에서 ㅎ 받침 낱말 216줄이 걸렸다.
+    if _MIDWORD_ROMAN and mid_roman:
+        for m in _MIDWORD_ROMAN_RE.finditer(s):
+            if m.start() and all(x in _ALPHA_REV for x in m.group(1)):
+                head = _decode_line(s[:m.start()], sep=sep, mid_roman=False)
+                ws = max(s.rfind("⠀", 0, m.start()), s.rfind(" ", 0, m.start())) + 1
+                if "가" <= head[-1:] <= "힣" and not _is_real_korean(
+                        _decode_line(s[ws:m.end()], sep=sep, mid_roman=False)):
+                    return (head + "".join(_ALPHA_REV[x] for x in m.group(1))
+                            + _decode_line(s[m.end():], sep=sep, mid_roman=mid_roman))
     out: list[str] = []
     i, n = 0, len(s)
     _after_number = -1        # 수표 숫자가 방금 끝난 자리(아래 단위표 가드용)
@@ -4120,6 +4222,14 @@ def _decode_line(s: str, *, sep: bool = True) -> str:
         best_ln = 0
         for ln in range(min(_MAX_CELLS, n - i), 0, -1):
             if s[i:i + ln] in _COMBINED:
+                # ★ 한글을 먹는 기호 점형은 **홀로 선 낱말일 때만** 기호다(#1112). 낱말 안에서는
+                #   음절로 읽는다 — gold 전권 실측 ⠮⠮(∬)=`을을` 126회 · ⠗⠋(ℵ)=`애카` 84회 ·
+                #   ⠠⠨⠊(Ι)=`짜다` 12회 · ⠠⠨⠑(Ε)=`짜마` 5회. `마을을` 이 `마∬`, `짜맞추어` 가
+                #   `Εk추어` 로 나갔다. 새 기호의 겹침은 test_reverse_map_collision_guard 가 잡는다.
+                if s[i:i + ln] in _WORD_ONLY_SYMBOLS and not (
+                        (i == 0 or s[i - 1] in (_SPACE_CELL, " "))
+                        and (i + ln >= n or s[i + ln] in (_SPACE_CELL, " "))):
+                    continue
                 best_ln = ln
                 break
         # ★ 대문자 구절표 ⠠⠠⠠ 는 **줄임표 `……` 와 같은 셀**이다(제28항 [붙임] / 제53항).
@@ -4149,7 +4259,9 @@ def _decode_line(s: str, *, sep: bool = True) -> str:
         if ch == _ROMAN_START and best_ln >= 2 and i == _after_number:
             pass                       # 단위로 읽는다(아래 기호 분기로 떨어진다)
         elif (ch == _ROMAN_START and best_ln >= 2
-              and (i == 0 or s[i - 1] in (_SPACE_CELL, " "))):
+              and (i == 0 or s[i - 1] in (_SPACE_CELL, " ", _PAREN_OPEN_MARK))):
+            # ★ 여는 괄호 바로 뒤도 **낱말 앞**이다(#1109). 생활과 윤리 `(paternalistically)`
+            #   (⠦⠄⠴⠏⠁⠞⠻…)가 런을 못 열어 `⠴⠏` 가 `%` 로 먹히고 `(%a얼영엑사뎨다낙사사외)` 로 나갔다.
             # ★ 로마자표는 **낱말 앞**에 온다(제29항). 낱말 중간의 ⠴ 는 닫는 낫표·
             #   따옴표다 — `_merge_roman_tokens`·단축형 판정이 이미 쓰는 원칙이다.
             #   이 조건이 없으면 "긴 쪽이 이긴다"가 뒤집힌다: `『황명세법』을`

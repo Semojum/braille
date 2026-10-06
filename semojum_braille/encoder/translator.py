@@ -209,11 +209,37 @@ def _book_roman_to_cells(text: str) -> str:
 
 _FORMULA_RE      = re.compile(r"<!수식>(.*?)<!/수식>", re.DOTALL)
 # 수학 제11항(재추출 3234~3236행): 두 칸 대상인 수학적 표기에서 "분모와 분자가 수로 이루어진
-#   단순 분수와 소수를 제외"한다. 동그라미 숫자 선택지 뒤의 단순 수(정수 · 소수 · 음수 · 수/수 분수)는
-#   묵자 빈칸대로 한 칸이다 — 제64항 예(2585~2586행) `① ㄱ, ㄴ  ② ㄱ, ㄷ` = `#1`=a"`=3``#2…` (#1083).
-#   ⚠ 선택지 자리만 좁혔다. 자리를 안 가리는 넓은 꼴은 따로 재는 중이다(temp/n46/kjbl/결과_수식간격_N팔.md).
+#   단순 분수와 소수를 제외"한다. 단순 수(정수 · 소수 · 음수 · 수/수 분수)는 자리를 가리지 않고 두 칸 대상이
+#   아니라 묵자 빈칸대로 한 칸 · 조사는 붙인다 — 제64항 예(2585~2586행) `① ㄱ, ㄴ  ② ㄱ, ㄷ` = `#1`=a"`=3``#2…`
+#   (#1083 선택지 뒤) · 글 속 `값은 $3$이다`(#1095 현장 지적 3). gold 94권 붙임 3,167 : 두 칸 11(원장 C-156).
+_CIRCLED_BR_RE = re.compile(r"⠼[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]")    # 동그라미 숫자 ①~⑩ 점형(내려 쓴 수)
 _SIMPLE_NUM_MATH_RE = re.compile(r"\s*-?\s*(?:\\[dt]?frac\s*\{?\s*\d+\s*\}?\s*\{?\s*\d+\s*\}?|\d+(?:\.\d+)?)\s*")
-_CIRCLED_TAIL_RE = re.compile(r"[①-⑳]\s*$")
+# 글 속 글자 하나 수식(`$a$`)은 로마자다 — 제32항 예(재추출 1653행) `다음 a, b, c의 값` = `0a1 ;b1 ;c4w`
+#   (#1095 현장 지적 4). gold 94권 로마자꼴 11,692 : 수식꼴 77(원장 C-155).
+#   가드: 앞뒤 글에 로마자 · 수 · 연산 기호 · 괄호가 붙으면 식의 일부라 수식 그대로(`y=sin $x$`, `$f$(x)`).
+_SINGLE_LETTER_MATH_RE = re.compile(r"<!수식>\s*([A-Za-z])\s*<!/수식>([ \t]*)")
+# 로마자 뒤 조사는 붙인다(1653행 `c의` = `;c4w`). 추출이 `$k$ 의` 처럼 띄워 내보내는 빈칸을 지운다
+#   (009 ans 53 `k의 값` 이 `⠴⠅⠲⠀⠺` 로 나갔다, gold `⠴⠅⠲⠺`).
+_LETTER_PARTICLE_RE = re.compile(r"(?:의|이|가|을|를|은|는|와|과|에|에서|에게|로|으로|도|만|까지|부터|보다|처럼|"
+                                 r"이고|이다|이며|이면|이라|이므로|이지|일|인|임|이라고|이라는|이라면|이므로)(?![가-힣])")
+_MATH_NEIGHBOR_RE = re.compile(r"[A-Za-z0-9=+\-−<>≤≥×÷·/^_()\[\]{}|'′]")
+
+
+_PREV_FORMULA_COMMA_RE = re.compile(r"<!수식>((?:(?!<!).)*)<!/수식>\s*,$", re.S)
+_SINGLE_LETTER_RE = re.compile(r"[A-Za-z]")
+
+
+def _single_letter_math_repl(m: re.Match) -> str:
+    before = m.string[:m.start()].rstrip()
+    after = m.string[m.end():].lstrip()
+    if (before and _MATH_NEIGHBOR_RE.match(before[-1])) or (after and _MATH_NEIGHBOR_RE.match(after[0])):
+        return m.group(0)
+    # 수식 나열의 끝(`$\sqrt[3]{2}$ , $b$ 이므로`)이면 수식 그대로 — 앞 수식이 낱자가 아닐 때만.
+    #   낱자끼리의 나열(`다음 a, b, c의 값`, 「한글 점자」 제32항 1653행)은 로마자로 둔다.
+    prev = _PREV_FORMULA_COMMA_RE.search(before)
+    if prev and not _SINGLE_LETTER_RE.fullmatch(prev.group(1).strip()):
+        return m.group(0)
+    return m.group(1) + ("" if _LETTER_PARTICLE_RE.match(after) else m.group(2))
 _TAG_RE          = re.compile(r"<[^>]+>")
 # 잔여 <!…> 정식 태그만 안전 제거(아래 _ANGLE_LABEL_RE가 본문 <…>를 살린 뒤).
 _RESIDUAL_BANG_TAG_RE = re.compile(r"<!/?[^>]*>")
@@ -432,10 +458,14 @@ _OLD_CHO = {          # 첫소리 (제19~22항). 옛 글자표 ⠐를 앞세운�
 _OLD_JUNG = {         # 옛 모음자 (제25항). ㆇ~ㆌ는 옛 글자표가 아니라 ⠸를 앞세운다.
     "ᆞ": "⠐⠼",       # ㆍ 아래아
     "ᆡ": "⠐⠼⠗",     # ㆎ 아래애
-    "ᆈ": "⠸⠬⠜",     # ㆇ 요야
-    "ᆉ": "⠸⠬⠕",     # ㆉ 요이
-    "ᆊ": "⠸⠩⠱",     # ㆊ 유여
-    "ᆍ": "⠸⠩⠕",     # ㆌ 유이
+    # ★ 첫가끝 코드값은 유니코드 이름으로 확인한다(#1093). 종전 표는 U+1188 · 1189 · 118A · 118D 에 걸려
+    #   ㆉ 를 ㆇ 로 적고 ㆊ · ㆌ 는 아예 못 받아 글자가 지워졌다(규정 예 `거ᄋᆔ라` → `거라`).
+    "\u1184": "⠸⠬⠜",   # ㆇ 요야 YO-YA
+    "\u1185": "⠸⠬⠜⠗", # ㆈ 요얘 YO-YAE
+    "\u1188": "⠸⠬⠕",   # ㆉ 요이 YO-I
+    "\u1191": "⠸⠩⠱",   # ㆊ 유여 YU-YEO
+    "\u1192": "⠸⠩⠌",   # ㆋ 유예 YU-YE
+    "\u1194": "⠸⠩⠕",   # ㆌ 유이 YU-I
 }
 _OLD_JONG = {         # 받침 (제19·20항)
     "ᇫ": "⠐⠅",       # ㅿ 반치음
@@ -449,26 +479,34 @@ _L0, _L9 = 0x1100, 0x1112
 _V0, _V9 = 0x1161, 0x1175
 _T0, _T9 = 0x11A8, 0x11C2
 _JAMO_RUN_RE = re.compile(r"[\u1100-\u11FF\uA960-\uA97C\uD7B0-\uD7FB]+")
+_OLD_HANGUL_1098 = os.environ.get("OLD_HANGUL_1098", "1") != "0"   # #1098 \uAC19\uC740 \uCEE4\uBC0B A/B \uC2A4\uC704\uCE58(\uB044\uBA74 \uC885\uC804)
 
 
 def _old_hangul_to_braille(text: str) -> str:
-    """첫가끝 자모로만 조합되는 옛한글을 점자 셀로 바꾼다(규정 제19~25항).
-
-    규정에 점형이 없는 자모가 섞이면 그 런은 **손대지 않고** 종전 경로에 넘긴다.
-    """
+    """첫가끝 자모로만 조합되는 옛한글을 점자 셀로 바꾼다(규정 제19~25항)."""
     if not _JAMO_RUN_RE.search(text):
         return text
-    return _JAMO_RUN_RE.sub(lambda m: _old_run_cells(m.group()) or m.group(), text)
+    return _JAMO_RUN_RE.sub(lambda m: _old_run_cells(m.group()), text)
 
 
-def _old_run_cells(run: str) -> str | None:
-    out: list[str] = []
-    for syl in _split_jamo_syllables(run):
-        cells = _old_syllable_cells(syl)
-        if cells is None:
-            return None
-        out.append(cells)
-    return "".join(out)
+def _old_run_cells(run: str) -> str:
+    """음절 단위로 적는다. 규정에 점형이 없는 음절만 자모 그대로 남긴다(#1098).
+
+    종전엔 음절 하나라도 못 적으면 런 전체를 넘겨 braillify 가 거부하고 "변환 불가 글자 제거"가
+    **런을 통째로** 지웠다 — 적을 수 있는 음절까지 흔적 없이 빠졌다(`하ᄀᆞᄋᆉ다` → `⠚⠊`).
+    남긴 자모는 뒤 경로가 지우고, `dropped_old_jamo` 가 세어 쪽 플래그(R18)로 드러낸다.
+    """
+    syls = _split_jamo_syllables(run)
+    cells = [_old_syllable_cells(s) for s in syls]
+    if not _OLD_HANGUL_1098 and None in cells:
+        return run                         # 종전: 런 통째로 뒤 경로에(→ 지워짐)
+    return "".join(c or "".join(s) for c, s in zip(cells, syls))
+
+
+def dropped_old_jamo(text: str) -> collections.Counter:
+    """규정에 점형이 없어 점역에서 빠질 옛한글 음절을 센다. 페이지 플래그(R18)의 근거 수치다."""
+    return collections.Counter("".join(syl) for m in _JAMO_RUN_RE.finditer(text)
+                               for syl in _split_jamo_syllables(m.group()) if _old_syllable_cells(syl) is None)
 
 
 def _split_jamo_syllables(run: str) -> list[list[str]]:
@@ -511,6 +549,17 @@ def _old_syllable_cells(syl: list[str]) -> str | None:
         return cho
     v = jung_l[0]
     t = jong_l[0] if jong_l else ""
+    tail = ""
+    if t and _OLD_HANGUL_1098 and _jong_cell(t) is None:
+        # 제22항 [다만](규정_텍스트.txt 1147행) "현재 쓰이지 않는 겹받침 글자는 각 받침 글자를 어울러
+        # 적는다." 첫 성분까지는 아래 경로로 적어 약자를 살리고 나머지 성분 받침을 잇는다(#1098).
+        # gold(언어와 매체): `부ᇑ` ⠘⠯⠢⠁(울 약자) · `가ᇇ` ⠈⠣⠒⠄(제24항 — ㅏ 를 생략하는 약자 '가' 안 씀) ·
+        # `구ᇚ` ⠈⠍⠢⠁ · `ᄒᆞᇙ` ⠚⠐⠼⠂⠐⠴.
+        parts = _jong_parts(t)
+        rest = [_jong_cell(p) for p in parts[1:]] if parts else [None]
+        if None in rest:
+            return None
+        t, tail = parts[0], "".join(rest)
     # 현대 모음·받침이면 braillify에 맡겨 **약자를 살린다** — gold는 `ᄫᅳᆫ`을
     # ⠐⠘⠶⠵(옛 글자표 ㅸ + 약자 '은')로 적지 옛 ⠪⠒로 풀어 적지 않는다.
     # 옛 자음자 뒤 'ㅏ'는 약자가 없어 그대로 남는다 — 제24항이 요구하는 그대로다.
@@ -518,15 +567,30 @@ def _old_syllable_cells(syl: list[str]) -> str | None:
         code = (_HANGUL_BASE + 11 * _JUNGSEONG_CNT * _JONGSEONG_CNT
                 + (ord(v) - _V0) * _JONGSEONG_CNT + (ord(t) - _T0 + 1 if t else 0))
         try:
-            return cho + _braillify_lib.translate_to_unicode(chr(code))
+            return cho + _braillify_lib.translate_to_unicode(chr(code)) + tail
         except Exception:  # noqa: BLE001 — 폴백은 아래 규정 표로
             pass
     jung = (_JUNGSEONG[ord(v) - _V0] if _V0 <= ord(v) <= _V9 else _OLD_JUNG.get(v))
-    jong = ("" if not t else
-            _JONGSEONG[ord(t) - _T0 + 1] if _T0 <= ord(t) <= _T9 else _OLD_JONG.get(t))
+    jong = _jong_cell(t) if t else ""
     if jung is None or jong is None:
         return None
-    return cho + jung + jong
+    return cho + jung + jong + tail
+
+
+def _jong_cell(t: str) -> str | None:
+    """받침 자모 하나의 점형(현대 받침 · 제19 · 20항 옛 받침). 규정에 없으면 None."""
+    return _JONGSEONG[ord(t) - _T0 + 1] if _T0 <= ord(t) <= _T9 else _OLD_JONG.get(t)
+
+
+def _jong_parts(t: str) -> list[str] | None:
+    """옛 겹받침을 성분 받침 자모로 가른다 — 유니코드 이름이 성분을 적는다(`HANGUL JONGSEONG RIEUL-MIEUM-KIYEOK`)."""
+    pre, name = "HANGUL JONGSEONG ", unicodedata.name(t, "")
+    if not name.startswith(pre) or "-" not in name:
+        return None
+    try:
+        return [unicodedata.lookup(pre + p) for p in name[len(pre):].split("-")]
+    except KeyError:
+        return None
 
 
 def _is_hangul(ch: str) -> bool:
@@ -1617,12 +1681,9 @@ _TAG_PAIR_MARKER: dict[str, tuple[str, str]] = {
     _TAGS.BOX_CHAR: ("⠸⠦", "⠴⠇"),
 }
 
-# 테두리(글상자 = 표, NLD-1.2.5): (캡, 채움) 글리프. 32칸 한 줄로 렌더.
-_BORDER_FILL: dict[str, tuple[str, str]] = {
-    _TAGS.BOX_TOP:    ("⠿", "⠛"),  # 위: 첫/끝 = , 중간 g
-    _TAGS.BOX_BOTTOM: ("⠿", "⠶"),  # 아래: 첫/끝 = , 중간 7
-}
-from semojum_braille.encoder.constants import COLS as _BORDER_COLS  # noqa: E402 (공용 상수)
+# 테두리(글상자 = 표, NLD-1.2.5) 태그 → 종류. 글리프는 위계별 공용 표(`constants.BOX_LEVELS`)에 있다.
+_BORDER_KIND = {_TAGS.BOX_TOP: "top", _TAGS.BOX_BOTTOM: "bottom"}
+from semojum_braille.encoder.constants import COLS as _BORDER_COLS, BOX_LEVELS as _BOX_LEVELS  # noqa: E402 (공용 상수)
 _BORDER_BLANK     = "⠀"   # 점자 빈칸(U+2800)
 _BORDER_LEFT_FILL = 4     # 캡 뒤 채움 칸 → 제목 7칸에서 시작(NLD-1.2.5(4)②: 캡1+채움4+빈칸1)
 
@@ -1630,16 +1691,21 @@ _BORDER_LEFT_FILL = 4     # 캡 뒤 채움 칸 → 제목 7칸에서 시작(NLD-
 # 위계: 이름 뒤 단계 숫자 옵션(<!상자2>=2단계, 없으면 1단계). group(1)=단계, group(2)=제목.
 _BORDER_PAIR_RE = {
     name: re.compile(rf"<!{re.escape(name)}([23]?)>(.*?)<!/?{re.escape(name)}\1>", re.DOTALL)
-    for name in _BORDER_FILL
+    for name in _BORDER_KIND
 }
 
 
-def _border_line(name: str, title_braille: str) -> str:
-    """글상자/표 테두리 32칸 줄. 제목 있으면 NLD-1.2.5(4)② 배치(7칸, 양옆 띔)."""
-    cap, fill = _BORDER_FILL[name]
+def _border_line(name: str, title_braille: str, level: int = 1) -> str:
+    """글상자/표 테두리 32칸 줄. 제목 있으면 NLD-1.2.5(4)② 배치(7칸, 양옆 띔).
+
+    ★ 위계(`<!상자2>` = 2단계)대로 그린다. 응답 `contents` 는 조판(layout) **앞에서** 굳으므로
+      여기서 1단계로 그리면 조판이 위계를 다시 그려도 BE · FE 가 받는 점자는 늘 1단계였다
+      (2027 dev 2단계 태그 70쌍 · val 85쌍이 전부 ⠿ 로 나감, gold 2단계 줄 dev 727 · val 368).
+    """
+    cap, fill, end = _BOX_LEVELS.get(level, _BOX_LEVELS[1])[_BORDER_KIND[name]]
     inner = _BORDER_COLS - 2
     if not title_braille:
-        return cap + fill * inner + cap
+        return cap + fill * inner + end
     # 케이스②: 캡1 + 채움4 + 빈칸1 + 제목 + 빈칸1 + 채움R + 캡1 = 32
     max_title = inner - _BORDER_LEFT_FILL - 2          # = 24
     # 초과분은 여기서 자른다. 케이스①(제목을 윗줄 5칸에 적고 테두리는 제목 없이 두기)은
@@ -1647,7 +1713,7 @@ def _border_line(name: str, title_braille: str) -> str:
     t = title_braille[:max_title]
     right_fill = inner - _BORDER_LEFT_FILL - 2 - len(t)
     return (cap + fill * _BORDER_LEFT_FILL + _BORDER_BLANK
-            + t + _BORDER_BLANK + fill * right_fill + cap)
+            + t + _BORDER_BLANK + fill * right_fill + end)
 
 
 # 글상자 테두리 태그(위/아래, 위계 옵션) 문서 순서 수집 — box_borders(NLD-1.2.5) layout 재렌더
@@ -1655,7 +1721,6 @@ def _border_line(name: str, title_braille: str) -> str:
 _BORDER_ANY_RE = re.compile(
     rf"<!({re.escape(_TAGS.BOX_TOP)}|{re.escape(_TAGS.BOX_BOTTOM)})([23]?)>(.*?)<!/?\1\2>",
     re.DOTALL)
-_BORDER_KIND = {_TAGS.BOX_TOP: "top", _TAGS.BOX_BOTTOM: "bottom"}
 
 
 def _braillify_box_title(raw: str) -> str:
@@ -1733,7 +1798,7 @@ def box_borders_from_source(source_text: str) -> list[tuple[str, int, str]]:
     """원본의 글상자 테두리 태그를 문서 순서대로 (kind, level, 제목점자)로 수집(NLD-1.2.5).
 
     layout이 이 목록으로 위계별 테두리·제목 배치(중간7칸/윗줄5칸/케이스①)를 재렌더한다.
-    translator는 인라인 32칸 테두리(위치 마커, 항상 1단계 ⠿ 형식)도 그대로 둔다(_border_line).
+    translator 는 인라인 32칸 테두리를 이미 위계 꼴로 그린다(_border_line). layout 은 제목 배치 · 빈 줄을 더한다.
     위계: 태그 이름 뒤 단계 숫자(<!상자2>=2단계, 없으면 1단계). ※§3-5 태그 규약 확장(태민 검토).
     """
     out: list[tuple[str, int, str]] = []
@@ -1746,10 +1811,6 @@ def box_borders_from_source(source_text: str) -> list[tuple[str, int, str]]:
         title = _braillify_box_title(title_raw) if (kind == "top" and title_raw) else ""
         out.append((kind, level, title))
     return out
-
-
-# 32칸 테두리 줄의 채움 글리프 → 테두리 종류. `_BORDER_FILL` 의 역방향이다.
-_BORDER_FILL_KIND = {fill: _BORDER_KIND[name] for name, (_cap, fill) in _BORDER_FILL.items()}
 
 
 def border_marker_spans(
@@ -1765,8 +1826,8 @@ def border_marker_spans(
       실측(fresh 실행, 사회문화 p010): 테두리 줄이 든 요소 4개의 `rule_trail` 이 전부 [].
 
     source-gated — 원본의 `<!상자>`·`<!상자끝>` 태그 순서·개수만큼만 짚는다. 표 격자도
-    같은 32칸 테두리를 그리므로(원장 C-01a) 출력 스캔만으로는 못 가른다. 채움 글리프로
-    종류(위 ⠛ / 아래 ⠶)까지 맞춰 어긋난 짝을 건너뛴다.
+    같은 32칸 테두리를 그리므로(원장 C-01a) 출력 스캔만으로는 못 가른다. 다음 태그의 종류 · 위계가
+    그리는 캡 · 채움(`constants.BOX_LEVELS`)과 맞는 줄만 짚고 어긋난 줄은 건너뛴다.
     """
     specs = box_borders_from_source(source_text)
     if not specs:
@@ -1774,9 +1835,9 @@ def border_marker_spans(
     spans: list[tuple[int, int, str]] = []
     si, pos = 0, 0
     for line in braille.split("\n"):
-        if si < len(specs) and len(line) == _BORDER_COLS and line[:1] == line[-1:] == "⠿" \
-                and _BORDER_FILL_KIND.get(line[1:2]) == specs[si][0]:
-            kind, level, title = specs[si]
+        kind, level, title = specs[si] if si < len(specs) else ("", 1, "")
+        cap, fill, end = _BOX_LEVELS.get(level, _BOX_LEVELS[1]).get(kind, ("", "", ""))
+        if kind and len(line) == _BORDER_COLS and line[:2] == cap + fill and line[-1:] == end:
             si += 1
             titled = "·제목있음" if (kind == "top" and title) else ""
             spans.append((pos, pos + len(line), f"box_{kind}·{level}단계{titled}"))
@@ -1899,10 +1960,11 @@ def substitute_tags(text: str) -> str:
     치환 결과는 점자 Unicode이므로 이후 _emit_mixed/braillify가 보존한다(이중 변환 없음).
     """
     text = _promote_literal_tn(text)
-    # 1) 테두리 쌍 (중간 제목 가능) → 32칸 줄(위치 마커). 위계는 box_borders로 layout이 재렌더.
+    # 1) 테두리 쌍 (중간 제목 가능) → 위계대로 32칸 줄. 제목 배치 · 빈 줄은 box_borders 로 layout 이 더한다.
     for name, pat in _BORDER_PAIR_RE.items():
         text = pat.sub(
-            lambda m, n=name: _border_line(n, _braillify_box_title(m.group(2).strip())), text
+            lambda m, n=name: _border_line(n, _braillify_box_title(m.group(2).strip()),
+                                           int(m.group(1) or 1)), text
         )
 
     # 2) 단일·대칭 인라인 마커 + 미지 태그 제거
@@ -1917,7 +1979,7 @@ def substitute_tags(text: str) -> str:
         # `_break_offsets`가 줄바꿈 자리를 찾느라 접두(`src[:sp]`)를 수천 번 재점역하면서
         # 늘 생긴다 — 전체 문자열 변환은 경고 0에 테두리도 정상이다(실측). 운영 로그를
         # 이 잡음으로 채우면 진짜 미지 태그가 묻힌다.
-        if name.rstrip("23") in _BORDER_FILL:
+        if name.rstrip("23") in _BORDER_KIND:
             return ""
         # 같은 이유로 미지 태그도 한 토큰이 수백 줄을 찍는다(실측: `<!표>` 하나에 172줄).
         # 토큰당 한 번만 남긴다 — 이 경고는 "이름이 틀렸다"는 신호라 한 번이면 족하고,
@@ -2093,8 +2155,7 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
                 chunks.append(("n", "⠤".join(convert_latex(x) for x in ions), False, False))
             else:
                 # "s" = 홑 기호(제70항·제60항 5호·제15항 한 칸). 그 밖은 "f"(제11항 두 칸).
-                simple = (_SIMPLE_NUM_MATH_RE.fullmatch(core)
-                          and _CIRCLED_TAIL_RE.search(parts[i - 1] if i else ""))
+                simple = _SIMPLE_NUM_MATH_RE.fullmatch(core)
                 chunks.append(("p" if simple else "s" if _LONE_SPACED_SYM_RE.match(core) else "f",
                                convert_latex(part), False, False))
 
@@ -2120,8 +2181,12 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
             if kind in ("n", "s") or prev_kind in ("n", "s"):
                 # 이온은 한 칸(과학 제2항 붙임), 홑 기호도 한 칸(제70항·제60항 5호·제15항)
                 result_parts.append("⠀")
-            elif kind == "p":
-                if pending_ws or lead_ws:             # 선택지 뒤 단순 수: 묵자 빈칸 그대로(한 칸), 제11항
+            elif kind == "p" or prev_kind == "p":
+                # 단순 수 앞뒤: 묵자 빈칸 그대로(한 칸), 제11항. 단 다음 선택지 번호 앞은 두 칸 —
+                #   제64항 예(2585~2586행) `① ㄱ, ㄴ  ② ㄱ, ㄷ` 의 선택지 사이(묵자가 한 칸이어도).
+                if prev_kind == "p" and _CIRCLED_BR_RE.match(braille):
+                    result_parts.append("⠀⠀")
+                elif pending_ws or lead_ws:
                     result_parts.append("⠀")
             elif kind == "i" or prev_kind == "i":
                 if pending_ws or lead_ws:
@@ -3128,6 +3193,8 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     text = _latex_chem_to_unicode(text)     # B-24 LaTeX 단순 화학식 → 평문 화학 경로
     text = inline_math.chem_chains(text)    # 반응식 식 경계(C-132) — $…$ 를 풀기 전에
     text = _normalize_inline_math(text)     # $…$/\(…\) → <!수식> (P1: 수식 라우팅)
+    if _HANGUL_SYL_RE.search(text):
+        text = _SINGLE_LETTER_MATH_RE.sub(_single_letter_math_repl, text)   # 현장 지적 4(#1095)
     # 구분자 없는 평문 수식(cos 2α=1-2 sin² α)도 같은 경로로 보낸다 — 수학 본문의
     # 16%가 이 형태다(inline_math 모듈이 오탐 없이 구간만 골라 태그를 붙인다).
     # ★ 맞고 틀림 표시는 **수식 라우팅보다 먼저** 고정한다(2026-08-26 2차).
