@@ -97,7 +97,7 @@ python -m semojum_braille.sidecar
 | op | 필드 | 타입 | 기본값 | 뜻 | 예 |
 |---|---|---|---|---|---|
 | 모두 | `id` | 아무 JSON 값 | 없음 | 응답에 그대로 돌아온다. 요청과 응답을 짝짓는 데 쓴다 | `2` |
-| 모두 | `op` | 문자열 | 없음 | `translate` · `decode` · `brf` · `read_brf` · `ping` | `"translate"` |
+| 모두 | `op` | 문자열 | 없음 | `translate` · `decode` · `brf` · `read_brf` · `grade` · `ping` | `"translate"` |
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` 중 하나. 들여쓰기가 이것에 따라 달라진다 | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
@@ -105,6 +105,10 @@ python -m semojum_braille.sidecar
 | decode | `english` | 참거짓 | `false` | 영어 교과 책이면 `true`. 한글로 잘못 읽힌 영어 토막을 되찾는다. 다른 책에서는 켜지 않는다 | `true` |
 | brf | `job` | 객체 | `{}` | 조판할 문서. 쪽마다 점역된 요소 통 문자열을 담는다(아래). 조판 옵션도 여기 넣는다 | `{"pages": […]}` |
 | read_brf | `brf` | 문자열 | `""` | `.brf` 파일 내용(ASCII 그대로). 소문자+백틱 · 대문자+`@` 두 꼴을 다 받는다. 백틱은 ⠈(초성 ㄱ)로 읽는다 | `"#a\r\nab\r\n\x0c"` |
+| grade | `braille` | 문자열 | `""` | 그 요소의 점역 결과(`translate` 의 `cells`) | `"⠊⠗⠚⠒…"` |
+| grade | `source` | 문자열 | `""` | 그 요소의 묵자 원문(`translate` 에 넣은 `text`) | `"대한민국의 모든…"` |
+| grade | `type` | 문자열 | `"text"` | 요소 종류. `table` · `formula` 는 늘 `low` 다 | `"table"` |
+| grade | `ocr_confidence` | 수 | 없음 | 추출 신뢰도(0~1). 0.7 미만이면 `low`. 모르면 넣지 않는다 | `0.95` |
 
 **응답**
 
@@ -116,6 +120,8 @@ python -m semojum_braille.sidecar
 | decode | `text` | 문자열 | 역점역한 글. 원문 복원이 아니라 **검수용 근사**다. 줄바꿈은 그대로 둔다 |
 | brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
 | read_brf | `pages` | 문자열 배열의 배열 | 쪽마다 유니코드 점자 줄 목록. 빈칸은 `⠀`, 탭은 4칸 자리로 펼친다. 역점역하려면 줄(또는 `\n` 으로 이은 쪽)을 `decode` 에 넘긴다. BRF ASCII 가 아닌 글자가 있으면 `error` |
+| grade | `grade` | 문자열 | 검수 순서 등급. `low` · `medium` · `high`. **아래 '검수 등급의 뜻'을 반드시 읽을 것** |
+| grade | `round_trip` | 수 또는 `null` | 왕복 일치도(0~1). 점역 결과를 역점역해 원문과 대조한 값. 잴 수 없거나(원문이 짧음 · 표 · 수식 · 영문) 등급을 규칙으로 정했으면 `null` |
 | ping | `ok` | 참거짓 | 늘 `true` |
 | 실패 | `error` | 문자열 | `"예외이름: 내용"` 또는 설명. 이때 다른 필드는 없다 |
 
@@ -206,3 +212,18 @@ def fold(cells, breaks, center=False, cuts=None):
 
 ---
 
+## 검수 등급의 뜻 (`grade` op, 화면 문구를 쓰기 전에 읽을 것)
+
+등급은 **점역사가 어느 요소부터 볼지 정하는 순서**다. 맞다 · 틀리다의 판정이 아니다.
+
+| 등급 | 뜻 | 정하는 법 |
+|---|---|---|
+| `low` | 먼저 볼 것 | 표 · 수식 · 원문에 영문(3자 이상)이나 LaTeX 명령이 있는 요소 · 추출 신뢰도 0.7 미만 · 왕복 일치도 0.98 미만 |
+| `medium` | 보통 | 왕복 일치도를 잴 수 없는 요소(원문이 짧다 등) · 0.98 이상 0.999 미만 · 120칸 이상 |
+| `high` | **나중에 봐도 되는 것** | 왕복 일치도 0.999 이상이고 120칸 미만 |
+
+- ⚠ **`high` 는 '확인 불필요'가 아니다.** 실측에서 `high` 요소도 정확도 89%다(오프라인 전 코퍼스 22,384요소). AI 서버 경로로 다시 잰 dev+val 839쪽에서는 `high` 의 71.1% 가 정답과 편집 0칸이었다. 즉 열에 하나는 틀린다.
+- 화면 문구는 순서로만 쓴다. 쓸 만한 말: `먼저 확인` · `확인` · `나중에 확인`. **쓰면 안 되는 말: `확인 불필요` · `검수 완료` · `정확` · `통과` · 퍼센트 점수.** 숫자를 보이면 "89%면 안 봐도 되나"로 읽힌다.
+- 표 · 수식 · 영문이 늘 `low` 인 것은 그 갈래의 실측 정확도가 가장 낮아서다(표 2.0% · 영문 23.7% · 수식 25.9%, 전체 55.6%).
+- 왕복 일치도는 정답 없이 런타임에 잰다. 역점역기가 틀리게 되돌리면 맞는 점역도 `low` 가 될 수 있다.
+- 기준과 실측의 출처는 `semojum_braille.confidence` 모듈 설명이다(AI 저장소 `app/ai/quality/confidence.py` 를 옮긴 것). 파이썬에서는 `semojum_braille.sidecar.grade(braille, source, etype="text", ocr_confidence=None) -> dict` 다.

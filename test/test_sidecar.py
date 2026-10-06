@@ -46,3 +46,17 @@ def test_read_brf_gives_unicode_pages():
     brf = sidecar.handle({"op": "brf", "job": {"pages": [{"orig_page_no": 1, "elements": [{"text": "⠈⠍⠁"}]}]}})["brf"]
     pages = sidecar.handle({"op": "read_brf", "brf": brf})["pages"]
     assert any("⠈⠍⠁" in line for line in pages[0])
+
+
+def test_grade_follows_server_rules():
+    from semojum_braille.encoder.translator import translate_tagged_text
+    src = "대한민국의 모든 국민은 법 앞에 평등하다."
+    br = translate_tagged_text(src)
+    assert sidecar.handle({"op": "grade", "braille": br, "source": src}) == {"grade": "high", "round_trip": 1.0}
+    # 표 · 수식 · 영문은 왕복 일치도와 상관없이 low(실측 정확도가 가장 낮은 갈래)
+    for etype, text in (("table", src), ("formula", "x+1=3"), ("text", "The quick brown fox")):
+        assert sidecar.handle({"op": "grade", "braille": translate_tagged_text(text),
+                               "source": text, "type": etype})["grade"] == "low"
+    # 원문과 다르게 되돌아오면 low
+    assert sidecar.handle({"op": "grade", "braille": translate_tagged_text("대한민국의 모든 국민은"),
+                           "source": "대한민국의 모든 국민이 아니다"})["grade"] == "low"
