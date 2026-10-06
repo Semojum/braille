@@ -40,3 +40,9 @@ def test_stdio_keeps_id_and_survives_bad_line():
     assert a == {"ok": True, "id": 7}
     assert b["id"] is None and "error" in b
     assert c == {"ok": True, "id": 8}
+
+
+def test_read_brf_gives_unicode_pages():
+    brf = sidecar.handle({"op": "brf", "job": {"pages": [{"orig_page_no": 1, "elements": [{"text": "⠈⠍⠁"}]}]}})["brf"]
+    pages = sidecar.handle({"op": "read_brf", "brf": brf})["pages"]
+    assert any("⠈⠍⠁" in line for line in pages[0])

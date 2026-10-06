@@ -2,7 +2,7 @@
 
 [![시험](https://github.com/Semojum/braille/actions/workflows/test.yml/badge.svg)](https://github.com/Semojum/braille/actions/workflows/test.yml)
 ![파이썬](https://img.shields.io/badge/python-3.10%20%7C%203.12%20%7C%203.13-blue)
-![판](https://img.shields.io/badge/version-3.4.1-blue)
+![판](https://img.shields.io/badge/version-3.4.2-blue)
 ![라이선스](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
 
 한국어 묵자를 점자로 옮기고(점역), 점자를 묵자로 되돌리는(역점역) 파이썬 라이브러리입니다.
@@ -27,6 +27,14 @@
 >>> from semojum_braille.brf import serialize_brf
 >>> serialize_brf([["⠼⠁", "⠁⠃"]], rows=3)
 b'#a\r\nab\r\n\r\n\x0c'
+```
+
+`.brf` 파일을 거꾸로 읽어 유니코드 점자 면으로 돌립니다(`.brf` 를 열어 역점역할 때). 대소문자 두 꼴을 다 받고, 백틱은 ⠈(초성 ㄱ)로 읽습니다.
+
+```python
+>>> from semojum_braille.brf import parse_brf
+>>> parse_brf(b"#a\r\nab\r\n\r\n\x0c")
+[['⠼⠁', '⠁⠃', '']]
 ```
 
 글 속 수식은 `<!수식>` 태그로 감쌉니다.
@@ -65,6 +73,7 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 - 32칸 × 26줄 쪽 조판: 제목 들여쓰기, 문단 들여쓰기, 쪽 번호 줄
 - 점역된 문서를 면으로 나누고 페이지행 · 원본 페이지 변경선을 넣는 조판(`semojum_braille.assist`, braille-assist 에서 옮김)
 - 점자 면을 현장 유통본과 같은 꼴의 `.brf` 바이트로: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII, 32칸
+- `.brf` 파일을 유니코드 점자 면으로 읽기(현장 두 꼴 · 탭 맞춤 줄까지). 역점역에 넘길 때 쓴다
 - 한글을 음절 단위로 끊을 수 있는 자리를 함께 반환
 - 요소마다 근거가 된 규정 조항(`rule_trail`)
 - 점자를 묵자로 되돌려 초안 검토용 글로
