@@ -158,3 +158,6 @@ test/unit_test/braille/test_vowel_jamo_decode.py
 test/unit_test/braille/test_ye_syllables.py
 test/unit_test/formula/test_latex_cmd_span_head.py
 test/unit_test/formula/test_latex_text_span.py
+
+# ── 검수 등급(confidence) ──
+test/unit_test/quality/test_page_content_risk.py

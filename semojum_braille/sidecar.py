@@ -10,6 +10,7 @@ import sys
 import threading
 import uuid
 
+from semojum_braille import confidence
 from semojum_braille.assist import build_brf_file
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
@@ -41,6 +42,17 @@ def translate(text: str, etype: str = "text", hlevel: int = 0) -> dict:
     return {"cells": _pad_join(lines, pads, seps), "breaks": breaks}
 
 
+def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None) -> dict:
+    """요소 하나의 검수 등급과 왕복 일치도. AI 서버가 응답에 붙이는 `review_grade` · `round_trip` 과 같은 길이다
+    (`confidence.annotate` 를 그대로 부른다 — 등급 기준이 그 길로 잰 실측에서 나왔다).
+
+    ⚠ 등급은 **검수 순서**다. high 도 실측 정확도 89%라 '확인 불필요'가 아니라 '나중에 봐도 되는 것'이다.
+    """
+    el = {"id": 0, "type": etype, "contents": [braille], "ocr_confidence": ocr_confidence}
+    confidence.annotate([el], {0: {"contents": [source]}}, decode)
+    return {"grade": el["review_grade"], "round_trip": el.get("round_trip")}
+
+
 def handle(req: dict) -> dict:
     op = req.get("op")
     if op == "translate":
@@ -51,6 +63,9 @@ def handle(req: dict) -> dict:
         return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
     if op == "read_brf":
         return {"pages": parse_brf(req.get("brf", ""))}
+    if op == "grade":
+        return grade(req.get("braille", ""), req.get("source", ""), req.get("type") or "text",
+                     req.get("ocr_confidence"))
     if op == "ping":
         return {"ok": True}
     return {"error": f"모르는 op: {op!r}"}

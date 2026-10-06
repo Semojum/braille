@@ -2,7 +2,7 @@
 
 [![시험](https://github.com/Semojum/braille/actions/workflows/test.yml/badge.svg)](https://github.com/Semojum/braille/actions/workflows/test.yml)
 ![파이썬](https://img.shields.io/badge/python-3.10%20%7C%203.12%20%7C%203.13-blue)
-![판](https://img.shields.io/badge/version-3.4.2-blue)
+![판](https://img.shields.io/badge/version-3.4.3-blue)
 ![라이선스](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
 
 한국어 묵자를 점자로 옮기고(점역), 점자를 묵자로 되돌리는(역점역) 파이썬 라이브러리입니다.
@@ -77,6 +77,7 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 - 한글을 음절 단위로 끊을 수 있는 자리를 함께 반환
 - 요소마다 근거가 된 규정 조항(`rule_trail`)
 - 점자를 묵자로 되돌려 초안 검토용 글로
+- 요소마다 검수 순서 등급(`low` · `medium` · `high`)과 왕복 일치도. `high` 도 '확인 불필요'가 아니라 '나중에 확인'이다([docs/sidecar.md](docs/sidecar.md) '검수 등급의 뜻')
 - 파이썬이 아닌 곳(C# 등)에서 표준입출력으로 부르는 사이드카
 - 규칙 기반. 모델도 네트워크도 없이 돌고, 같은 입력에 늘 같은 점자
 

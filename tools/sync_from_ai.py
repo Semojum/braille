@@ -8,6 +8,7 @@
 - `app/schemas/content.py` 중 엔진이 쓰는 다섯 타입 → `semojum_braille/schemas.py`
 - `app/utils/braille_back.py` → `semojum_braille/decoder/back.py`
 - 같은 폴더의 역맵 json 셋 → `semojum_braille/decoder/`
+- `app/ai/quality/confidence.py` → `semojum_braille/confidence.py` (검수 등급 · 왕복 일치도)
 - `tools/tests_from_ai.txt` 에 적힌 시험 → `test/` (같은 자리), `app/utils/braille_ascii.py` → `test/support/`
 
 코드는 **임포트 경로만** 바꾼다. 예외는 아래 두 패치 목록뿐이고, 둘 다 자리를 못 찾으면 멈춘다.
@@ -48,6 +49,7 @@ REWRITES = [
     (re.compile(r"\bapp\.ai\.braille\b"), "semojum_braille.encoder"),
     (re.compile(r"\bapp\.schemas\.content\b"), "semojum_braille.schemas"),
     (re.compile(r"\bapp\.utils\.braille_back\b"), "semojum_braille.decoder.back"),
+    (re.compile(r"\bapp\.ai\.quality\.confidence\b"), "semojum_braille.confidence"),
     # `from app.utils import braille_back as B` 꼴. 점으로 이어진 경로만 바꾸면 이게 남는다.
     # ⚠ `as B` 가 뒤따르므로 별칭을 여기서 붙이면 `as X as B` 가 되어 문법이 깨진다.
     #   별칭이 있는 꼴을 먼저 잡고, 없는 꼴을 그다음에 잡는다.
@@ -228,6 +230,12 @@ def sync_tests(ai: Path) -> int:
     return len(listed)
 
 
+def sync_confidence(ai: Path) -> None:
+    # 검수 등급 · 왕복 일치도. 표준 라이브러리만 쓰고 역점역기는 인자로 받는다(임포트 없음).
+    src = ai / "app" / "ai" / "quality" / "confidence.py"
+    (PKG / "confidence.py").write_text(rewrite(src.read_text(encoding="utf-8"), REWRITES), encoding="utf-8")
+
+
 def check_package() -> None:
     bad = {str(f.relative_to(ROOT)): leftover_app_imports(f.read_text(encoding="utf-8")) for f in PKG.rglob("*.py")}
     bad = {k: v for k, v in bad.items() if v}
@@ -243,6 +251,7 @@ if __name__ == "__main__":
     ai = Path(sys.argv[1]).resolve()
     sync_encoder(ai)
     sync_decoder(ai)
+    sync_confidence(ai)
     n = sync_tests(ai)
     check_package()
     print(f"끝: {ai} · 시험 {n}개")
