@@ -27,6 +27,7 @@ python -m semojum_braille.sidecar
 - 표준입력을 닫으면 사이드카가 끝난다.
 - 점역(`translate`)과 역점역(`decode`)을 함께 받는다.
 - 기동하자마자 뒤에서 역점역을 한 번 불러 낱말 판정기를 미리 올린다. `[kiwi]` 를 깔았으면 영어책 역점역의 첫 호출이 약 2초 멈추는데, 그것을 가리려는 것이다.
+- 앱에 실어 낼 때는 site-packages 를 통째로 싣는다. `semojum_braille/third_party/` 에 braillify 의 `LICENSE` 가 들어 있다. braillify 휠에는 고지 파일이 없어 여기 실었다([NOTICE.md](../NOTICE.md) ②). 빼지 말고 같이 싣는다.
 
 리눅스 실측: 기동부터 첫 응답 약 0.1초, 한 쪽(35요소·1,318자) 점역 약 0.21초, 역점역 약 0.02초. Windows 는 재지 않았다.
 
