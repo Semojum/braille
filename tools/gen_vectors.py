@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from semojum_braille.assist import (Options, build_brf, build_pages,  # noqa: E402
-                                    page_change_line, page_row, to_brf_ascii, wrap)
+                                    page_change_line, page_row, pages_to_brf, to_brf_ascii, wrap)
 
 # 지침 원문의 점자 예시는 Braille ASCII로 적혀 있다. 벡터를 원문 그대로 적기 위해
 # 여기서 유니코드로 되돌린다 — 라이브러리 런타임과는 무관한 **작성 편의용**이다.
@@ -274,11 +274,22 @@ BRF_JOB = [
      "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"),
 ]
 
+# ── pages_to_brf (.brf 바이트 규격, braille-assist#11 을 옮겨 옴) ─────────────────
+_BRF_SRC = ("BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권"
+            "(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서"
+            "(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)")
+
+PAGES_TO_BRF = [
+    ("면 둘: 줄마다 CRLF, 쪽마다 끝에 FF(마지막 쪽 포함)", [["⠁⠃", "⠀⠼⠁"], ["⠉"]]),
+    ("면 0개는 빈 파일", []),
+    ("6점 밖 글자는 ⟨XXXX⟩ 로 남긴다(조용히 버리지 않는다). 줄 · 쪽 규격은 같다", [["⠁가"]]),
+]
+
 
 def build() -> dict:
-    out = {"version": "0.5.0", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.6.0", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
-                                         "build_brf": [], "wrap": []}}
+                                         "build_brf": [], "pages_to_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:
         o = kw.pop("opts", None)
         got = page_row(**kw, opts=Options(**o) if o else Options())
@@ -303,7 +314,10 @@ def build() -> dict:
     for name, job, src in BRF_JOB:
         out["cases"]["build_brf"].append(
             {"name": name, "args": {"job": job}, "expect": build_brf(job),
-             **({"source": src} if src else {})})
+             "source": " · ".join(x for x in (src, _BRF_SRC) if x)})
+    for name, pages in PAGES_TO_BRF:
+        out["cases"]["pages_to_brf"].append(
+            {"name": name, "args": {"pages": pages}, "expect": pages_to_brf(pages), "source": _BRF_SRC})
     for name, arg, src in BRF:
         out["cases"]["to_brf_ascii"].append(
             {"name": name, "args": {"braille": arg}, "expect": to_brf_ascii(arg),

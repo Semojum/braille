@@ -152,6 +152,15 @@ class VectorsTest {
                         o != null && o.has("wrap") ? o.get("wrap").asText() : "syllable");
                 return BrailleAssist.buildBrf(job);
             }
+            case "pages_to_brf": {
+                List<List<String>> pages = new ArrayList<>();
+                for (JsonNode p : a.get("pages")) {
+                    List<String> ls = new ArrayList<>();
+                    for (JsonNode l : p) ls.add(l.asText());
+                    pages.add(ls);
+                }
+                return BrailleAssist.pagesToBrf(pages);
+            }
             case "wrap":
                 return String.join("\u241F", BrailleAssist.wrap(
                         a.get("line").asText(),

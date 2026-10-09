@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "cases": {
     "page_row": [
       {
@@ -1969,8 +1969,8 @@
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#g                            #a",
-        "source": "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11"
+        "expect": "  ,o1,{b\r\n  o;raz d<o\r\n------------------------------#h\r\n  #b/#a\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n#g                            #a\r\n\f",
+        "source": "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11 · BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON 새 조판 옵션 전부",
@@ -2026,8 +2026,8 @@
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n-----------------------------#bj\n  #b/#a\n\n",
-        "source": "2026-09-01 결정 B·C·D·E — 표지 순번·번호 재매김·우측 정렬·면별 꼬리말"
+        "expect": "  ,o1,{b\r\n  o;raz d<o\r\n-----------------------------#bj\r\n  #b/#a\r\n\r\n\r\n\f",
+        "source": "2026-09-01 결정 B·C·D·E — 표지 순번·번호 재매김·우측 정렬·면별 꼬리말 · BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON 변경선 끔",
@@ -2073,8 +2073,8 @@
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n  #b/#a\n\n\n#g                            #a",
-        "source": "show_change_line=false → 원본 페이지 변경선 생략(결정 D)"
+        "expect": "  ,o1,{b\r\n  o;raz d<o\r\n  #b/#a\r\n\r\n\r\n#g                            #a\r\n\f",
+        "source": "show_change_line=false → 원본 페이지 변경선 생략(결정 D) · BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON 페이지행 끔",
@@ -2120,8 +2120,8 @@
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
-        "source": "include_page_number=false → 페이지행 생략(변경선은 유지)"
+        "expect": "  ,o1,{b\r\n  o;raz d<o\r\n------------------------------#h\r\n  #b/#a\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\f",
+        "source": "include_page_number=false → 페이지행 생략(변경선은 유지) · BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON 꼬리말·시작 면 지정",
@@ -2166,7 +2166,8 @@
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n#g           es\"oe1         #aje"
+        "expect": "  ,o1,{b\r\n  o;raz d<o\r\n------------------------------#h\r\n  #b/#a\r\n\r\n#g           es\"oe1         #aje\r\n\f",
+        "source": "BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON 빈 입력",
@@ -2175,7 +2176,8 @@
             "pages": []
           }
         },
-        "expect": ""
+        "expect": "",
+        "source": "BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON options 생략(기본값)",
@@ -2213,7 +2215,8 @@
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#g                            #a"
+        "expect": "  ,o1,{b\r\n  o;raz d<o\r\n------------------------------#h\r\n  #b/#a\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n#g                            #a\r\n\f",
+        "source": "BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       },
       {
         "name": "조립 JSON 줄바꿈 음절 · 요소 breaks · 1단계 제목",
@@ -2323,8 +2326,46 @@
             ]
           }
         },
-        "expect": "@v7jb,}z ~o2ncs.o\"! jvjancs.o\"u\n         .)jv3jcz@v.}oi\n  .u,) jm@oncz l7dm5 jvd/ @}.n$ \n~1i1je*,s .7,o$ f{@n c!sc/@u ~u\n~ml7w jv1i=iu jv1~1jr.:/i4\n\n\n\n\n\n\n#c                            #a",
-        "source": "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"
+        "expect": "@v7jb,}z ~o2ncs.o\"! jvjancs.o\"u\r\n         .)jv3jcz@v.}oi\r\n  .u,) jm@oncz l7dm5 jvd/ @}.n$ \r\n~1i1je*,s .7,o$ f{@n c!sc/@u ~u\r\n~ml7w jv1i=iu jv1~1jr.:/i4\r\n\r\n\r\n\r\n\r\n\r\n\r\n#c                            #a\r\n\f",
+        "source": "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241) · BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
+      }
+    ],
+    "pages_to_brf": [
+      {
+        "name": "면 둘: 줄마다 CRLF, 쪽마다 끝에 FF(마지막 쪽 포함)",
+        "args": {
+          "pages": [
+            [
+              "⠁⠃",
+              "⠀⠼⠁"
+            ],
+            [
+              "⠉"
+            ]
+          ]
+        },
+        "expect": "ab\r\n #a\r\n\fc\r\n\f",
+        "source": "BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
+      },
+      {
+        "name": "면 0개는 빈 파일",
+        "args": {
+          "pages": []
+        },
+        "expect": "",
+        "source": "BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
+      },
+      {
+        "name": "6점 밖 글자는 ⟨XXXX⟩ 로 남긴다(조용히 버리지 않는다). 줄 · 쪽 규격은 같다",
+        "args": {
+          "pages": [
+            [
+              "⠁가"
+            ]
+          ]
+        },
+        "expect": "a⟨AC00⟩\r\n\f",
+        "source": "BRF 바이트 규격: 줄마다 CRLF, 쪽마다 끝에 폼 피드(0x0C, 마지막 쪽 포함). 점자 대체교과서 BRF 51권(V2 braille-source/원본도서_temp이관_0906, 250~700KB)과 같다. 한국점자도서관 앱 테스트 결과보고서(2026-09-17) 4쪽: LF 만 · 쪽 구분 없는 우리 파일을 실로암브레일이 34KB 에서 못 열었다(braille-assist#10)"
       }
     ],
     "wrap": [

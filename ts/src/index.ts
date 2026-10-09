@@ -462,9 +462,18 @@ export function buildPagesFromJob(job: Job): string[][] {
 }
 
 /**
- * BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 \n).
+ * 점자 면 배열 → **.brf 파일 내용**(BRF Braille ASCII). 줄마다 \r\n, 면마다 끝에 \f(마지막 면 포함).
+ * 현장 BRF 와 같은 바이트 규격이다(점자 대체교과서 BRF 51권). \n 으로만 잇고 면 구분자를 안 넣으면
+ * 실로암브레일이 34KB 파일을 못 열었다(braille-assist#10). 화면 판면을 파일로 떨굴 때도 이 함수를 쓴다.
+ */
+export function pagesToBrf(pages: string[][]): string {
+  return pages.map((page) => page.map((line) => toBrfAscii(line) + '\r\n').join('') + '\f').join('');
+}
+
+/**
+ * BE 조립 JSON → **.brf 파일 내용**(`pagesToBrf` 규격).
  * 점역은 하지 않는다 — 이미 점역된 통 문자열을 조판만 한다.
  */
 export function buildBrf(job: Job): string {
-  return buildPagesFromJob(job).flat().map(toBrfAscii).join('\n');
+  return pagesToBrf(buildPagesFromJob(job));
 }
