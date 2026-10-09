@@ -14,6 +14,9 @@ public final class BrailleAssist {
     public static final char SPACE = '⠀';
     private static final char NUM_SIGN = '⠼';    // 수표 ⠼
     private static final char CHANGE_MARK = '⠤'; // 변경선 채움 ⠤
+    /** 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 뜻은 {@link #wrap(String, int, String, int[], boolean)}. */
+    public static final java.util.List<String> WRAP_MODES = java.util.List.of("syllable", "word", "cell");
+    private static final String TN_MARK = "⠠⠄";   // 점역자 주 표(두 칸). 강제로 자를 때 가르지 않는다
 
     // 숫자·알파벳은 같은 점형(1=a=⠁ … 0=j=⠚). 수표가 앞에 오면 숫자로 읽는다.
     private static final String DIGIT_CELLS = "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊";
@@ -49,10 +52,12 @@ public final class BrailleAssist {
         public final boolean showChangeLine;
         /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다. */
         public final String footerAlign;
+        /** 32칸을 넘는 줄을 접는 갈래. syllable(기본) | word | cell. 블록에 breaks 가 없으면 syllable 이어도 word. */
+        public final String wrap;
 
         public Options(int cols, int rows, boolean showOrigPage, boolean showBraillePage,
                        String pageRowOn, int coverPages,
-                       Integer origPageStart, boolean showChangeLine, String footerAlign) {
+                       Integer origPageStart, boolean showChangeLine, String footerAlign, String wrap) {
             if (cols < 8) throw new IllegalArgumentException("cols는 8 이상이어야 한다: " + cols);
             if (!pageRowOn.equals("every") && !pageRowOn.equals("odd")
                     && !pageRowOn.equals("even") && !pageRowOn.equals("none"))
@@ -61,6 +66,8 @@ public final class BrailleAssist {
                 throw new IllegalArgumentException("footerAlign은 center|right: " + footerAlign);
             if (coverPages < 0)
                 throw new IllegalArgumentException("coverPages는 0 이상이어야 한다: " + coverPages);
+            if (!WRAP_MODES.contains(wrap))
+                throw new IllegalArgumentException("wrap은 syllable|word|cell: " + wrap);
             this.cols = cols;
             this.rows = rows;
             this.showOrigPage = showOrigPage;
@@ -70,6 +77,15 @@ public final class BrailleAssist {
             this.origPageStart = origPageStart;
             this.showChangeLine = showChangeLine;
             this.footerAlign = footerAlign;
+            this.wrap = wrap;
+        }
+
+        /** 종전 9인자 형태(BE `JobDownloadService` 가 쓴다) — 줄바꿈은 기본값 syllable. */
+        public Options(int cols, int rows, boolean showOrigPage, boolean showBraillePage,
+                       String pageRowOn, int coverPages,
+                       Integer origPageStart, boolean showChangeLine, String footerAlign) {
+            this(cols, rows, showOrigPage, showBraillePage, pageRowOn, coverPages,
+                 origPageStart, showChangeLine, footerAlign, "syllable");
         }
 
         /** 종전 6인자 형태 — 새 항목은 기본값으로 채운다. */
@@ -228,17 +244,25 @@ public final class BrailleAssist {
     public static final class Block {
         public final int order;
         public final String text;
+        /** 응답 breaks 그대로(그 블록 text 기준). null 이면 이 블록은 word 로 접는다. */
+        public final int[] breaks;
+        /** 1이면 32칸을 넘어 접힌 줄을 가운데에 놓는다(1단계 제목). */
+        public final int headingLevel;
 
-        public Block(int order, String text) {
+        public Block(int order, String text, int[] breaks, int headingLevel) {
             this.order = order;
             this.text = text;
+            this.breaks = breaks;
+            this.headingLevel = headingLevel;
         }
+
+        public Block(int order, String text) { this(order, text, null, 0); }
     }
 
     /** cols를 넘으면 <b>빈칸(어절) 자리에서</b> 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
      *  종전의 무조건 자르기는 한글 한 음절의 점형을 두 줄로 갈랐다 — 지침 §2.1.1(2)의
      *  음절 원칙도 어절 예외도 아니다(2026-09-08 대표 지적 ③). 근거는 python core._wrap. */
-    private static java.util.List<String> wrap(String line, int cols) {
+    private static java.util.List<String> wordWrap(String line, int cols) {
         java.util.List<String> out = new java.util.ArrayList<>();
         if (line.isEmpty()) {
             out.add("");
@@ -255,6 +279,81 @@ public final class BrailleAssist {
             }
         }
         out.add(line);
+        return out;
+    }
+
+    /**
+     * 논리 줄 하나를 cols 칸 줄들로 접는다. 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 근거는 python {@code wrap}.
+     * <ul>
+     * <li>syllable — breaks(그 셀 앞에서 끊어도 되는 자리, 이 줄 기준) 가운데 cols 칸 안에서 가장 먼 자리에서 끊는다.
+     *     없으면 cols 칸째에서 강제로 자르되 점역자 주 표 ⠠⠄ 는 가르지 않는다. 이어지는 줄 머리 빈칸은 버린다.
+     *     breaks 가 비면 word 로 접는다(설계 §6-1).</li>
+     * <li>word — 빈칸(어절) 자리에서 자른다.</li>
+     * <li>cell — cols 칸마다 그대로 자른다(빈칸을 버리지 않고 가운데에도 놓지 않는다).</li>
+     * <li>center — 1단계 제목. cols 를 넘어 접힌 줄만 조각마다 가운데에 놓는다(syllable · word).</li>
+     * </ul>
+     */
+    public static java.util.List<String> wrap(String line, int cols, String mode, int[] breaks, boolean center) {
+        if (!WRAP_MODES.contains(mode)) throw new IllegalArgumentException("wrap은 syllable|word|cell: " + mode);
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (mode.equals("cell")) {
+            for (int i = 0; i < line.length(); i += cols) out.add(line.substring(i, Math.min(line.length(), i + cols)));
+            if (out.isEmpty()) out.add("");
+            return out;
+        }
+        if (mode.equals("word") || breaks == null || breaks.length == 0) {
+            out = wordWrap(line, cols);
+        } else {
+            int start = 0;
+            while (line.length() - start > cols) {
+                int cut = -1;
+                for (int b : breaks) if (start < b && b <= start + cols && b > cut) cut = b;
+                if (cut < 0) {
+                    cut = start + cols;
+                    if (line.startsWith(TN_MARK, cut - 1)) cut -= 1;
+                }
+                out.add(line.substring(start, cut));
+                start = cut;
+                while (start < line.length() && (line.charAt(start) == SPACE || line.charAt(start) == ' ')) start++;
+            }
+            if (start < line.length() || out.isEmpty()) out.add(line.substring(start));
+        }
+        if (center && line.length() > cols) {
+            java.util.List<String> c = new java.util.ArrayList<>();
+            for (String piece : out) c.add(String.valueOf(SPACE).repeat((cols - piece.length()) / 2) + piece);
+            out = c;
+        }
+        return out;
+    }
+
+    /** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 opts.wrap 갈래로 접는다. 근거는 python {@code _fold_blocks}. */
+    private static java.util.List<String> foldBlocks(java.util.List<Block> blocks, Options opts) {
+        StringBuilder sb = new StringBuilder();
+        java.util.List<Integer> starts = new java.util.ArrayList<>();
+        java.util.List<Boolean> centers = new java.util.ArrayList<>();
+        java.util.List<Integer> gbreaks = new java.util.ArrayList<>();
+        for (Block b : blocks) {
+            starts.add(sb.length());
+            centers.add(b.headingLevel == 1);
+            if (b.breaks != null) for (int x : b.breaks) gbreaks.add(sb.length() + x);
+            sb.append(b.text == null ? "" : b.text);
+        }
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String seg = sb.toString();
+        if (seg.isEmpty()) return out;   // 내용 없는 토막(쪽바꿈 표식이 잇달은 자리)
+        // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
+        // split 이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
+        if (seg.endsWith("\n")) seg = seg.substring(0, seg.length() - 1);
+        int base = 0;
+        for (String logical : seg.split("\n", -1)) {
+            int k = 0;
+            while (k + 1 < starts.size() && starts.get(k + 1) <= base) k++;
+            java.util.List<Integer> lb = new java.util.ArrayList<>();
+            for (int g : gbreaks) if (base < g && g < base + logical.length()) lb.add(g - base);
+            out.addAll(wrap(logical, opts.cols, opts.wrap,
+                            lb.stream().mapToInt(Integer::intValue).toArray(), centers.get(k)));
+            base += logical.length() + 1;
+        }
         return out;
     }
 
@@ -336,36 +435,30 @@ public final class BrailleAssist {
                     src.blocks == null ? java.util.Collections.emptyList() : src.blocks);
             bs.sort(java.util.Comparator.comparingInt(b -> b.order));
             // 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
-            java.util.List<String> segs = new java.util.ArrayList<>();
-            StringBuilder sb = new StringBuilder();
+            java.util.List<java.util.List<Block>> segs = new java.util.ArrayList<>();
+            java.util.List<Block> cur = new java.util.ArrayList<>();
             for (Block b : bs) {
                 String t = b.text == null ? "" : b.text;
                 if (t.trim().equals(PAGE_BREAK_TAG)) {
-                    segs.add(sb.toString());
+                    segs.add(cur);
                     segs.add(null);
-                    sb = new StringBuilder();
+                    cur = new java.util.ArrayList<>();
                 } else {
-                    sb.append(t);
+                    cur.add(b);
                 }
             }
-            segs.add(sb.toString());
-            for (String seg : segs) {
+            segs.add(cur);
+            for (java.util.List<Block> seg : segs) {
                 if (seg == null) {
                     lines.add(BREAK);
                     owner.add(op);
                     coverOf.add(cover);
                     continue;
                 }
-                // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
-                // split 이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
-                if (seg.isEmpty()) continue;  // 내용 없는 토막(쪽바꿈 표식이 잇달은 자리)
-                String segBody = seg.endsWith("\n") ? seg.substring(0, seg.length() - 1) : seg;
-                for (String logical : segBody.split("\n", -1)) {
-                    for (String w : wrap(logical, opts.cols)) {
-                        lines.add(w);
-                        owner.add(op);
-                        coverOf.add(cover);
-                    }
+                for (String w : foldBlocks(seg, opts)) {
+                    lines.add(w);
+                    owner.add(op);
+                    coverOf.add(cover);
                 }
             }
         }
@@ -419,9 +512,9 @@ public final class BrailleAssist {
     // BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
     //
     // ★ elements 배열 **순서가 읽기 순서**다. order 필드는 없다(BE가 정렬해 담는다).
-    // ★ type·headingLevel은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
-    //   AI가 이미 text에 넣어 보낸다(점자 공백 셀·\n). 여기서 또 넣으면 두 번 들어간다.
-    //   두 필드는 오류 지목·나중 확장을 위해 받아 두기만 한다.
+    // ★ 들여쓰기·가운데 정렬·구조적 빈 줄은 AI가 이미 text에 넣어 보낸다(점자 공백 셀·\n).
+    //   type은 쓰지 않는다. headingLevel은 1단계 제목이 32칸을 넘어 접힐 때만 조각을 가운데에 놓는 데 쓴다.
+    // ★ breaks(선택)는 응답 TextElement.breaks 그대로다. text 를 고치면 오프셋이 어긋난다.
 
     /** 조립 JSON의 요소 하나. */
     public static final class JobElement {
@@ -429,12 +522,19 @@ public final class BrailleAssist {
         public final String type;
         public final int headingLevel;
         public final String text;
+        /** 응답 TextElement.breaks 그대로(선택). null 이면 그 요소는 word 로 접는다. */
+        public final int[] breaks;
 
-        public JobElement(String id, String type, int headingLevel, String text) {
+        public JobElement(String id, String type, int headingLevel, String text, int[] breaks) {
             this.id = id;
             this.type = type;
             this.headingLevel = headingLevel;
             this.text = text == null ? "" : text;
+            this.breaks = breaks;
+        }
+
+        public JobElement(String id, String type, int headingLevel, String text) {
+            this(id, type, headingLevel, text, null);
         }
 
         public JobElement(String text) { this(null, "text", 0, text); }
@@ -474,12 +574,14 @@ public final class BrailleAssist {
         public final java.util.Map<Integer, String> footersBraille;
         public final int startBraillePage;
         public final java.util.List<JobPage> pages;
+        /** 줄바꿈 갈래. syllable(기본) | word | cell. */
+        public final String wrap;
 
         public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
                    boolean showOrigPage, boolean showBraillePage, int coverPages,
                    Integer origPageStart, boolean showChangeLine, String footerAlign,
                    String footerBraille, java.util.Map<Integer, String> footersBraille,
-                   int startBraillePage, java.util.List<JobPage> pages) {
+                   int startBraillePage, java.util.List<JobPage> pages, String wrap) {
             this.jobId = jobId;
             this.includePageNumber = includePageNumber;
             this.pageRowOn = pageRowOn == null || pageRowOn.isEmpty() ? "odd" : pageRowOn;
@@ -496,6 +598,18 @@ public final class BrailleAssist {
                     ? java.util.Collections.emptyMap() : footersBraille;
             this.startBraillePage = startBraillePage <= 0 ? 1 : startBraillePage;
             this.pages = pages == null ? java.util.Collections.emptyList() : pages;
+            this.wrap = wrap == null || wrap.isEmpty() ? "syllable" : wrap;
+        }
+
+        /** 종전 15인자 형태 — 줄바꿈은 기본값 syllable. */
+        public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
+                   boolean showOrigPage, boolean showBraillePage, int coverPages,
+                   Integer origPageStart, boolean showChangeLine, String footerAlign,
+                   String footerBraille, java.util.Map<Integer, String> footersBraille,
+                   int startBraillePage, java.util.List<JobPage> pages) {
+            this(jobId, includePageNumber, pageRowOn, rows, cols, showOrigPage, showBraillePage,
+                 coverPages, origPageStart, showChangeLine, footerAlign, footerBraille,
+                 footersBraille, startBraillePage, pages, "syllable");
         }
 
         /** 종전 7인자 형태 — 새 항목은 기본값으로 채운다. */
@@ -518,7 +632,7 @@ public final class BrailleAssist {
         String on = job.includePageNumber ? job.pageRowOn : "none";
         return new Options(job.cols, job.rows, job.showOrigPage, job.showBraillePage,
                            on, job.coverPages,
-                           job.origPageStart, job.showChangeLine, job.footerAlign);
+                           job.origPageStart, job.showChangeLine, job.footerAlign, job.wrap);
     }
 
     /** 조립 JSON → 점자 면 배열. buildPages의 얇은 어댑터다. */
@@ -529,7 +643,8 @@ public final class BrailleAssist {
             java.util.List<Block> blocks = new java.util.ArrayList<>();
             for (int k = 0; k < pg.elements.size(); k++) {
                 // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
-                blocks.add(new Block(k, pg.elements.get(k).text));
+                JobElement el = pg.elements.get(k);
+                blocks.add(new Block(k, el.text, el.breaks, el.headingLevel));
             }
             sources.add(new Source(pg.origPageNo > 0 ? pg.origPageNo : i + 1, blocks));
         }

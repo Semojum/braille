@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from semojum_braille.assist import (Options, build_brf, build_pages,  # noqa: E402
-                                    page_change_line, page_row, to_brf_ascii)
+                                    page_change_line, page_row, to_brf_ascii, wrap)
 
 # 지침 원문의 점자 예시는 Braille ASCII로 적혀 있다. 벡터를 원문 그대로 적기 위해
 # 여기서 유니코드로 되돌린다 — 라이브러리 런타임과는 무관한 **작성 편의용**이다.
@@ -184,6 +184,53 @@ BUILD = [
 ]
 
 
+# ── 줄바꿈 세 갈래(2026-10-09 대표 결재, 기본 음절, #23) ──────────────────────────────
+# 줄과 끊을 자리(`breaks`, 그 셀 앞에서 끊어도 되는 자리)는 사이드카 `translate`(main 378d865e)로 한 번
+# 뽑아 **값으로 굳혔다.** 여기서 재는 것은 접는 셈이지 점역이 아니다. 엔진이 바뀌어도 이 입력은 그대로다.
+_S1 = '⠀⠀⠨⠥⠠⠾⠀⠚⠍⠈⠕⠝⠉⠵⠀⠇⠶⠙⠍⠢⠀⠚⠧⠙⠌⠀⠈⠻⠨⠝⠫⠀⠘⠂⠊⠂⠚⠑⠡⠠⠎⠀⠨⠶⠠⠕⠫⠀⠋⠪⠈⠝⠀⠉⠮⠎⠉⠌⠈⠥⠀⠘⠥⠘⠍⠇⠶⠺⠀⠚⠧⠂⠊⠿⠊⠥⠀⠚⠧⠂⠘⠂⠚⠗⠨⠱⠌⠊⠲'   # "조선 후기에는 … 활발해졌다." 89칸(문단 들여쓰기 두 칸)
+_B1 = [4, 6, 7, 9, 11, 12, 14, 15, 17, 20, 21, 23, 25, 26, 28, 30, 31, 32, 34, 36, 37, 39, 41, 42, 44, 46, 47, 48, 50, 52, 53, 55, 56, 58, 60, 61, 63, 65, 67, 68, 69, 72, 74, 76, 77, 80, 82, 84, 87]
+_S2 = '⠀⠀⠈⠧⠶⠚⠃⠠⠻⠵⠀⠘⠕⠆⠝⠉⠎⠨⠕⠐⠮⠀⠚⠧⠚⠁⠝⠉⠎⠨⠕⠐⠥⠨⠾⠚⠧⠒⠚⠉⠵⠈⠧⠨⠻⠕⠊'   # "광합성은 빛에너지를 화학에너지로전환하는과정이다" 47칸(띄어쓰기 없는 긴 낱말)
+_B2 = [5, 7, 9, 10, 11, 14, 15, 17, 19, 21, 22, 24, 26, 27, 29, 31, 33, 35, 38, 39, 41, 43, 45, 46]
+_T2 = _S2[2:]                                    # 들여쓰기 없는 같은 줄 — 1단계 제목 자리
+_TB2 = [b - 2 for b in _B2 if b > 2]
+_TN = "⠁" * 31 + "⠠⠄" + "⠃" * 7                 # 32칸째 강제 자리에 점역자 주 표가 걸린 줄
+
+WRAP = [
+    ("음절: 32칸 안에서 가장 먼 끊을 자리에서", dict(line=_S1, cols=32, mode="syllable", breaks=_B1),
+     "docs/sidecar.md §5 규칙 1 · 2"),
+    ("어절: 같은 줄을 빈칸 자리에서", dict(line=_S1, cols=32, mode="word"), "자료지침 §2.1.1(2) · 원장 C-83"),
+    ("셀: 같은 줄을 32칸마다 그대로", dict(line=_S1, cols=32, mode="cell"), ""),
+    ("음절: 띄어쓰기 없는 긴 낱말도 음절 경계에서", dict(line=_S2, cols=32, mode="syllable", breaks=_B2), ""),
+    ("어절: 띄어쓰기 없는 긴 낱말은 통째로 다음 줄로", dict(line=_S2, cols=32, mode="word"), ""),
+    ("음절: 끊을 자리를 모르면 어절로", dict(line=_S2, cols=32, mode="syllable", breaks=[]),
+     "설계 §6-1 — 옛 응답 · 점자를 직접 고친 요소"),
+    ("음절: 강제로 자를 때 점역자 주 표는 안 가른다", dict(line=_TN, cols=32, mode="syllable", breaks=[38]),
+     "docs/sidecar.md §5 규칙 1"),
+    ("음절 · 1단계 제목: 접힌 조각을 가운데에", dict(line=_T2, cols=32, mode="syllable", breaks=_TB2, center=True),
+     "docs/sidecar.md §5 규칙 4"),
+    ("어절 · 1단계 제목: 접힌 조각을 가운데에", dict(line=_T2, cols=32, mode="word", center=True), ""),
+    ("셀 · 1단계 제목: 셀은 가운데에 놓지 않는다", dict(line=_T2, cols=32, mode="cell", center=True), ""),
+    ("음절: 32칸 안의 줄은 그대로", dict(line=_S2[:30], cols=32, mode="syllable", breaks=[5, 7], center=True), ""),
+]
+
+# 블록 여럿: 블록마다 `breaks` 가 그 블록 `text` 기준이다. 이은 문자열 기준으로 옮겨 줄마다 시작 오프셋을 뺀다.
+_WRAP_BLOCKS = [
+    {"order": 1, "text": _T2 + "\n", "breaks": _TB2, "heading_level": 1},
+    {"order": 2, "text": _S2 + "\n", "breaks": _B2},
+    {"order": 3, "text": _S1 + "\n", "breaks": _B1},
+]
+_WRAP_SRC = [{"orig_page": 3, "blocks": _WRAP_BLOCKS}]
+_WRAP_SRC_NO_BREAKS = [{"orig_page": 3, "blocks": [{k: v for k, v in b.items() if k != "breaks"}
+                                                   for b in _WRAP_BLOCKS]}]
+BUILD_WRAP = [
+    ("세 갈래 · 음절: 블록 셋의 끊을 자리를 이은 문자열 기준으로", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="syllable")), ""),
+    ("세 갈래 · 어절", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="word")), ""),
+    ("세 갈래 · 셀", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="cell")), ""),
+    ("세 갈래 · 음절인데 블록에 끊을 자리가 없으면 어절", dict(sources=_WRAP_SRC_NO_BREAKS, opts=opt(rows=12, wrap="syllable")),
+     "설계 §6-1"),
+]
+
+
 # ── build_brf (BE 조립 JSON) ─────────────────────────────────────────────────
 # BE가 넘기는 형식 그대로. 세 언어가 **같은 .brf 문자열**을 내야 한다.
 _JOB_PAGES = [
@@ -222,13 +269,23 @@ BRF_JOB = [
       "footer_braille": FOOT_C, "start_braille_page": 105, "pages": _JOB_PAGES}, ""),
     ("조립 JSON 빈 입력", {"pages": []}, ""),
     ("조립 JSON options 생략(기본값)", {"pages": _JOB_PAGES}, ""),
+    ("조립 JSON 줄바꿈 음절 · 요소 breaks · 1단계 제목",
+     {"options": {"include_page_number": True, "rows": 12, "cols": 32, "wrap": "syllable"},
+      "pages": [{"orig_page_no": 3, "elements": [
+          {"id": "w1", "type": "title", "heading_level": 1, "text": _T2 + "\n", "breaks": _TB2},
+          {"id": "w2", "type": "text", "heading_level": 0, "text": _S1 + "\n", "breaks": _B1}]}]},
+     "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"),
+    ("조립 JSON 줄바꿈 셀",
+     {"options": {"include_page_number": True, "rows": 12, "cols": 32, "wrap": "cell"},
+      "pages": [{"orig_page_no": 3, "elements": [
+          {"id": "w2", "type": "text", "heading_level": 0, "text": _S1 + "\n", "breaks": _B1}]}]}, ""),
 ]
 
 
 def build() -> dict:
-    out = {"version": "0.3.0", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.4.0", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
-                                         "build_brf": []}}
+                                         "build_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:
         o = kw.pop("opts", None)
         got = page_row(**kw, opts=Options(**o) if o else Options())
@@ -242,7 +299,7 @@ def build() -> dict:
         out["cases"]["page_change_line"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
              **({"source": src} if src else {})})
-    for name, kw, src in BUILD:
+    for name, kw, src in BUILD + BUILD_WRAP:
         o = kw.pop("opts", None)
         got = build_pages(**kw, opts=Options(**o) if o else Options())
         for pg in got:
@@ -258,6 +315,9 @@ def build() -> dict:
         out["cases"]["to_brf_ascii"].append(
             {"name": name, "args": {"braille": arg}, "expect": to_brf_ascii(arg),
              **({"source": src} if src else {})})
+    for name, kw, src in WRAP:
+        out["cases"]["wrap"].append(
+            {"name": name, "args": kw, "expect": wrap(**kw), **({"source": src} if src else {})})
     return out
 
 

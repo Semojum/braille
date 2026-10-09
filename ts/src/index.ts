@@ -10,6 +10,10 @@
 export const SPACE = '⠀'; // 공백 셀 ⠀
 const NUM_SIGN = '⠼'; // 수표 ⠼
 const CHANGE_MARK = '⠤'; // 변경선 채움 ⠤
+/** 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 뜻은 `wrap` 에 적었다. */
+export const WRAP_MODES = ['syllable', 'word', 'cell'] as const;
+export type WrapMode = typeof WRAP_MODES[number];
+const TN_MARK = '⠠⠄'; // 점역자 주 표(두 칸). 강제로 자를 때 가르지 않는다
 
 // 숫자·알파벳은 같은 점형(1=a=⠁ … 0=j=⠚). 수표가 앞에 오면 숫자로 읽는다.
 const DIGIT_CELLS = '⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊';
@@ -41,6 +45,8 @@ export interface Options {
   showChangeLine: boolean;
   /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다. */
   footerAlign: 'center' | 'right';
+  /** 32칸을 넘는 줄을 접는 갈래. 블록에 breaks 가 없으면 syllable 이어도 word 로 접는다. */
+  wrap: WrapMode;
 }
 
 /** 1차 PoC 고정값 (조판 가이드 §5). */
@@ -54,6 +60,7 @@ export const DEFAULT_OPTIONS: Options = {
   origPageStart: null,
   showChangeLine: true,
   footerAlign: 'center',
+  wrap: 'syllable',
 };
 
 function resolve(opts?: Partial<Options>): Options {
@@ -61,6 +68,7 @@ function resolve(opts?: Partial<Options>): Options {
   if (o.cols < 8) throw new Error(`cols는 8 이상이어야 한다: ${o.cols}`);
   if (!['every', 'odd', 'even', 'none'].includes(o.pageRowOn))
     throw new Error(`pageRowOn은 odd|every|even|none: ${o.pageRowOn}`);
+  if (!WRAP_MODES.includes(o.wrap)) throw new Error(`wrap은 syllable|word|cell: ${o.wrap}`);
   return o;
 }
 
@@ -178,13 +186,14 @@ export function toBrfAscii(braille: string): string {
 // ③ 표지를 어디까지 빼나 — 셋 다 지침 규칙이다. 호출자가 각자 구현하면 점자 규정이
 // 레포 밖으로 흩어진다. 이 레포를 만든 이유가 그걸 막으려는 것이다.
 
-export interface Block { order: number; text: string }
+/** breaks — 응답 breaks 그대로(그 블록 text 기준, 선택). heading_level 1 — 접힌 줄을 가운데에. */
+export interface Block { order: number; text: string; breaks?: number[] | null; heading_level?: number }
 export interface Source { orig_page: number; blocks: Block[] }
 
 /** cols를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
  *  종전의 무조건 자르기는 한글 한 음절의 점형을 두 줄로 갈랐다 — 지침 §2.1.1(2)의
  *  음절 원칙도 어절 예외도 아니다(2026-09-08 대표 지적 ③). 자세한 근거는 python core._wrap. */
-function wrap(line: string, cols: number): string[] {
+function wordWrap(line: string, cols: number): string[] {
   if (!line) return [''];
   const out: string[] = [];
   const trimEnd = (s: string) => s.replace(/⠀+$/, '');
@@ -200,6 +209,72 @@ function wrap(line: string, cols: number): string[] {
     }
   }
   out.push(line);
+  return out;
+}
+
+/**
+ * 논리 줄 하나를 cols 칸 줄들로 접는다. 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 근거는 python `wrap`.
+ * - syllable: breaks(그 셀 앞에서 끊어도 되는 자리, 이 줄 기준) 가운데 cols 칸 안에서 가장 먼 자리에서 끊는다.
+ *   없으면 cols 칸째에서 강제로 자르되 점역자 주 표 ⠠⠄ 는 가르지 않는다. 이어지는 줄 머리 빈칸은 버린다.
+ *   breaks 가 비면 word 로 접는다(설계 §6-1).
+ * - word: 빈칸(어절) 자리에서 자른다.
+ * - cell: cols 칸마다 그대로 자른다(빈칸을 버리지 않고 가운데에도 놓지 않는다).
+ * - center: 1단계 제목. cols 를 넘어 접힌 줄만 조각마다 가운데에 놓는다(syllable · word).
+ */
+export function wrap(line: string, cols = 32, mode: WrapMode = 'syllable',
+                     breaks?: number[] | null, center = false): string[] {
+  if (!WRAP_MODES.includes(mode)) throw new Error(`wrap은 syllable|word|cell: ${mode}`);
+  if (mode === 'cell') {
+    const out: string[] = [];
+    for (let i = 0; i < line.length; i += cols) out.push(line.slice(i, i + cols));
+    return out.length ? out : [''];
+  }
+  let out: string[];
+  if (mode === 'word' || !breaks || breaks.length === 0) {
+    out = wordWrap(line, cols);
+  } else {
+    out = [];
+    let start = 0;
+    while (line.length - start > cols) {
+      const ok = breaks.filter((b) => start < b && b <= start + cols);
+      let cut = ok.length ? Math.max(...ok) : start + cols;
+      if (!ok.length && line.slice(cut - 1, cut + 1) === TN_MARK) cut -= 1;
+      out.push(line.slice(start, cut));
+      start = cut;
+      while (start < line.length && (line[start] === SPACE || line[start] === ' ')) start++;
+    }
+    if (start < line.length || out.length === 0) out.push(line.slice(start));
+  }
+  if (center && line.length > cols) out = out.map((s) => SPACE.repeat(Math.floor((cols - s.length) / 2)) + s);
+  return out;
+}
+
+/** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 o.wrap 갈래로 접는다. 근거는 python `_fold_blocks`. */
+function foldBlocks(blocks: Block[], o: Options): string[] {
+  let seg = blocks.map((b) => b.text ?? '').join('');
+  if (seg === '') return [];   // 내용이 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
+  const starts: number[] = [];
+  const centers: boolean[] = [];
+  const gbreaks: number[] = [];
+  let acc = 0;
+  for (const b of blocks) {
+    starts.push(acc);
+    centers.push((b.heading_level ?? 0) === 1);
+    for (const x of b.breaks ?? []) gbreaks.push(acc + x);
+    acc += (b.text ?? '').length;
+  }
+  // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
+  // split('\n')이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
+  if (seg.endsWith('\n')) seg = seg.slice(0, -1);
+  const out: string[] = [];
+  let base = 0;
+  for (const logical of seg.split('\n')) {
+    let k = 0;
+    while (k + 1 < starts.length && starts[k + 1] <= base) k++;
+    const lb = gbreaks.filter((g) => base < g && g < base + logical.length).map((g) => g - base);
+    out.push(...wrap(logical, o.cols, o.wrap, lb, centers[k]));
+    base += logical.length + 1;
+  }
   return out;
 }
 
@@ -257,21 +332,16 @@ export function buildPages(
     if (i > 0 && withChange) flat.push([pageChangeLine(op, opts), op, cover]);
     const blocks = [...(src.blocks ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     // 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
-    const segs: Array<string | null> = [];
-    let cur: string[] = [];
+    const segs: Array<Block[] | null> = [];
+    let cur: Block[] = [];
     for (const b of blocks) {
-      const t = b.text ?? '';
-      if (t.trim() === PAGE_BREAK_TAG) { segs.push(cur.join('')); segs.push(null); cur = []; }
-      else cur.push(t);
+      if ((b.text ?? '').trim() === PAGE_BREAK_TAG) { segs.push(cur); segs.push(null); cur = []; }
+      else cur.push(b);
     }
-    segs.push(cur.join(''));
+    segs.push(cur);
     for (const seg of segs) {
       if (seg === null) { flat.push([BREAK, op, cover]); continue; }
-      // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
-      // split('\n')이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
-      if (seg === '') continue;   // 내용이 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
-      const body = seg.endsWith('\n') ? seg.slice(0, -1) : seg;
-      for (const logical of body.split('\n')) for (const w of wrap(logical, o.cols)) flat.push([w, op, cover]);
+      for (const w of foldBlocks(seg, o)) flat.push([w, op, cover]);
     }
   });
 
@@ -318,13 +388,15 @@ export function buildPages(
 // BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
 //
 // ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
-// ★ `type`·`heading_level`은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
-//   AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`). 여기서 또 넣으면 두 번 들어간다.
+// ★ 들여쓰기·가운데 정렬·구조적 빈 줄은 AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`).
+//   `type`은 쓰지 않는다. `heading_level`은 1단계 제목이 32칸을 넘어 접힐 때만 조각을 가운데에 놓는 데 쓴다.
+// ★ `breaks`(선택)는 응답 TextElement.breaks 그대로다. `text` 를 고치면 오프셋이 어긋난다.
 export interface JobElement {
   id?: string;
   type?: string;
   heading_level?: number;
   text: string;
+  breaks?: number[] | null;
 }
 
 export interface JobPage {
@@ -343,6 +415,7 @@ export interface JobOptions {
   orig_page_start?: number | null;
   show_change_line?: boolean;
   footer_align?: 'center' | 'right';
+  wrap?: WrapMode;
 }
 
 export interface Job {
@@ -376,6 +449,7 @@ export function optionsFromJob(job: Job): Partial<Options> {
     origPageStart: o.orig_page_start ?? null,
     showChangeLine: o.show_change_line ?? true,
     footerAlign: o.footer_align ?? 'center',
+    wrap: o.wrap ?? 'syllable',
   };
 }
 
@@ -384,7 +458,9 @@ export function buildPagesFromJob(job: Job): string[][] {
   const sources: Source[] = (job.pages ?? []).map((pg, i) => ({
     orig_page: pg.orig_page_no ?? i + 1,
     // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
-    blocks: (pg.elements ?? []).map((el, k) => ({ order: k, text: el.text ?? '' })),
+    blocks: (pg.elements ?? []).map((el, k) => ({
+      order: k, text: el.text ?? '', breaks: el.breaks ?? null, heading_level: el.heading_level ?? 0,
+    })),
   }));
   return buildPages(sources, job.footer_braille ?? '',
                     job.start_braille_page ?? 1, optionsFromJob(job),

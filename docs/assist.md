@@ -166,6 +166,31 @@ to_brf_ascii("⠼⠁⠃")   # '#ab'
 
 Job의 `options`를 `Options`로 바꾼다. 위 함수들이 내부에서 부르므로 직접 쓸 일은 드물다.
 
+## wrap(line, cols, mode, breaks, center)
+
+논리 줄 하나를 `cols` 칸 줄들로 접는다. 줄바꿈 세 갈래(2026-10-09 대표 결재, 기본 음절). `build_pages` 가 줄마다
+이것을 부른다. FE 미리보기처럼 면 조립 없이 한 줄만 접을 때 바로 부른다.
+
+| 매개변수 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `line` | str | (필수) | 접을 줄. `\n` 이 없어야 한다 |
+| `cols` | int | `32` | 한 줄 칸 수 |
+| `mode` | str | `"syllable"` | `syllable` · `word` · `cell` |
+| `breaks` | list[int] | `None` | 그 셀 앞에서 끊어도 되는 자리(**이 줄 기준** 오프셋). AI 응답 `breaks` 에서 이 줄 시작 오프셋을 뺀 값 |
+| `center` | bool | `False` | 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다 |
+
+| 갈래 | 자르는 자리 |
+|---|---|
+| `syllable`(기본) | `cols` 칸 안에서 가장 먼 `breaks` 자리. 없으면 `cols` 칸째에서 강제로 자르되 점역자 주 표 `⠠⠄` 는 가르지 않는다. 이어지는 줄 머리 빈칸은 버린다. **`breaks` 가 비면 `word` 로 접는다**(옛 응답 · 점자를 직접 고친 요소) |
+| `word` | 빈칸(어절) 자리. 어절 하나가 폭을 넘을 때만 강제로 자른다 |
+| `cell` | `cols` 칸마다 그대로 자른다. 빈칸을 버리지 않고 가운데에도 놓지 않는다(옛 동작) |
+
+**반환** `list[str]`
+
+`syllable` 의 셈은 앱 사이드카 문서([sidecar.md](sidecar.md) §5)의 `fold` 와 같다. 사이드카 `translate` 로 낸 요소
+3,000개를 두 함수로 접어 가운데 놓기 켬 · 끔 6,000가지를 견주니 5,998이 같았다. 다른 2는 한문 시 한 편이 모두 빈 줄로
+나온 경우로, 끝 개행을 종결자로 보는 `build_pages` 약속 때문이다.
+
 ---
 
 ## Options
@@ -181,6 +206,7 @@ Options(
     orig_page_start=None,     # 표지 다음 첫 본문 페이지에 붙일 번호
     show_change_line=True,    # 원본 페이지 변경선
     footer_align="center",    # 꼬리말 정렬: center | right
+    wrap="syllable",          # 줄바꿈: syllable | word | cell
 )
 ```
 
@@ -194,6 +220,7 @@ Options(
 | `orig_page_start` | `None`이면 `sources`가 준 `orig_page`를 그대로 쓴다. 값을 주면 표지 뒤 n번째 = `orig_page_start + n` |
 | `show_change_line` | 변경선 켜기·끄기 |
 | `footer_align` | `right`면 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다 |
+| `wrap` | 32칸을 넘는 줄을 접는 갈래([wrap](#wraplinecolsmodebreakscenter)). 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다 |
 
 ---
 
@@ -214,7 +241,8 @@ BE가 편집 최종본을 모아 넘기는 형식. `build_brf`와 `build_pages_f
     "cover_pages": 0,
     "orig_page_start": null,
     "show_change_line": true,
-    "footer_align": "center"
+    "footer_align": "center",
+    "wrap": "syllable"              // 줄바꿈 갈래: syllable | word | cell
   },
   "footer_braille": "⠎⠣⠞⠕⠛⠕⠈⠮",       // 문서 전체 기본 꼬리말
   "footers_braille": { "3": "⠈⠮" },   // 면별 꼬리말 (선택)
@@ -223,7 +251,8 @@ BE가 편집 최종본을 모아 넘기는 형식. `build_brf`와 `build_pages_f
     { "orig_page_no": 7,
       "elements": [
         { "id": "e1", "type": "title", "heading_level": 1, "text": "⠀⠀⠠⠕⠂⠠⠪⠃\n" },
-        { "id": "e2", "type": "text",  "heading_level": 0, "text": "⠀⠀⠕⠰⠗⠁⠵⠀⠙⠣⠕\n" }
+        { "id": "e2", "type": "text",  "heading_level": 0, "text": "⠀⠀⠕⠰⠗⠁⠵⠀⠙⠣⠕\n",
+          "breaks": [3, 5, 7] }           // 응답 TextElement.breaks 그대로(선택)
       ] }
   ]
 }
@@ -233,9 +262,12 @@ BE가 편집 최종본을 모아 넘기는 형식. `build_brf`와 `build_pages_f
 
 **`elements` 배열 순서가 읽기 순서다.** `order` 필드는 없다.
 
-**`type`과 `heading_level`은 조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
-AI가 이미 `text` 안에 넣어 보낸다. 여기서 또 넣으면 두 번 들어간다. 두 필드는 오류를
-지목하거나 나중에 확장할 때 쓰려고 받아만 둔다.
+**들여쓰기 · 가운데 정렬 · 구조적 빈 줄은 AI가 이미 `text` 안에 넣어 보낸다.** 여기서 또 넣지 않는다.
+`type` 은 쓰지 않는다. `heading_level` 은 **1단계 제목이 32칸을 넘어 접힐 때만** 조각을 가운데에 놓는 데 쓴다.
+
+**`breaks`(선택)는 AI 응답 `TextElement.breaks` 를 그대로 넣는다.** 오프셋은 `text` 기준이라, 응답
+`contents[0]` 를 고치지 않고 `text` 에 넣어야 한다(앞뒤 빈 줄을 떼면 어긋난다). 점역사가 점자를 직접 고친 요소는
+`breaks` 를 비우고, 그 요소는 `word` 로 접힌다.
 
 ---
 
@@ -282,7 +314,7 @@ AI가 이미 `text` 안에 넣어 보낸다. 여기서 또 넣으면 두 번 들
 | 묵자 → 점자 점역 | AI 서버 (`ProcessPage`, 꼬리말은 `TranslateText`) |
 | 들여쓰기 · 가운데 정렬 · 구조적 빈 줄 | AI 서버가 `text` 안에 넣어 보낸다 |
 | 꼬리말 "이후 전부 / 이 면만" 해석 | FE |
-| 묵자 → 점자 점역·음절 경계 판정 | AI 서버. 이 레포는 셀만 보므로 **빈칸(어절) 경계**로만 접는다 |
+| 묵자 → 점자 점역·음절 경계 판정 | AI 서버. 응답 `breaks` 로 받는다. 이 레포는 셀만 보므로 `breaks` 가 없으면 **빈칸(어절) 경계**로만 접는다 |
 
 > **`cols`를 32에서 바꿀 때 주의.** 본문은 새 폭으로 다시 접히지만 글상자 테두리와 표 격자는
 > AI가 32칸으로 이미 만들어 보낸 뒤라 어긋난다. AI 쪽이 `cols`를 받도록 고치기 전에는
@@ -298,8 +330,9 @@ cd ts && npm install && npm test     # ts (빌드 없이 돈다)
 cd java && mvn test                  # java
 ```
 
-`vectors.json`이 유일한 정답 파일이다. 케이스 53건 중 15건은 지침 원문에서 사람이
-대조한 값이고(`source` 필드에 조항이 적혀 있다), 나머지는 회귀 방지용이다.
+`vectors.json`이 유일한 정답 파일이다(0.4.0, 케이스 70건). 지침 원문에서 사람이 대조한 값은 `source` 필드에
+조항이 적혀 있고, 나머지는 회귀 방지용이다. 줄바꿈 세 갈래 사례 17건(0.4.0 에서 더함)의 줄과 끊을 자리는
+사이드카 `translate` 로 한 번 뽑아 값으로 굳혔다.
 **케이스 정의의 정본은 `tools/gen_vectors.py`다.** 벡터를 손으로만 더하면 재생성할 때 조용히 사라진다
 (2026-09-08에 쪽바꿈 3건·어절 줄바꿈 1건이 그렇게 빠질 뻔했다).
 
@@ -327,7 +360,7 @@ cd java && mvn test                  # java
 | 면 첫 줄의 빈 줄은 **살린다**(문서 맨 앞만 예외) | 도서지침 2장2절2 2)(3) · 자료지침 §2.4.4(3) |
 | 요소 통 문자열의 **끝 개행은 줄 종결자**다. 빈 줄로 세지 않는다 | AI `flatten_elements` 계약(`suffix = "\n" * (after + 1)`) |
 | 표지 면은 점자 면 번호를 소비하지 않는다(표지 다음 면이 1) | 도서지침 1장2 3)(1) · 자료지침 §2.1.5(1) |
-| 32칸을 넘으면 빈칸(어절) 경계에서 접는다 (어절 하나가 넘치면 그때만 강제 분리) | 자료지침 §2.1.1(2) · 원장 C-83 |
+| 32칸을 넘으면 기본은 **음절** 경계(`breaks`)에서 접는다. 어절 · 셀은 고르는 값이다 | 자료지침 §2.1.1(2)(446~449행 "한글은 음절 단위 줄바꿈을 원칙", 시험 문제지 등은 어절 허용) · 원장 C-83 · 대표 결재 2026-10-09 |
 
 **가운데 정렬은 올림이다** (`(cols - len(footer) + 1) // 2`). 지침 실물 4건([예 1-6] ·
 [예 1-7]×3 · [예 1-8])이 전부 이 값과 맞는다. 내림이면 꼬리말이 홀수 칸일 때 한 칸 어긋난다.
