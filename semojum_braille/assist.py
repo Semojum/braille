@@ -1,8 +1,9 @@
 """점자 조판 공용 함수: 면 나누기 · 줄 자르기 · 페이지행 · 원본 페이지 변경선 · BRF 조립.
 
 braille-assist(`python/braille_assist/core.py`, develop 2c41d8d)에서 옮겨 왔다(2026-10-04). 파이썬 기준 구현은
-이제 여기다. braille-assist 의 ts · java 판은 웹 FE · BE 가 쓰는 동안 남는다. 동작 명세는
-`test/data/assist_vectors.json`(braille-assist `vectors.json` 0.3.0)이고 `test/test_assist_vectors.py` 가 맞춘다.
+이제 여기다. 같은 함수의 ts(`ts/`) · java(`java/`) 판도 braille-assist develop 38e21e2 에서 이 저장소로 옮겨 왔다
+(2026-10-09). 동작 명세는 루트 `vectors.json`(0.3.0) 하나다. 파이썬은 `test/test_assist_vectors.py`,
+ts · java 는 `.github/workflows/assist.yml` 이 같은 파일로 맞춘다. 규칙을 바꾸면 세 구현과 벡터를 한 PR 로 고친다.
 
 이 모듈은 한글을 점역하지 않는다. 이미 점역된 점자를 받아 배치만 한다.
 근거: 「점자 도서 제작 지침」 1장 2절 2(페이지 구성) · 1장 3(꼬리말) · 2장 2절 2-3(원본 페이지 변경선).

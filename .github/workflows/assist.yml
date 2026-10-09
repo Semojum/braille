@@ -1,0 +1,46 @@
+name: 조판 세 구현
+
+# 조판 함수의 ts · java 구현이 루트 vectors.json 으로 파이썬 기준 구현(semojum_braille.assist)과
+# 같은 출력을 내는지 본다. 파이썬 쪽은 test.yml 의 pytest(test/test_assist_vectors.py)가 같은 파일로 본다.
+# 규칙이 바뀌면 세 구현 + 벡터(tools/gen_vectors.py)를 한 PR 로 고친다. 하나라도 어긋나면 막는다.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "java/**"
+      - "ts/**"
+      - "vectors.json"
+      - "tools/gen_vectors.py"
+      - "semojum_braille/assist.py"
+      - ".github/workflows/assist.yml"
+  pull_request:
+    paths:
+      - "java/**"
+      - "ts/**"
+      - "vectors.json"
+      - "tools/gen_vectors.py"
+      - "semojum_braille/assist.py"
+      - ".github/workflows/assist.yml"
+
+jobs:
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install --no-audit --no-fund
+        working-directory: ts
+      - run: npm run build       # 타입 오류도 CI에서 잡는다
+        working-directory: ts
+      - run: npm test
+        working-directory: ts
+
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21', cache: maven }
+      - run: mvn -B test
+        working-directory: java
