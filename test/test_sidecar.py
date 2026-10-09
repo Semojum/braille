@@ -1,7 +1,9 @@
 """사이드카 프로토콜(README 8절)이 README 에 적은 대로 도는지 본다."""
 import json
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 from semojum_braille import sidecar
 from semojum_braille.encoder.layout_braille import _flat_breaks
@@ -80,3 +82,12 @@ def test_grade_follows_server_rules():
     # 원문과 다르게 되돌아오면 low
     assert sidecar.handle({"op": "grade", "braille": translate_tagged_text("대한민국의 모든 국민은"),
                            "source": "대한민국의 모든 국민이 아니다"})["grade"] == "low"
+
+
+def test_braillify_고지는_묶은_판의_것이다():
+    """#32 · Semojum/AI#1255. 앱이 사이드카를 실어 내면 braillify 휠도 같이 나가는데 휠에 고지 파일이 없다.
+    판을 올리면 그 판의 LICENSE(2.2.0 부터는 NOTICE 도)를 `third_party/braillify-<판>/` 에 새로 받아 둔다."""
+    pin = re.search(r'"braillify==([^"]+)"', (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    d = Path(sidecar.__file__).with_name("third_party")
+    assert [p.name for p in d.iterdir()] == [f"braillify-{pin.group(1)}"]
+    assert (d / f"braillify-{pin.group(1)}" / "LICENSE").read_text(encoding="utf-8").lstrip().startswith("Apache License")

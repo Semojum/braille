@@ -32,9 +32,13 @@ github.com/dev-five-git/braillify 의 `LICENSE` · `NOTICE` 가 모두 Apache-2.
 
 - 이 저장소는 braillify 를 품지 않고 `pyproject.toml` 에 의존으로 적기만 한다. 공개는 재배포가 아니다.
 - **앱에 실어 배포하는 시점에 걸린다.** 사이드카를 묶어 내면 braillify 를 재배포하는 셈이다. Apache-2.0 은
-  그때 라이선스 사본과 NOTICE 내용을 함께 실으라고 한다(4조 (a) · (d)). 휠에는 그 파일이 없으므로 앱 제3자
-  고지에 braillify `LICENSE` · `NOTICE`(그 안의 Unihan 자료 고지 포함)를 우리가 넣는다.
-- 쓰는 범위와 의존 크기는 Semojum/AI#1255 에서 잰다.
+  그때 라이선스 사본과 NOTICE 내용을 함께 실으라고 한다(4조 (a) · (d)). 휠에는 그 파일이 없어 **이 패키지에
+  실었다**(#32): `semojum_braille/third_party/braillify-2.0.1/LICENSE` 는 원 저장소 2.0.1 판(태그 커밋 9d29f32)의
+  루트 `LICENSE` 그대로다. 앱이 site-packages 를 통째로 실으면 같이 나간다.
+- 2.0.1 판에는 `NOTICE` 가 없다. `NOTICE` 는 2.2.0 판부터 있고 한자 읽기(Unihan) · CMU 발음 사전 자료 고지를
+  담는다. 판을 올리면 그 판의 `LICENSE` · `NOTICE` 를 `third_party/braillify-<판>/` 에 새로 받아 둔다. 묶은 판과
+  폴더 이름이 어긋나면 `test/test_sidecar.py` 가 실패한다.
+- 쓰는 범위와 의존 크기는 Semojum/AI#1255 에 적었다.
 
 ## 데이터 파일의 출처
 
