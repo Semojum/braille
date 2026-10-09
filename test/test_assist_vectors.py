@@ -24,8 +24,8 @@ def test_벡터(fn, case):
     assert getattr(assist, fn)(**args) == case["expect"]
 
 
-def test_벡터가_여섯_함수를_다_덮는다():
-    assert set(_DATA["cases"]) == {"page_row", "page_change_line", "to_brf_ascii", "build_pages", "build_brf", "wrap"}
+def test_벡터가_일곱_함수를_다_덮는다():
+    assert set(_DATA["cases"]) == {"page_row", "page_change_line", "to_brf_ascii", "build_pages", "build_brf", "pages_to_brf", "wrap"}
     assert len(_CASES) == sum(len(v) for v in _DATA["cases"].values()) > 50
 
 

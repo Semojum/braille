@@ -2,14 +2,17 @@
 
 braille-assist(`python/braille_assist/core.py`, develop 2c41d8d)에서 옮겨 왔다(2026-10-04). 파이썬 기준 구현은
 이제 여기다. 같은 함수의 ts(`ts/`) · java(`java/`) 판도 braille-assist develop 38e21e2 에서 이 저장소로 옮겨 왔다
-(2026-10-09). 동작 명세는 루트 `vectors.json`(0.4.0, 줄바꿈 세 갈래 포함) 하나다. 파이썬은 `test/test_assist_vectors.py`,
+(2026-10-09). 동작 명세는 루트 `vectors.json`(0.5.0, 줄바꿈 세 갈래 · `.brf` 바이트 규격 포함) 하나다. 파이썬은 `test/test_assist_vectors.py`,
 ts · java 는 `.github/workflows/assist.yml` 이 같은 파일로 맞춘다. 규칙을 바꾸면 세 구현과 벡터를 한 PR 로 고친다.
 
 이 모듈은 한글을 점역하지 않는다. 이미 점역된 점자를 받아 배치만 한다.
 근거: 「점자 도서 제작 지침」 1장 2절 2(페이지 구성) · 1장 3(꼬리말) · 2장 2절 2-3(원본 페이지 변경선).
 
-★ 파일로 낼 때는 `build_brf_file` 을 쓴다(현장 꼴 `.brf` 바이트, `semojum_braille.brf`).
-  `build_brf` · `to_brf_ascii` 는 벡터가 묶은 옛 꼴(줄 끝 `\n`, FF 없음, `{ | } ~` · `@`)이라 그대로 둔다.
+★ `.brf` 파일을 내는 함수가 두 꼴이다. 줄 끝 `\\r\\n` · 면마다 끝에 `\\x0c` 는 같다.
+  · `build_brf` · `pages_to_brf`(세 언어 공통, 벡터가 묶음): 글자는 `to_brf_ascii`(`{ | } ~` · `@`), 면은 받은 줄 그대로,
+    6점 밖 글자는 `⟨XXXX⟩` 로 남긴다(braille-assist#11 을 옮겨 옴).
+  · `build_brf_file`(파이썬만, 사이드카가 쓴다): 글자는 현장 다수 꼴(`semojum_braille.brf`), 면을 `rows` 줄로 채우고,
+    BRF ASCII 로 못 옮기는 글자는 `ValueError` 다.
 """
 
 from __future__ import annotations
@@ -548,15 +551,24 @@ def build_pages_from_job(job: dict) -> list:
     )
 
 
+def pages_to_brf(pages: list) -> str:
+    """점자 면 배열 → **.brf 파일 내용**(BRF Braille ASCII). 줄마다 `\\r\\n`, 면마다 끝에 `\\f`(마지막 면 포함).
+
+    현장 BRF 와 같은 바이트 규격이다(점자 대체교과서 BRF 51권: 줄마다 CRLF, 26줄 면마다 폼 피드).
+    종전처럼 `\\n` 으로만 잇고 면 구분자를 안 넣으면 실로암브레일이 34KB 파일을 못 열었다
+    (한국점자도서관 앱 테스트 결과보고서 2026-09-17, braille-assist#10). 파일은 이 문자열을 그대로 쓴다.
+    6점 밖 글자는 `to_brf_ascii` 대로 `⟨XXXX⟩` 가 남아 ASCII 밖 바이트가 될 수 있다.
+    """
+    return "".join("".join(to_brf_ascii(line) + "\r\n" for line in page) + "\f" for page in pages)
+
+
 def build_brf(job: dict) -> str:
-    """BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
+    """BE 조립 JSON → **.brf 파일 내용**(`pages_to_brf` 규격).
 
     BE는 이 문자열을 그대로 파일로 쓰면 된다. 점역은 하지 않는다 — 이미 점역된
     통 문자열을 조판만 한다.
     """
-    return "\n".join(to_brf_ascii(line)
-                      for page in build_pages_from_job(job)
-                      for line in page)
+    return pages_to_brf(build_pages_from_job(job))
 
 
 def build_brf_file(job: dict) -> bytes:

@@ -653,19 +653,29 @@ public final class BrailleAssist {
     }
 
     /**
-     * 조립 JSON → <b>.brf 파일 내용</b>(BRF Braille ASCII, 줄바꿈 \n).
+     * 점자 면 배열 → <b>.brf 파일 내용</b>(BRF Braille ASCII). 줄마다 {@code \r\n}, 면마다 끝에
+     * {@code \f}(마지막 면 포함).
+     *
+     * <p>현장 BRF 와 같은 바이트 규격이다(점자 대체교과서 BRF 51권: 줄마다 CRLF, 26줄 면마다 폼 피드).
+     * {@code \n} 으로만 잇고 면 구분자를 안 넣으면 실로암브레일이 34KB 파일을 못 열었다(braille-assist#10).
+     * 파일은 이 문자열을 그대로 쓴다. 6점 밖 글자는 {@link #toBrfAscii} 대로 {@code ⟨XXXX⟩} 가 남는다.
+     */
+    public static String pagesToBrf(java.util.List<java.util.List<String>> pages) {
+        StringBuilder sb = new StringBuilder();
+        for (java.util.List<String> page : pages) {
+            for (String line : page) {
+                sb.append(toBrfAscii(line)).append("\r\n");
+            }
+            sb.append('\f');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 조립 JSON → <b>.brf 파일 내용</b>({@link #pagesToBrf} 규격).
      * 점역은 하지 않는다 — 이미 점역된 통 문자열을 조판만 한다.
      */
     public static String buildBrf(Job job) {
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-        for (java.util.List<String> page : buildPagesFromJob(job)) {
-            for (String line : page) {
-                if (!first) sb.append('\n');
-                sb.append(toBrfAscii(line));
-                first = false;
-            }
-        }
-        return sb.toString();
+        return pagesToBrf(buildPagesFromJob(job));
     }
 }
