@@ -29,6 +29,15 @@ def test_벡터가_일곱_함수를_다_덮는다():
     assert len(_CASES) == sum(len(v) for v in _DATA["cases"].values()) > 50
 
 
+def test_줄바꿈은_두_갈래다():
+    """2026-10-10 대표 확정. 10-09 에 넣은 점자 칸(`cell`) 갈래는 뺐다. 넘기면 조용히 바꾸지 않고 멈춘다."""
+    assert assist.WRAP_MODES == ("syllable", "word")
+    with pytest.raises(ValueError):
+        assist.wrap("⠁" * 40, 32, "cell")
+    with pytest.raises(ValueError):
+        assist.Options(wrap="cell")
+
+
 @pytest.mark.parametrize("fn, case", [(f, c) for f, c in _CASES if f == "build_brf"],
                          ids=[c["name"] for f, c in _CASES if f == "build_brf"])
 def test_파일_꼴은_면_나누기가_같고_바이트만_현장_꼴(fn, case):

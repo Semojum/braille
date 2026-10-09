@@ -2,7 +2,7 @@
 
 braille-assist(`python/braille_assist/core.py`, develop 2c41d8d)에서 옮겨 왔다(2026-10-04). 파이썬 기준 구현은
 이제 여기다. 같은 함수의 ts(`ts/`) · java(`java/`) 판도 braille-assist develop 38e21e2 에서 이 저장소로 옮겨 왔다
-(2026-10-09). 동작 명세는 루트 `vectors.json`(0.5.0, 줄바꿈 세 갈래 · `.brf` 바이트 규격 포함) 하나다. 파이썬은 `test/test_assist_vectors.py`,
+(2026-10-09). 동작 명세는 루트 `vectors.json`(0.6.0, 줄바꿈 두 갈래 · `.brf` 바이트 규격 포함) 하나다. 파이썬은 `test/test_assist_vectors.py`,
 ts · java 는 `.github/workflows/assist.yml` 이 같은 파일로 맞춘다. 규칙을 바꾸면 세 구현과 벡터를 한 PR 로 고친다.
 
 이 모듈은 한글을 점역하지 않는다. 이미 점역된 점자를 받아 배치만 한다.
@@ -25,7 +25,7 @@ from .brf import serialize_brf
 SPACE = "⠀"          # 공백 셀 ⠀
 NUM_SIGN = "⠼"       # 수표 ⠼
 CHANGE_MARK = "⠤"    # 원본 페이지 변경선 채움 ⠤
-WRAP_MODES = ("syllable", "word", "cell")   # 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절)
+WRAP_MODES = ("syllable", "word")   # 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절. 10-09 의 점자 칸 갈래는 뺐다)
 _TN_MARK = "⠠⠄"     # 점역자 주 표(두 칸). 강제로 자를 때 가르지 않는다
 
 # 숫자·알파벳은 같은 점형을 쓴다(1=a=⠁ … 0=j=⠚). 수표가 앞에 오면 숫자로 읽는다.
@@ -76,7 +76,7 @@ class Options:
     footer_align — 꼬리말 정렬. `center`(지침 1장3-1 기본)와 `right`.
       right는 점자 페이지 번호 왼쪽에 **두 칸을 띄운 자리**가 오른쪽 끝이다(항목 사이 두 칸 이상).
 
-    wrap — 32칸을 넘는 줄을 접는 갈래. `syllable`(기본, 2026-10-09 대표 결재) · `word` · `cell`.
+    wrap — 32칸을 넘는 줄을 접는 갈래. `syllable`(기본) · `word` 두 갈래다(2026-10-10 대표 확정).
       뜻은 `wrap()` 에 적었다. 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다.
     """
 
@@ -89,7 +89,7 @@ class Options:
     orig_page_start: int | None = None   # 본문 첫 원본 페이지에 붙일 번호. None이면 준 값 그대로
     show_change_line: bool = True    # 원본 페이지 변경선을 넣을지
     footer_align: str = "center"     # center | right
-    wrap: str = "syllable"           # syllable | word | cell
+    wrap: str = "syllable"           # syllable | word
 
     def __post_init__(self) -> None:
         if self.cols < 8:
@@ -101,7 +101,7 @@ class Options:
         if self.cover_pages < 0:
             raise ValueError(f"cover_pages는 0 이상이어야 한다: {self.cover_pages}")
         if self.wrap not in WRAP_MODES:
-            raise ValueError(f"wrap은 syllable|word|cell: {self.wrap!r}")
+            raise ValueError(f"wrap은 syllable|word: {self.wrap!r}")
 
 
 DEFAULT = Options()
@@ -260,21 +260,18 @@ def _wrap(line: str, cols: int) -> list[str]:
 
 def wrap(line: str, cols: int = 32, mode: str = "syllable",
          breaks: list | None = None, center: bool = False) -> list:
-    """논리 줄 하나를 `cols` 칸 줄들로 접는다. 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절).
+    """논리 줄 하나를 `cols` 칸 줄들로 접는다. 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절).
 
     syllable — `breaks`(그 셀 앞에서 끊어도 되는 자리, **이 줄 기준** 오프셋) 가운데 `cols` 칸 안에서 가장 먼
       자리에서 끊는다. 그런 자리가 없으면 `cols` 칸째에서 강제로 자르되 점역자 주 표 `⠠⠄` 는 가르지 않는다.
       이어지는 줄 머리의 빈칸은 버린다. `docs/sidecar.md` §5 `fold` 와 같은 셈이다(엔진 조판과 39,562요소 같음).
       `breaks` 가 비면(옛 응답 · 점자를 직접 고친 요소 · 끊을 자리가 없는 줄) `word` 로 접는다(설계 §6-1).
     word — 빈칸(어절) 자리에서 자른다(`_wrap`, #9 · 원장 C-83).
-    cell — `cols` 칸마다 그대로 자른다(#9 이전 동작). 빈칸을 버리지 않고 가운데에도 놓지 않는다.
-    center — 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다(syllable · word).
+    center — 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.
       안 접힌 줄은 AI 가 이미 가운데 여백을 넣어 보낸다.
     """
     if mode not in WRAP_MODES:
-        raise ValueError(f"wrap은 syllable|word|cell: {mode!r}")
-    if mode == "cell":
-        return [line[i:i + cols] for i in range(0, len(line), cols)] or [""]
+        raise ValueError(f"wrap은 syllable|word: {mode!r}")
     if mode == "word" or not breaks:
         out = _wrap(line, cols)
     else:
@@ -486,7 +483,7 @@ def build_pages(
 #                "show_orig_page": bool, "show_braille_page": bool,
 #                "cover_pages": 0, "orig_page_start": null,
 #                "show_change_line": bool, "footer_align": "center|right",
-#                "wrap": "syllable|word|cell"},
+#                "wrap": "syllable|word"},
 #    "footer_braille": "…",              # 문서 기본 꼬리말(이미 점역됨, 선택)
 #    "footers_braille": {"3": "…"},      # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
 #    "start_braille_page": 1,            # 첫 면 번호(선택, 기본 1)
@@ -496,7 +493,7 @@ def build_pages(
 # ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
 # ★ 들여쓰기·가운데 정렬·구조적 빈 줄은 AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`).
 #   여기서 또 넣지 않는다. `type`은 쓰지 않는다. `heading_level`은 **1단계 제목이 32칸을 넘어
-#   접힐 때만** 조각을 가운데에 놓는 데 쓴다(2026-10-09 세 갈래, 사이드카 문서 §5 규칙 4).
+#   접힐 때만** 조각을 가운데에 놓는 데 쓴다(사이드카 문서 §5 규칙 4).
 # ★ `breaks`(선택)는 응답 `TextElement.breaks` 그대로다. `text` 를 고치면(앞뒤 빈 줄을 떼는 등)
 #   오프셋이 어긋나므로 응답 `contents[0]` 를 그대로 넣는다.
 def options_from_job(job: dict) -> Options:
