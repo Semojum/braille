@@ -27,7 +27,22 @@ class VectorsTest {
                 o.has("orig_page_start") && !o.get("orig_page_start").isNull()
                         ? o.get("orig_page_start").asInt() : null,
                 !o.has("show_change_line") || o.get("show_change_line").asBoolean(),
-                o.has("footer_align") ? o.get("footer_align").asText() : "center");
+                o.has("footer_align") ? o.get("footer_align").asText() : "center",
+                o.has("wrap") ? o.get("wrap").asText() : "syllable");
+    }
+
+    /** breaks 칸 → int[]. 없거나 null 이면 null(그 블록은 word 로 접는다). */
+    private static int[] ints(JsonNode n) {
+        if (n == null || n.isNull()) return null;
+        int[] out = new int[n.size()];
+        for (int i = 0; i < out.length; i++) out[i] = n.get(i).asInt();
+        return out;
+    }
+
+    private static String joinLines(JsonNode lines) {
+        List<String> ls = new ArrayList<>();
+        for (JsonNode l : lines) ls.add(l.asText());
+        return String.join("\u241F", ls);
     }
 
     /** 면 배열 → 비교용 문자열. 줄은 \u241F, 면은 \u241E로 잇는다(점자에 안 쓰이는 문자). */
@@ -69,7 +84,9 @@ class VectorsTest {
                 for (JsonNode s : a.get("sources")) {
                     List<BrailleAssist.Block> bs = new ArrayList<>();
                     for (JsonNode b : s.get("blocks")) {
-                        bs.add(new BrailleAssist.Block(b.get("order").asInt(), b.get("text").asText()));
+                        bs.add(new BrailleAssist.Block(b.get("order").asInt(), b.get("text").asText(),
+                                ints(b.get("breaks")),
+                                b.has("heading_level") ? b.get("heading_level").asInt() : 0));
                     }
                     srcs.add(new BrailleAssist.Source(s.get("orig_page").asInt(), bs));
                 }
@@ -98,7 +115,8 @@ class VectorsTest {
                                         el.has("id") ? el.get("id").asText() : null,
                                         el.has("type") ? el.get("type").asText() : "text",
                                         el.has("heading_level") ? el.get("heading_level").asInt() : 0,
-                                        el.get("text").asText()));
+                                        el.get("text").asText(),
+                                        ints(el.get("breaks"))));
                             }
                         }
                         pages.add(new BrailleAssist.JobPage(
@@ -130,9 +148,17 @@ class VectorsTest {
                         j.has("footer_braille") ? j.get("footer_braille").asText() : "",
                         jf,
                         j.has("start_braille_page") ? j.get("start_braille_page").asInt() : 1,
-                        pages);
+                        pages,
+                        o != null && o.has("wrap") ? o.get("wrap").asText() : "syllable");
                 return BrailleAssist.buildBrf(job);
             }
+            case "wrap":
+                return String.join("\u241F", BrailleAssist.wrap(
+                        a.get("line").asText(),
+                        a.has("cols") ? a.get("cols").asInt() : 32,
+                        a.has("mode") ? a.get("mode").asText() : "syllable",
+                        ints(a.get("breaks")),
+                        a.has("center") && a.get("center").asBoolean()));
             default:
                 throw new IllegalArgumentException("모르는 함수: " + fname);
         }
@@ -150,7 +176,8 @@ class VectorsTest {
                         fname + " — " + c.get("name").asText(),
                         () -> assertEquals(
                                 fname.equals("build_pages") ? joinNode(c.get("expect"))
-                                                            : c.get("expect").asText(),
+                                : fname.equals("wrap") ? joinLines(c.get("expect"))
+                                : c.get("expect").asText(),
                                 call(fname, c.get("args")))));
             }
         });
