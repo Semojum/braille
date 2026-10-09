@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "semojum-braille"
-version = "3.4.3"
+version = "3.4.4"
 description = "세모점 점역·역점역 엔진: 묵자를 한국어 점자로 옮기고, 점자를 묵자로 되돌린다"
 readme = "README.md"
 license = "MIT OR Apache-2.0"

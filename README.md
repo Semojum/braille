@@ -2,7 +2,7 @@
 
 [![시험](https://github.com/Semojum/braille/actions/workflows/test.yml/badge.svg)](https://github.com/Semojum/braille/actions/workflows/test.yml)
 ![파이썬](https://img.shields.io/badge/python-3.10%20%7C%203.12%20%7C%203.13-blue)
-![판](https://img.shields.io/badge/version-3.4.3-blue)
+![판](https://img.shields.io/badge/version-3.4.4-blue)
 ![라이선스](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
 
 한국어 묵자를 점자로 옮기고(점역), 점자를 묵자로 되돌리는(역점역) 파이썬 라이브러리입니다.
