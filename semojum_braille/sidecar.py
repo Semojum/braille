@@ -9,37 +9,36 @@ import json
 import sys
 import threading
 import uuid
+from types import SimpleNamespace
 
 from semojum_braille import confidence
 from semojum_braille.assist import build_brf_file
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
-from semojum_braille.encoder.layout_braille import LayoutBraille, _fold_full_lines, _pad_join
+from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.schemas import LLMOutput
 
-_TB, _LB = TextBraille(), LayoutBraille()
+_TB = TextBraille()
 # 역점역은 영어책의 모호한 토막에서 낱말 판정을 처음 부를 때 판정기를 올린다(kiwi 면 약 2초).
 # 그 판정을 반드시 부르는 실물 한 줄(`  1. universal / 셰익스피어`)로 기동 직후 뒤에서 한 번 불러 둔다.
 _WARMUP = "⠀⠀⠼⠁⠲⠀⠴⠥⠝⠊⠧⠻⠎⠁⠇⠲⠀⠸⠌⠀⠠⠌⠕⠁⠠⠪⠙⠕⠎"
 
 
 def translate(text: str, etype: str = "text", hlevel: int = 0) -> dict:
-    """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것)과 같은 통 문자열(32칸으로 안 접음) + 줄을 바꿔도 되는 자리.
+    """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리.
 
-    `flatten_elements` 가 요소 본문을 만드는 순서 그대로 부른다(들여쓰기 → 꽉 찬 줄 잇기 → 잇기).
-    줄별 음절 경계를 들여쓰기 칸과 앞 줄 길이만큼 밀어 통 문자열 오프셋으로 옮긴다.
+    `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
+    따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
+    뒤로 끊을 자리가 하나씩 밀렸다(#30). AI 응답 `TextElement.breaks` 와 같은 함수(`_flat_breaks`)다.
     """
     bo = _TB._translate_one(LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO"))
-    lines, pads = _LB._indent_lines(bo, etype, hlevel)
-    pads, seps = _fold_full_lines(lines, pads, etype, text.split("\n"))
-    breaks, base = [], 0
-    for i, (ln, pad) in enumerate(zip(lines, pads)):
-        breaks += [base + pad + b for b in (bo.break_points[i] if i < len(bo.break_points) else [])]
-        base += pad + len(ln) + 1
-        if i < len(seps) and seps[i] != "\n":     # 꽉 찬 줄을 빈칸으로 이은 자리도 끊을 수 있다
-            breaks.append(base - 1)
-    return {"cells": _pad_join(lines, pads, seps), "breaks": breaks}
+    el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
+    fe = flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
+    if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
+        return {"cells": "", "breaks": []}
+    n = len(fe.prefix)
+    return {"cells": fe.text[n:len(fe.text) - len(fe.suffix)], "breaks": [b - n for b in fe.breaks]}
 
 
 def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None) -> dict:

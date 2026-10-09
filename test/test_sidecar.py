@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 from semojum_braille import sidecar
+from semojum_braille.encoder.layout_braille import _flat_breaks
 
 
 def test_translate_gives_unfolded_cells_and_sorted_breaks():
@@ -11,6 +12,25 @@ def test_translate_gives_unfolded_cells_and_sorted_breaks():
     assert r["cells"].startswith("⠀⠀") and "\n" not in r["cells"]        # 문단 들여쓰기, 32칸으로 안 접음
     assert r["breaks"] == sorted(r["breaks"])
     assert all(0 < b < len(r["cells"]) for b in r["breaks"])
+
+
+def test_끊을_자리는_들임과_실제_구분자_길이로_센다():
+    """#30. 기대값은 AI `test_flat_breaks_1240.py` 와 같은 손셈이다(사이드카가 이 함수를 그대로 쓴다)."""
+    assert _flat_breaks(["⠁⠀⠃", "⠉⠀⠙"], [2, 0], [[], []], 0, ["⠀"]) == (3, 5, 7)
+    # 앞 줄이 ⠀ 로 끝나면 구분자가 빈 문자열이다. 뒤 줄 자리가 한 칸 밀리면 안 된다(종전 사이드카는 6).
+    assert _flat_breaks(["⠁⠀⠃⠀", "⠉⠀⠙"], [0, 0], [[], []], 0, [""]) == (1, 3, 5)
+    assert _flat_breaks(["⠀⠀⠁⠀⠃"], [0], [[1, 3]], 2) == (5,)
+
+
+def test_빈_구분자_뒤에도_끊을_자리가_음절_경계에_있다(monkeypatch):
+    """#30. 원문 줄 끝 빈칸으로 구분자가 빈 문자열이 되는 자리(꽉 찬 줄 잇기를 켰을 때). 종전에는 뒤 줄 자리가
+    한 칸씩 밀려 '부'(⠘|⠍) · '상'(⠇|⠶) 을 갈랐다. 뒤 줄을 따로 점역한 자리와 같아야 한다."""
+    monkeypatch.setenv("RESPONSE_FOLD_JOIN", "1")
+    second = "보부상의 활동이 활발해졌다."
+    r = sidecar.translate("조선 후기에는 상품 화폐 경제가 발달하면서 장시가 크게 늘어났다 \n" + second)
+    alone = sidecar.translate(second)                       # 문단 들여쓰기 2칸
+    k = r["cells"].index(alone["cells"][2:])
+    assert [b - k for b in r["breaks"] if b > k] == [b - 2 for b in alone["breaks"] if b > 2]
 
 
 def test_title_level2_starts_at_seventh_cell():
