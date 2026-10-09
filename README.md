@@ -112,4 +112,6 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 
 ## 라이선스
 
-MIT 또는 Apache License 2.0 중 받는 쪽이 고릅니다. 의존 라이선스는 [NOTICE.md](NOTICE.md) 를 보십시오.
+MIT 또는 Apache License 2.0 중 받는 쪽이 고릅니다.
+**데이터 파일(규정 조항 · 낱말 목록 · 음절 빈도 · 역대응표 · 기호 표)은 두 라이선스 밖이고 각자의 출처를 따릅니다.**
+의존 라이선스와 함께 [NOTICE.md](NOTICE.md) 를 보십시오.
