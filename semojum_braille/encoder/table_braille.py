@@ -66,7 +66,7 @@ def _base_trail(
         trail += content_rules(source, lines)
     return trail
 
-from semojum_braille.encoder.constants import COLS as _COLS, BOX_TITLE_PROMOTABLE  # noqa: E402 (공용 상수)
+from semojum_braille.encoder.constants import COLS as _COLS, BOX_LEVELS, BOX_TITLE_PROMOTABLE  # noqa: E402 (공용 상수)
 _BORDER  = "⠿"  # 표 테두리
 _EMPTY_CELL = "⠿⠿"  # 빈 셀 (NLD-3.1.2(4))
 _SEP     = "⠒"  # 행·셀 구분선
@@ -156,7 +156,7 @@ _TN_SRC_MARK = "⠠⠄"                                  # 점역자 주 마커(
 #   규정 실물 5건 — 도서지침 예3-1·3-5·3-9·3-2, 자료지침 예3-4 모두 앞 빈칸 4
 #   코퍼스 관행   — dev+val 2027의 `〈표 N〉` 제목 줄 6/6이 앞 빈칸 4
 #   같은 오해가 오늘 도표 축(diagram_opt._TITLE_INDENT)에서도 4로 고쳐졌다
-_TITLE_INDENT = 4
+from semojum_braille.encoder.constants import TITLE_INDENT as _TITLE_INDENT  # noqa: E402 — 제목 5칸(#1232 한 곳)
 
 # ★ 점자 지면의 빈칸은 전부 U+2800 이다(대표 지적 R1, 2026-08-24). 표 경로는 그때 빠졌다 —
 #   줄머리를 ASCII 공백 `"  "`로 적고 있었고 **눈으로는 `"⠀⠀"`와 구별이 안 돼** 넉 달을 살아남았다.
@@ -169,6 +169,29 @@ _ROW_INDENT = 2     # 표 본문 "3칸에서 시작" = 앞 빈칸 2 (자료지�
 # 표 위/아래 테두리 (자료지침 §3.1.3(2) `=GGG…=` / `=777…=`). 격자·선형이 같이 쓴다.
 _TBL_TOP = "⠿" + "⠛" * (_COLS - 2) + "⠿"
 _TBL_BOT = "⠿" + "⠶" * (_COLS - 2) + "⠿"
+
+
+# 글상자 안 표는 속글상자다 — 상자보다 한 단계 아래 테두리로 그린다(#1110). 「점자 도서 제작 지침」
+# 3장 1절 1. 2) 표의 선 1~3단계 · 3) 중첩된 표는 안쪽이 한 단계 아래(재추출 1606~1615행 · 1629~1634행),
+# 1장 2절 5. 2)(3) 속글상자 · (5) 위계 3단계(396~397행 · 451~457행), 3장 지문 (4)(3094~3095행).
+# '글상자 안 표'를 직접 정한 조항은 없다. 같은 방향이고 gold 가 그렇게 적어 따른다.
+# gold 실측(2027 dev · val 게이트, 862227a): 우리가 1단계 글상자 안에 그린 표 75개(dev 68 · val 7)가 든 쪽
+# 60쪽 중 58쪽이 2단계 ⠖⠒…⠲ / ⠓⠒…⠚ 를 쓴다(생명과학 p0056 눈 확인: 상자 안 표가 2단계). 남은 2쪽은 생활과 윤리다.
+# 되돌리는 길 `TABLE_BOX_LEVEL=0`(호출 때 읽음).
+def box_level_on() -> bool:
+    return os.environ.get("TABLE_BOX_LEVEL", "1") != "0"
+
+
+def _relevel_borders(lines: list[str], level: int) -> None:
+    """표 위/아래 테두리를 `level` 단계 꼴로 바꿔 그린다(in-place).
+
+    ponytail: 32칸 1단계 줄과 똑같은 줄만 바꾼다. 제목을 박은 위 테두리(정답 상자)는 짝이 안 맞으니 통째로 둔다.
+    """
+    if _TBL_TOP not in lines or _TBL_BOT not in lines:
+        return
+    (ts, tf, te), (bs, bf, be) = BOX_LEVELS[level]["top"], BOX_LEVELS[level]["bottom"]
+    top, bot = ts + tf * (_COLS - 2) + te, bs + bf * (_COLS - 2) + be
+    lines[:] = [top if ln == _TBL_TOP else bot if ln == _TBL_BOT else ln for ln in lines]
 
 
 def _tn_transpose_line() -> str:
@@ -373,6 +396,39 @@ def _shorten_columns(grid: list[list[str]]) -> tuple[list[list[str]], list[str]]
     return out, notes
 
 
+# 칸 안 글머리 항목(#1201) — 「점자 도서 제작 지침」 2장 3절 5. 1)(재추출 1433~1434행): 문단 시작 위치의 글머리 기호는
+# 3칸에 표기하고 다음 글자는 한 칸 띄어 적는다. 추출이 칸 안 줄바꿈을 잃어 항목이 `•A•B` 로 이어 오므로(#1188 이 되살린
+# 글머리) 글머리마다 새 줄 3칸에서 `⠸⠲⠀` 로 연다. gold 90권 •(⠸⠲) 29,951개 중 항목마다 새 줄 96.6%(59권) · 한 줄에 이어
+# 적기 1.4% · 글머리 뒤 한 칸 99.7%. 2)(1464~1465행, 한 문단 안 여러 글머리는 이어 적음)는 칸 글만으로 못 가른다.
+# 끄기 `TABLE_CELL_BULLET_BREAK=0`.
+# 행머리(이름표) 바로 뒤 첫 항목도 새 줄에 두고 이름표를 혼자 한 줄로 적는다(세계사 p0042 `  발전:`). gold 테두리 안 '이름표:'
+# 뒤 글머리 목록은 이름표 혼자 763(18권) · '이름표: • 첫 항목' 390(5권, ES-TXT-KA0171 328 · dev 사회문화 35 : 20)이다.
+# 항목마다 새 줄과는 갈래가 달라 따로 쟀다(pm 10-07 20:35). 끄기 `TABLE_BULLET_LABEL_ALONE=0`(이름표 줄에 첫 항목).
+_CELL_BULLET = "•"
+
+
+def _bullet_paras(cells: list[str], sep: str) -> list[str] | None:
+    """칸에 글머리가 있으면 한 행을 점자 문단들로 나눈다(위 주석). 글머리가 없거나 꺼졌으면 None."""
+    if os.environ.get("TABLE_CELL_BULLET_BREAK", "1") == "0" or not any(_CELL_BULLET in c for c in cells):
+        return None
+    paras = [""]
+    for j, cell in enumerate(cells):
+        if j:
+            paras[-1] += sep if j == 1 else "⠀⠀"
+        lead, *items = cell.split(_CELL_BULLET)
+        if lead.strip() or not items:
+            paras[-1] += _translate(lead.strip()) if lead.strip() else "⠿⠿"
+        label = (j == 1 and not lead.strip() and _CELL_BULLET not in cells[0]    # 이름표 바로 뒤 첫 항목(위 주석)
+                 and os.environ.get("TABLE_BULLET_LABEL_ALONE", "1") == "0")
+        for n, it in enumerate(items):
+            item = _translate(f"{_CELL_BULLET} {it.strip()}")
+            if n == 0 and label:
+                paras[-1] += item
+            else:
+                paras.append(item)
+    return [p.rstrip("⠀") for p in paras if p.strip("⠀")]
+
+
 def _wrap_row(body: str, first_indent: int = 2) -> list[str]:
     """지침 §3.2.1 (3) — 줄이 넘어가는 내용은 두 줄로 나눈다.
 
@@ -481,14 +537,17 @@ def _render_grid(corrected_text: str) -> list[str]:
         lines.extend(_wrap_row(_translate(_TN_OPEN + ", ".join(notes) + _TN_CLOSE)))
     for k, row in enumerate(rows):
         cells = [c.strip() for c in row.split("|")]
-        head = _translate(cells[0]) if cells[0] else "⠿⠿"
-        vals = [(_translate(c) if c else "⠿⠿") for c in cells[1:]]
-        body = head + (sep + "⠀⠀".join(vals) if vals else "")
-        # §3.2.1 (3) — 32칸을 넘으면 나눠 적고 이어지는 줄은 두 칸 더 들여쓴다.
-        if _SHORTEN and len("⠀⠀" + body) > _COLS:
-            lines.extend(_wrap_row(body))
-        else:
-            lines.append("⠀⠀" + body)
+        paras = _bullet_paras(cells, sep)
+        if paras is None:
+            head = _translate(cells[0]) if cells[0] else "⠿⠿"
+            vals = [(_translate(c) if c else "⠿⠿") for c in cells[1:]]
+            paras = [head + (sep + "⠀⠀".join(vals) if vals else "")]
+        for body in paras:
+            # §3.2.1 (3) — 32칸을 넘으면 나눠 적고 이어지는 줄은 두 칸 더 들여쓴다.
+            if _SHORTEN and len("⠀⠀" + body) > _COLS:
+                lines.extend(_wrap_row(body))
+            else:
+                lines.append("⠀⠀" + body)
         if k == 0 and len(rows) > 1 and _has_col_headers(cells):
             lines.append(rowsep)          # 머리행과 본문 사이(실측 위치)
     lines.append(bot)
@@ -517,6 +576,40 @@ def _record_lines(grid: list[list[str]]) -> list[str]:
 _L2_MARKS = "가나다라마바사아자차카타파하"
 
 
+# 번호 체계 표 첫 행 판정(#1226). 첫 행 칸이 **문장**이면 열 제목이 아니라 자료 행이다.
+# 문장 = 괄호 속 풀이 · LaTeX 를 뺀 글이 20자를 넘거나, 글머리(• · 칸 첫머리 ·) · 화살표 · 괄호 밖 쉼표가 있다.
+# 실측(2026-10-08, temp/n158/label.py · heads82.py):
+#   dev · val 번호 체계 표 66개 첫 행을 눈으로 가름 = 열 제목 49 · 자료 행 17.
+#   열 제목은 괄호 · LaTeX 뺀 길이 최장 14, 표지 없는 자료 행은 최단 22 → 그 사이 골.
+#   이 판정: 자료 행 16/17 맞힘 · 열 제목을 자료로 잘못 0/49. 놓친 1은 칸 전체가 LaTeX 인 수학 문항 행.
+#   종전 10자(날 길이)는 자료 17/17 이지만 열 제목 10/49 를 자료로 잘못 봤다(`모래시계형 계층 구조` 11 ·
+#   `정보 표현에 사용되는 언어` 14 · `‘안’ 부정문(단순 부정, 의지 부정)` 21).
+#   짝 12권 밖 82권 gold 의 열 제목 칸(머리행 구분선 바로 위 줄, 3,615칸): 10자 초과 11.0% · 20자 초과 1.4%.
+_NUM_HEAD_MAX = 20
+_NUM_SENT_MARK = re.compile(r"[•◦▪→⇒⇨]|, |^·\s")      # 쌍점은 안 본다(gold 머리행 꼴 `구분: 내용` 이 붙인 것)
+_NUM_PAREN = re.compile(r"\([^()]*\)|（[^（）]*）")
+_NUM_LATEX = re.compile(r"\$[^$]*\$")
+
+
+def _numbered_split(grid: list[list[str]]) -> tuple[list[str], list[list[str]]]:
+    """번호 체계 표 → (열 제목, 자료 행들). 첫 행 칸이 문장이면 첫 행부터 자료로 푼다(#1226, 위 실측).
+
+    종전에는 첫 행을 무조건 열 제목으로 써서, 머리행 없이 첫 행부터 자료인 표(`조사 | 격 조사 | 앞에 오는 …` ·
+    `특징 | • 북조 : …`)에서 첫 행 내용이 다른 행마다 `가.` 열 이름으로 되풀이되고 첫 행은 자료로 안 나갔다.
+    gold 는 그 첫 행을 자료로 적는다(세계사 body p0018 `1. 특징` · 언매 body p0019 `조사` + `격 조사: …`).
+    `_has_col_headers` 는 3칸 이상이면 늘 참이라 이 표를 못 가린다. 끄기 `TABLE_NUMBERED_HEAD=0`(첫 행은 늘 열 제목).
+    """
+    if not grid:
+        return [], []
+    if os.environ.get("TABLE_NUMBERED_HEAD", "1") == "0":
+        return grid[0], grid[1:]
+    for c in grid[0]:
+        t = _NUM_LATEX.sub("", _NUM_PAREN.sub("", c)).strip()
+        if len(t) > _NUM_HEAD_MAX or _NUM_SENT_MARK.search(t):
+            return [], grid
+    return grid[0], grid[1:]
+
+
 def _render_numbered(corrected_text: str) -> list[str]:
     """지침 §3.1.1 (1)③ — 번호 체계를 활용하여 풀어 적는다.
 
@@ -541,9 +634,9 @@ def _render_numbered(corrected_text: str) -> list[str]:
     if not rows:
         return [_TBL_TOP, _TBL_BOT]
     grid = [[c.strip() for c in r.split("|")] for r in rows]
-    heads = grid[0]
+    heads, body = _numbered_split(grid)
     out: list[str] = [_TBL_TOP]
-    for i, row in enumerate(grid[1:], start=1):
+    for i, row in enumerate(body, start=1):
         rh = row[0].strip()
         out.extend(_wrap_row(_translate(f"{i}. {rh}") if rh else _translate(f"{i}."),
                              first_indent=6))
@@ -553,13 +646,17 @@ def _render_numbered(corrected_text: str) -> list[str]:
             if not val:
                 continue
             mark = _L2_MARKS[(j - 1) % len(_L2_MARKS)]
+            # 칸 안 글머리는 항목마다 새 줄 3칸(#1201, `_bullet_paras` 주석). gold 사회문화 p0112 `  사례:` 뒤 `  • …`.
             if name:
                 out.extend(_wrap_row(_translate(f"{mark}. {name}"),
                                      first_indent=4))
-                out.extend(_wrap_row(_translate(val), first_indent=2))
+                for p in _bullet_paras([val], "") or [_translate(val)]:
+                    out.extend(_wrap_row(p, first_indent=2))
             else:
-                out.extend(_wrap_row(_translate(f"{mark}. {val}"),
-                                     first_indent=4))
+                first, *rest = _bullet_paras([f"{mark}.", val], "⠀") or [_translate(f"{mark}. {val}")]
+                out.extend(_wrap_row(first, first_indent=4))
+                for p in rest:
+                    out.extend(_wrap_row(p, first_indent=2))
     out.append(_TBL_BOT)
     return out
 
@@ -1096,8 +1193,8 @@ def print_layout(corrected_text: str, mode: str) -> str:
     if mode == "numbered":                    # §3.1.1 (1)③ 번호 체계
         # 번호 체계·줄 나눔은 점자 쪽(`_render_numbered`)과 **같아야 한다** — 피커가
         # 묵자와 점자를 나란히 보이므로 어긋나면 점역사가 다른 안을 보고 고른다.
-        heads = rows[0]
-        for i, r in enumerate(rows[1:], start=1):
+        heads, body = _numbered_split(rows)
+        for i, r in enumerate(body, start=1):
             out.append(f"{i}. {r[0].strip()}" if r and r[0].strip() else f"{i}.")
             for j, cell in enumerate(r[1:], start=1):
                 v = cell.strip()
@@ -1216,7 +1313,13 @@ def _transpose_text(corrected_text: str) -> str:
 
 
 class TableBraille:
-    """LLMOutput 목록 → BrailleOutput 목록 (표). 격자/전치/선형 3안."""
+    """LLMOutput 목록 → BrailleOutput 목록 (표). 격자/전치/선형 3안.
+
+    `box_levels`: 요소 id → 그 표를 감싼 글상자 위계(`pipeline._mark_table_box_levels`). 없으면 상자 밖.
+    """
+
+    def __init__(self, box_levels: dict | None = None):
+        self._box_levels = box_levels or {}
 
     def translate(self, optimized: list[LLMOutput]) -> list[BrailleOutput]:
         # 요소별 격리: 한 표 점역 실패가 다른 요소를 막지 않는다.
@@ -1294,5 +1397,9 @@ class TableBraille:
             drafts=drafts,
             selected_idx=sel,
         )
+        lv = self._box_levels.get(opt.element_id, 0)
+        if lv and box_level_on():             # 덧붙일 그림 상자보다 먼저 — 표 자기 테두리만 바꾼다
+            for lines in (bo.braille_lines, *(d.braille_lines for d in drafts)):
+                _relevel_borders(lines, min(3, lv + 1))
         append_nested(bo, opt.nested_text)   # 표 안 그림(Q11) 글상자 1단 덧붙임
         return bo

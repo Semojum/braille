@@ -507,13 +507,13 @@ lr = SimpleNamespace(elements=[
 | `braille_outputs` | `list[BrailleOutput]` | 없음 | 1.5 의 출력 | 늘 |
 | `layout_result` | 위 설명 | `None` | 요소 종류·제목 단계 | 제목·목록이 섞여 있을 때는 꼭 넘긴다 |
 
-- **반환**: 요소 id → `FlatElement`. `FlatElement` 는 `text` · `trail` · `prefix` · `suffix` · `draft_texts` 다섯 필드를 가진 튜플이다. `text` 는 `prefix + 본문 + suffix` 이고, `prefix`·`suffix` 는 앞뒤 빈 줄이다. 요소들의 `text` 를 그냥 이어 붙이면 지침대로 빈 줄이 들어간 문서가 된다. `trail` 은 이 통 문자열 좌표로 옮긴 `rule_trail`, `draft_texts` 는 초안별 통 문자열이다.
+- **반환**: 요소 id → `FlatElement`. `FlatElement` 는 `text` · `trail` · `prefix` · `suffix` · `draft_texts` · `breaks` · `draft_breaks` 일곱 필드를 가진 튜플이다. `text` 는 `prefix + 본문 + suffix` 이고, `prefix`·`suffix` 는 앞뒤 빈 줄이다. 요소들의 `text` 를 그냥 이어 붙이면 지침대로 빈 줄이 들어간 문서가 된다. `trail` 은 이 통 문자열 좌표로 옮긴 `rule_trail`, `draft_texts` 는 초안별 통 문자열이다. `breaks` 는 `text` 안에서 줄을 바꿔도 되는 자리(값 `b` 는 `text[b]` 앞)이고 줄 사이 구분자를 실제 길이로 센다(AI #1241). `draft_breaks` 는 초안별 같은 값이다. 사이드카 `translate` 의 `breaks` 는 이 값에서 `prefix` 길이만큼 뺀 것이다.
 - **예외**: 없다. 빈 목록은 `{}`.
 
 ```
 >>> flat = flatten_elements(make_bos(), lr)
 >>> flat[uuid.UUID(int=11)]
-FlatElement(text='\n⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶\n\n', trail=[], prefix='\n', suffix='\n\n', draft_texts=())
+FlatElement(text='\n⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶\n\n', trail=[], prefix='\n', suffix='\n\n', draft_texts=(), breaks=(10, 11, 14, 15, 16, 17, 19, 21, 22, 23, 26), draft_breaks=())
 >>> flat[uuid.UUID(int=12)].text
 '⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝⠀⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲\n'
 >>> flatten_elements(make_bos())[uuid.UUID(int=11)].text   # layout_result 없이
@@ -581,27 +581,6 @@ FlatElement(text='\n⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍
 ['storage/jobs/demo/temp/page_001/result/001_result.brf', 'storage/jobs/demo/temp/page_001/result/001_result.txt']
 >>> pathlib.Path('storage/jobs/demo/temp/page_001/result/001_result.txt').read_text(encoding='utf-8').split('\n') == [ln for p in pages for ln in p]
 True
-```
-
-#### `LayoutBraille().finalize(blocks, page_no=1) -> list[list[str]]`
-
-이미 32칸 줄로 된 블록(점역사가 고친 결과 등)을 쪽으로 조립한다. 점역은 다시 하지 않는다.
-
-| 인자 | 타입 | 기본값 | 뜻 | 언제 쓰나 |
-|---|---|---|---|---|
-| `blocks` | `list[dict]` | 없음 | 블록마다 `{"type", "heading_level", "order", "lines"}`. `lines` 는 32칸 이하 점자 줄 목록, `order` 는 차례 | 사람이 고친 점자를 다시 쪽으로 묶을 때 |
-| `page_no` | `int` | `1` | 쪽 번호 | 같다 |
-
-- **반환**: 쪽마다 줄 목록. 제목 뒤 빈 줄과 쪽 번호 줄을 넣는다.
-
-```
->>> blocks = [{"type": "title", "heading_level": 2, "order": 0, "lines": ["⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶"]},
-...           {"type": "text", "heading_level": 0, "order": 1, "lines": ["⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝", "⠙⠻⠊⠪⠶⠚⠊⠲"]}]
->>> fin = LayoutBraille().finalize(blocks, page_no=1)
->>> len(fin), fin[0][:5]
-(1, ['⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶', '', '⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝', '⠙⠻⠊⠪⠶⠚⠊⠲', ''])
->>> fin[0][-1]
-'⠀⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶⠀⠀⠼⠁'
 ```
 
 #### `render_page_text(braille_outputs, page_no, *, layout_result=None) -> list[list[str]]`

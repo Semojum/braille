@@ -51,20 +51,23 @@ STRONG_GROUPS: dict[str, str] = {
     "ch": "⠡", "gh": "⠣", "sh": "⠩", "th": "⠹", "wh": "⠱",
     "ed": "⠫", "er": "⠻", "ou": "⠳", "ow": "⠪",
     "st": "⠌", "ing": "⠬", "ar": "⠜",
-    "bb": "⠆", "cc": "⠒", "dd": "⠲", "ff": "⠖", "gg": "⠶",
+    "bb": "⠆", "cc": "⠒", "ff": "⠖", "gg": "⠶",
     "in": "⠔", "en": "⠢",
     "ea": "⠂",
 }
 # ble = 3456점(⠼) — EBAE 약자다. **UEB 가 폐지했다**(#946, 규정 제29항 예문 `Table of Contents` =
 #   ⠠⠞⠁⠃⠇⠑…). 정방향은 쓰지 않고, 역점역이 옛 EBAE 책을 되짚을 때만(`ebae=True`) 쓴다 — ation·ally(#932)와 같은 처리.
 #   2027 dev·val 묵자에 -ble 낱말은 0회다. ⠼는 한글 점자에서 수표(제40항)와 같은 점형이라 number_sign.py 가 가른다.
-EBAE_ONLY_GROUPS: dict[str, str] = {"ble": "⠼"}
+# dd(⠲)도 UEB 가 폐지했다(#1167) — gold 영어책은 `middle` 을 ⠍⠊⠙⠙⠇⠑ 로 풀어 쓴다.
+EBAE_ONLY_GROUPS: dict[str, str] = {"ble": "⠼", "dd": "⠲"}
 # 아래칸 약자(ea·bb·cc·dd·ff·gg)는 **낱말 첫머리·끝에 못 쓴다**(영어 점자 표준).
 # 위아래 칸이 비어 다른 셀과 혼동되기 때문이다.
 _LOWER_CELL = {"ea", "bb", "cc", "dd", "ff", "gg"}
 # 낱말 첫머리 전용 음절 약자 — 같은 셀이 낱말 중간에서는 겹자음(bb·cc·dd) 뜻이라
 # 위치로 갈린다(영어 점자 표준). be/con/dis 는 첫머리에서만 쓴다.
-WORD_INITIAL_SYLLABLE: dict[str, str] = {"be": "⠆", "con": "⠒", "dis": "⠲", "com": "⠤"}
+WORD_INITIAL_SYLLABLE: dict[str, str] = {"be": "⠆", "con": "⠒", "dis": "⠲"}
+# com(⠤)은 UEB 가 폐지했다(#1167) — gold 영어책 `company` = ⠉⠕⠍⠏⠁⠝⠽. 역점역(`ebae=True`)만 쓴다.
+EBAE_ONLY_INITIAL: dict[str, str] = {"com": "⠤"}
 # 위치 제약: 낱말 첫머리에는 쓰지 않는 약자(영어 점자 표준).
 _NOT_WORD_INITIAL = {"ing", "ble"} | _LOWER_CELL
 
@@ -77,9 +80,12 @@ WORDSIGNS: dict[str, str] = {
     "you": "⠽", "as": "⠵", "child": "⠡", "shall": "⠩", "this": "⠹",
     "which": "⠱", "out": "⠳", "still": "⠌", "enough": "⠢", "were": "⠶",
     "his": "⠦", "in": "⠔", "was": "⠴", "be": "⠆",
-    # 아래칸 단어기호 — 앞뒤 낱말에 붙여 적는다(영어 점자 표준)
-    "to": "⠖", "by": "⠴", "into": "⠔⠖",
 }
+# 아래칸 단어기호 to·by·into — EBAE 는 뒤 낱말에 붙여 적었다. **UEB 가 폐지했다**(#1167).
+#   「한국 점자 규정」 제7항(99행)·제28항(1329행)이 로마자를 「통일영어점자 규정」에 맡긴다.
+#   gold 영어책 12권 영어 줄: `to` 풀어씀 ⠞⠕ 6,777 : ⠖ 0 · `by` ⠃⠽ 929 : 0(holdout 제외, 2026-10-07).
+#   정방향은 쓰지 않고, 역점역이 옛 EBAE 책을 되짚을 때만(`ebae=True`·역맵) 쓴다 — ble·ation 과 같은 처리.
+EBAE_ONLY_WORDSIGNS: dict[str, str] = {"to": "⠖", "by": "⠴", "into": "⠔⠖"}
 
 # ── 3. 첫글자 약자 — 기호표 + 첫 글자 ────────────────────────────────────────
 INITIAL_5: dict[str, str] = {          # 점5(⠐) + 글자
@@ -118,7 +124,9 @@ SHORT_FORMS: dict[str, str] = {
     "after": "⠁⠋", "afternoon": "⠁⠋⠝", "afterward": "⠁⠋⠺", "again": "⠁⠛",
     "against": "⠁⠛⠌", "almost": "⠁⠇⠍", "already": "⠁⠇⠗", "also": "⠁⠇",
     "although": "⠁⠇⠹", "altogether": "⠁⠇⠞", "always": "⠁⠇⠺",
-    "because": "⠆⠉", "before": "⠆⠿", "behind": "⠆⠓", "below": "⠆⠇",
+    # before = bef(⠆⠋) — 통일영어점자 단축형. 종전 ⠆⠿(be+for 를 이어 붙인 꼴)는 단축형이 아니다(#1184).
+    #   gold 영어책(holdout 제외) 홀로 선 ⠆⠋ 343 : ⠆⠿ 0. beforehand 도 bef 를 그대로 쓴다(gold ⠆⠋⠓⠯).
+    "because": "⠆⠉", "before": "⠆⠋", "beforehand": "⠆⠋⠓⠯", "behind": "⠆⠓", "below": "⠆⠇",
     "beneath": "⠆⠝", "beside": "⠆⠎", "between": "⠆⠞", "beyond": "⠆⠽",
     "blind": "⠃⠇", "braille": "⠃⠗⠇", "children": "⠡⠝", "conceive": "⠒⠉⠧",
     "could": "⠉⠙", "deceive": "⠙⠉⠧", "declare": "⠙⠉⠇", "either": "⠑⠊",
@@ -149,6 +157,32 @@ def iter_words(text: str) -> Iterator[str]:
     return (m.group() for m in _WORD_RE.finditer(text))
 
 
+# UEB — be(⠆)도 첫 음절을 이룰 때만 쓴다(#1180). gold 영어책(holdout 제외) 낱말 머리 be:
+#   ⠆ — because 263 · being 114 · become 81 · became 73 · believe 58 · began 49 · below 48 · behind 40 …
+#   풀어씀 — been 246 · better 184 · best 122 · beard 79 · beautiful 55 · beach 50 · benefits 32 · beauty 30 …
+# 소리 마디를 철자로만 가르는 근사다: be 뒤가 홑 자음 + 모음(be-ca · be-li · be-ga · be-ne)이면 음절,
+#   겹자음(bett · bell · begg)·모음(bea · bee)·낱말 끝 자음(bed · best)이면 아니다. being 은 음절이다.
+#   철자로 안 갈리는 benefit(BEN-e-fit)은 목록으로 뺀다.
+# ponytail: 철자 근사 — 발음 사전이 없어 be-n-e 꼴(benefit·beneath)은 목록으로만 가른다. 틀린 낱말이 보이면 목록에 더한다.
+_BE_NOT_SYLLABLE = frozenset({"benefit", "benefits", "beneficial", "benefited", "benefiting", "benefactor"})
+_VOWELS_Y = frozenset("aeiouy")
+
+
+def _be_is_syllable(word: str) -> bool:
+    if word.startswith("being"):
+        return True
+    if word in _BE_NOT_SYLLABLE:
+        return False
+    c, v = word[2:3], word[3:4]
+    return bool(c) and c not in _VOWELS_Y and v in _VOWELS_Y and c != v
+
+
+# 낱말 속 머리글자 약자를 규칙으로 못 가르는 gold 예외(#1216) — 낱말에 이 글자열이 들면 그 약자를 풀어 쓴다.
+#   gold 수: severe 22(severely · perseveres 포함, 같은 ever 라도 fever 3 · clever 5 · several 43 은 약자) · colonel 6.
+#   ponytail: 서너 번 이하인 것(antigone 3 · indonesia 2 · pioneer 2 · founder 2 · tournament 1 · centimeters 1)은 넣지 않았다 — 잔여를 0 까지 쫓지 않는다.
+_INITIAL_SPELLED: dict[str, tuple[str, ...]] = {"ever": ("severe",), "one": ("colonel",)}
+
+
 def _apply_groups(word: str, ebae: bool = False) -> str:
     """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수.
 
@@ -156,8 +190,9 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
     """
     # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
     # year·near·clear에서 ar(⠜)이 ea(⠂)를 이겨야 한다(실측 12건: 우리 ⠂⠗ vs 정답 ⠑⠜).
+    initial_syl = {**WORD_INITIAL_SYLLABLE, **EBAE_ONLY_INITIAL} if ebae else WORD_INITIAL_SYLLABLE
     keys = sorted(set(STRONG_GROUPS) | (set(FINAL_EBAE_ONLY) | set(EBAE_ONLY_GROUPS) if ebae else set())
-                  | set(WORD_INITIAL_SYLLABLE)
+                  | set(initial_syl)
                   | set(FINAL_46) | set(FINAL_56)
                   | set(INITIAL_5) | set(INITIAL_45) | set(INITIAL_456),
                   key=lambda k: (-len(k), k in _LOWER_CELL))
@@ -167,7 +202,7 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
         for k in keys:
             if not word.startswith(k, i):
                 continue
-            if k in WORD_INITIAL_SYLLABLE:
+            if k in initial_syl:
                 # 첫머리 음절 약자는 뒤에 글자가 더 있어야 한다(be/con/dis 단독 아님)
                 if i != 0 or len(word) <= len(k):
                     continue
@@ -175,7 +210,9 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
                 #   (규정 제39항 예문 `dishes` = di%es, #950)
                 if k == "dis" and word[3:4] == "h":
                     continue
-                out.append(WORD_INITIAL_SYLLABLE[k])
+                if k == "be" and not ebae and not _be_is_syllable(word):
+                    continue
+                out.append(initial_syl[k])
             elif k in STRONG_GROUPS or k in EBAE_ONLY_GROUPS:
                 if i == 0 and k in _NOT_WORD_INITIAL:
                     continue
@@ -196,8 +233,20 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
                 if i == 0:
                     continue
                 out.append(("⠨" + FINAL_46[k]) if k in FINAL_46 else ("⠰" + FINAL_56[k]))
-            else:                    # 첫글자 약자 — 낱말 첫머리에서만
-                if i != 0:
+            else:                    # 머리글자 약자 — 낱말 속에서도 쓴다(#1216)
+                # UEB 10.7: 머리글자 약자는 낱말 첫머리만이 아니라 낱말 속에서도 쓴다 — gold `phone` = ⠏⠓⠐⠕ ·
+                #   `money` = ⠍⠐⠕⠽ · `never` = ⠝⠐⠑ · `bought` = ⠃⠐⠳. 영어책(holdout 제외) 낱말 단위 전수 gold 만 약자
+                #   1,645낱말 · 우리만 0(`V2/temp/n46/e9/ini_census.py`). 종전엔 첫머리에서만 써 낱말 속에서 다 풀어 적었다.
+                #   겹침은 위 왼→오 최장 규칙이 가른다(`shadow` 는 sh 먼저 · `coupon` 은 ou 먼저 · there 가 here 보다 먼저).
+                #   EBAE(옛 책 되짚기)는 종전대로 첫머리에서만.
+                if i != 0 and ebae:
+                    continue
+                # 낱말 속 one · there 의 끝 e 가 뒤 글자와 ed · er · en 을 이루면 쓰지 않는다 — gold 낱말 속에서 풀어씀 71 :
+                #   약자 0(postponed 7 · sooner 7 · component 6 · abandoned 5 · gathered 11 …). named · timer 는 약자다(35 · 11)라
+                #   두 약자에만 건다.
+                if i != 0 and k in ("one", "there") and word[i + len(k):i + len(k) + 1] in ("d", "n", "r"):
+                    continue
+                if i != 0 and any(w in word for w in _INITIAL_SPELLED.get(k, ())):
                     continue
                 if k in INITIAL_5:
                     out.append("⠐" + INITIAL_5[k])
@@ -237,7 +286,7 @@ def _is_abbrev(word: str) -> bool:
     return any(c.isupper() for c in letters[1:])
 
 
-def translate_word(word: str, ebae: bool = False) -> str:
+def translate_word(word: str, ebae: bool = False, uncontracted: bool = False) -> str:
     """영어 낱말 하나 → Grade 2 점자.
 
     약어·단위는 축약하지 않고 글자 그대로 적는다 — 축약하면 ATP·mV·pH·mmHg 같은
@@ -259,7 +308,7 @@ def translate_word(word: str, ebae: bool = False) -> str:
     # ⚠ 낱말 **안**(양옆이 로마자)일 때만이다. 홀로 선 `'` 는 제49항 작은따옴표일 수
     #   있어 건드리지 않는다.
     if _INNER_APOS_RE.search(word):
-        return _APOS_CELL.join(translate_word(p, ebae) for p in _INNER_APOS_RE.split(word))
+        return _APOS_CELL.join(translate_word(p, ebae, uncontracted) for p in _INNER_APOS_RE.split(word))
     letters = [c for c in word if c.isalpha()]
     if _is_abbrev(word):
         if all(c.isupper() for c in letters):
@@ -284,10 +333,16 @@ def translate_word(word: str, ebae: bool = False) -> str:
             else:
                 out.append(_CAPITAL * 2 + cells + ("⠠⠄" if m.end() < len(word) else ""))
         return "".join(out)
+    if uncontracted:
+        # 영어 1급(#1189) — 약자 없이 글자대로. 대문자 표기는 위 약어 갈래가 이미 맡았고 여기 오는 것은
+        #   첫 글자만 대문자이거나 전부 소문자인 낱말이다. gold 초등 두 권 `Read and Write` = ⠠⠗⠑⠁⠙⠀⠁⠝⠙⠀⠠⠺⠗⠊⠞⠑.
+        return (_CAPITAL if word[0].isupper() else "") + "".join(ALPHABET.get(c.lower(), c) for c in word)
     low = word.lower()
     caps = _CAPITAL if word[0].isupper() else ""
     if low in WORDSIGNS:
         return caps + WORDSIGNS[low]
+    if ebae and low in EBAE_ONLY_WORDSIGNS:
+        return caps + EBAE_ONLY_WORDSIGNS[low]
     if low in SHORT_FORMS:
         return caps + SHORT_FORMS[low]
     return caps + _apply_groups(low, ebae)
@@ -346,7 +401,7 @@ def _spell_out(w: str, text: str, m: re.Match, lead: bool) -> bool:
 
 
 @lru_cache(maxsize=4096)
-def translate(text: str, ebae: bool = False, grade1: str = "") -> str:
+def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: bool = False) -> str:
     """영어 구간 문자열 → Grade 2 점자(낱말 단위 적용, 그 외 문자는 그대로).
 
     캐시가 붙은 이유 — `_break_offsets`가 줄바꿈 지점을 찾으려고 문자 위치마다 접두를
@@ -364,6 +419,9 @@ def translate(text: str, ebae: bool = False, grade1: str = "") -> str:
       이어지는 약자꼴 홑 낱자는 적는다(`a, b, c` 의 b·c · `George V`)       gold 347/347
       두 글자 이상 약자꼴은 로마자표 바로 뒤라도 적는다(`CD 1장`)           gold 100/102
     ⚠ 구판 gold 는 셋 다 안 적는다(판본 역전). 구판 수치로 판정하지 말 것.
+
+    uncontracted — 영어 1급(#1189, `constants.ENGLISH_GRADE1`). 약자가 없으니 1종 지시자 ⠰ 도 적지 않는다
+    (gold 초등 두 권 `A` = ⠴⠠⠁⠲). 캐시 열쇠에 들어가야 해서 문맥 값을 여기서 읽지 않고 인자로 받는다.
     """
     words = list(_WORD_RE.finditer(text))
     passage: dict[int, str] = {}
@@ -396,6 +454,10 @@ def translate(text: str, ebae: bool = False, grade1: str = "") -> str:
     for k, m in enumerate(words):
         out.append(text[last:m.start()])
         w = m.group()
+        if uncontracted:
+            out.append(passage.get(k) or translate_word(w, ebae, True))
+            last = m.end()
+            continue
         mark = (grade1 and not ebae and k not in passage and _looks_contracted(w)
                 and not (grade1 == "lead" and k == 0 and m.start() == 0 and len(w) == 1))
         if grade1 and not ebae and k not in passage and _spell_out(w, text, m, grade1 == "lead" and k == 0):

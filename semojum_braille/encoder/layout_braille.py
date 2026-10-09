@@ -86,8 +86,8 @@ _RULE_HIDDEN_SINGLE = "MCST-한글-6.13.49"  # 숨김표 단일(제49항) — li
 #   정답 코퍼스 1131p/85,600줄 전수 검증: 빈칸은 0(66.0%)·2(31.3%)·4(2.2%)·6(0.4%)칸만
 #   나오고 홀수는 사실상 없다 → 규정의 1·3·5·7칸 시작과 정확히 일치.
 #   (2026-07-16 이전엔 상수를 시작 칸 숫자 그대로 써서 전 줄이 1칸씩 밀려 있었다.)
-_PARA_INDENT = 2        # NLD 2장2절2 새 문단 "3칸에서 시작" = 앞 빈칸 2 (text)
-_BULLET_LINE_INDENT = 2  # NLD 2장3절5 글머리/목록 "3칸에서 시작" = 앞 빈칸 2 (list_item)
+from semojum_braille.encoder.constants import PARA_INDENT as _PARA_INDENT  # noqa: E402 — NLD 2장2절2 새 문단 "3칸에서 시작"(#1232 한 곳)
+from semojum_braille.encoder.constants import BULLET_INDENT as _BULLET_INDENT  # noqa: E402 — NLD 2장3절5 글머리/목록 "3칸에서 시작"(#1232 한 곳)
 
 # ★ MinerU는 선택지(①②③…)를 한 요소로 묶어서 낸다. 요소 첫 줄만 들이면 ②③…이
 #   이어지는 줄(0칸)로 흘러 정답(각 항목 2칸 시작)과 어긋난다.
@@ -100,6 +100,139 @@ _ITEM_HEAD = re.compile(
     r"|[가-힣]\.\s"                   # 가.
     r"|\d+\.\s)"                    # 1.
 )
+# 보기 항목 자모 글머리(`ㄱ. ` `ㄴ. `)도 항목 머리다(#1169, 줄 잇기 `pipeline._is_list_head` 와 같은 스위치).
+# 「점자 도서 제작 지침」 〈보기〉 예는 항목마다 줄을 바꾸고 2칸 들인다(재추출본 3201~3205행 묵자 ↔ 3243~3249행 점자).
+_ITEM_HEAD_JAMO = re.compile(r"^[ㄱ-ㅎ]\.\s")
+
+
+def _is_item_head(line: str) -> bool:
+    return bool(_ITEM_HEAD.match(line)
+                or (os.environ.get("JOIN_JAMO_HEAD", "1") != "0" and _ITEM_HEAD_JAMO.match(line)))
+
+
+# 원문 줄과 점자 줄 맞대기(항목 줄머리 · 접기, #1169). 점역기는 줄 끝 아래 테두리 태그(`… 까? <!상자끝><!/상자끝>`)를
+# 제 줄로 그리고 조판은 테두리 위에 빈 줄을 넣어, 글상자 요소는 원문 줄 수가 점자 줄 수와 달라 두 판정을 통째로
+# 건너뛰었다(상자 안 보기 ㄴ. ㄷ. 0칸, gold 2칸). 수가 다르면 **내용 줄끼리**(점자: 빈 줄 · 테두리 뺌 / 원문: 상자 제목 ·
+# 태그를 걷고 빈 줄 뺌) 맞대고, 그 수도 다르면 종전처럼 원문 줄 그대로 돌려준다(호출부가 건너뛴다).
+# ⚠ 자모 글머리가 든 요소에만 쓴다. 모든 상자에 쓰면(A/B 2차) 해설 정답표 상자의 `①` · `②` 줄까지 항목으로 들여
+# val 33쪽이 나빠졌다(자모 증분은 dev · val 모두 이득). 스위치는 `JOIN_JAMO_HEAD` 하나.
+_BOX_TITLE_SPAN_RE = re.compile(r"<!상자\d?>.*?<!/상자\d?>")
+
+
+def _aligned_src(corrected_text: str, lines: list[str]) -> list[str]:
+    src = (corrected_text or "").split("\n")
+    if len(src) == len(lines) or os.environ.get("JOIN_JAMO_HEAD", "1") == "0":
+        return src
+    s_txt = [_TAG_RE.sub("", ln) for ln in src if _TAG_RE.sub("", _BOX_TITLE_SPAN_RE.sub("", ln)).strip()]
+    b_idx = [i for i, ln in enumerate(lines) if ln.strip(" ⠀") and not _is_border_line(ln)]
+    if len(s_txt) != len(b_idx) or not any(_ITEM_HEAD_JAMO.match(t.strip()) for t in s_txt):
+        return src
+    out = [""] * len(lines)
+    for i, t in zip(b_idx, s_txt):
+        out[i] = t
+    return out
+
+
+# 짧은 선택지 합치기(#1238, 원장 C-166). 「점자 도서 제작 지침」 3장 3절 2. 4)(3)(재추출 3449~3456행): 선택지는 한 줄에
+#   하나가 원칙이고, 짧아서 점자 한 줄에 둘 이상 들어가면 두 칸 띄워(①) 5지는 3개 들어가면 3-2(③) · 2개면 2-2-1(②)로 적는다.
+#   「점자 자료 제작 지침」 4.2.4(3)(2399~2401행)도 3-2 · 2-2-1 · 한 줄 하나로 조절할 수 있다고 둔다.
+#   gold 5지 묶음: 짝 8권 747/752(99.3%) · 짝 밖 중고 · EBS · 일반 2,490/2,738(90.9%)가 이 규칙과 같다(V2 temp/n166/choice_rule.py).
+#   4지는 둘씩 들어가면 2-2(gold 둘 들어가는 4지 2-2 70 : 한 줄 하나 13).
+#   `pipeline._split_inline_choices` 가 묵자 한 줄의 선택지를 먼저 줄마다 가르고, 점역이 끝난 셀 길이로 여기서 다시 묶는다.
+#   ④ "초등학교 이하의 학생들을 위해 제작되는 문제 형식의 점자 자료" 는 합치지 않는다. 요청 낱값 `choices_one_per_line`
+#   (constants.CHOICES_ONE_PER_LINE)으로 끈다. 서버 되돌리기 `CHOICE_COMBINE=0`(호출 때 읽음).
+_CHOICE_SRC_RE = re.compile(r"^\s*([①-⑳])")          # 원문 줄머리 ①~⑳
+_CHOICE_BR_RE = re.compile(r"^⠼[⠂⠆⠒⠲⠢]⠀")                       # 점자 줄머리 ①~⑤ + 빈칸
+_CHOICE_ROWS = {5: ((3, 2), (2, 2, 1)), 4: ((2, 2),)}
+_CHOICE_SEP = "⠀⠀"                                             # ① 선택지와 선택지 사이 두 칸
+_CHOICE_ROW_RE = re.compile(r"^\s*[①-⑳].*\s{2}[①-⑳]")   # 묶은 원문 줄(항목 둘 이상)
+
+
+def _choice_combine_on() -> bool:
+    from semojum_braille.encoder.constants import CHOICES_ONE_PER_LINE
+    return not CHOICES_ONE_PER_LINE.get() and os.environ.get("CHOICE_COMBINE", "1") != "0"
+
+
+def _choice_rows(widths: list[int], indent: int) -> Optional[tuple[int, ...]]:
+    """항목 셀 길이 → 줄마다 항목 수. 어느 꼴도 32칸에 안 들어가면 None(한 줄에 하나)."""
+    for rows in _CHOICE_ROWS.get(len(widths), ()):
+        at = 0
+        for n in rows:
+            if indent + sum(widths[at:at + n]) + len(_CHOICE_SEP) * (n - 1) > _COLS:
+                break
+            at += n
+        else:
+            return rows
+    return None
+
+
+def _combine_choice_lines(bo: BrailleOutput, etype: str, indent: int) -> None:
+    """줄마다 하나인 짧은 선택지(①~⑤ · ①~④)를 3-2 · 2-2-1 · 2-2 로 묶는다(in-place, 멱등).
+
+    점자 줄 · 원문 줄 · 음절 끊을 자리 · rule_trail 좌표를 같이 옮긴다. 묶인 원문 줄은 두 칸으로 잇는다 —
+    `_mark_item_lines` 가 원문 줄머리(①·④)로 줄마다 들여쓰기를 준다. 다시 불러도 번호가 안 이어져 그대로다.
+    """
+    if (etype not in ("list_item", "text") or not indent or bo.drafts
+            or bo.line_indents is not None or not _choice_combine_on()):
+        return
+    lines = list(bo.braille_lines)
+    src = (bo.corrected_text or "").split("\n")
+    if len(src) != len(lines):
+        return
+    nums = []
+    for s in src:
+        m = _CHOICE_SRC_RE.match(_TAG_RE.sub("", s))
+        nums.append(ord(m.group(1)) - 0x2460 + 1 if m else 0)
+    groups: list[tuple[int, tuple[int, ...]]] = []
+    i = 0
+    while i < len(lines):
+        if nums[i] != 1:
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and nums[j] == j - i + 1:
+            j += 1
+        if j - i in _CHOICE_ROWS and (j == len(lines) or not nums[j]) and all(
+                _CHOICE_BR_RE.match(lines[k]) for k in range(i, j)):
+            rows = _choice_rows([len(lines[k].rstrip("⠀")) for k in range(i, j)], indent)
+            if rows:
+                groups.append((i, rows))
+        i = max(j, i + 1)
+    if not groups:
+        return
+    bps = list(bo.break_points) if len(bo.break_points) == len(lines) else None
+    trail = [r.model_copy() for r in bo.rule_trail]
+    for i, rows in reversed(groups):            # 아래 묶음부터 — 위 줄 번호가 안 밀린다
+        new_lines, new_src, new_bps, where = [], [], [], {}
+        k = i
+        for n in rows:
+            parts, off, row_bps = [], 0, []
+            for m in range(k, k + n):
+                t = lines[m].rstrip("⠀")
+                where[m] = (len(new_lines), off)
+                if bps is not None:
+                    row_bps += [off + b for b in bps[m] if b <= len(t)]
+                parts.append(t)
+                off += len(t) + len(_CHOICE_SEP)
+            new_lines.append(_CHOICE_SEP.join(parts))
+            new_src.append("  ".join(src[m].strip() for m in range(k, k + n)))
+            new_bps.append(row_bps)
+            k += n
+        end, gone = k, k - i - len(rows)
+        lines[i:end], src[i:end] = new_lines, new_src
+        if bps is not None:
+            bps[i:end] = new_bps
+        for r in trail:
+            if r.line_no in where:
+                row, off = where[r.line_no]
+                r.line_no, r.col_start, r.col_end = i + row, r.col_start + off, r.col_end + off
+            elif r.line_no >= end:
+                r.line_no -= gone
+    bo.braille_lines, bo.corrected_text, bo.rule_trail = lines, "\n".join(src), trail
+    if bps is not None:
+        bo.break_points = bps
+
+
 _HEADING_DEEP_INDENT = 4  # NLD 2장2절1 3·4단계 제목 "5칸에서 시작" = 앞 빈칸 4
 # ★ MinerU가 제목으로 표시했지만 **단원명이 아닌** 항목 머리 — 문항 번호와 괄호 번호다.
 #   지침 2.4.2는 단원명에만 적용된다. 이것들은 문단이므로 "3칸에서 시작" = 앞 빈칸 2다.
@@ -138,10 +271,8 @@ _UNDERLINE_BLANK_MARKER = "⠸⠤"
 # ── NLD 2장3절5 글머리 기호 — 위계 2단계 (글리프 MCST 제72항) ────────────────
 # 1단계(상위) 동그라미 ⠸⠴, 2단계(하위) 붙임표 ⠤
 _BULLET_MARKERS: dict[int, str] = {1: "⠸⠴", 2: "⠤"}
-_BULLET_INDENT = 2  # 3칸에 표기(2칸 들여 후 3번째 칸)
 
 # ── NLD 2장2절2 문단 형식 ──────────────────────────────────────────────────
-_PARAGRAPH_INDENT = 2  # 새 문단은 "3칸에서 시작" = 앞 빈칸 2
 
 # ── NLD 2장2절6 출전 ──────────────────────────────────────────────────────
 _CITATION_INDENT = 2  # 인용 "3칸에서 시작" = 앞 빈칸 2
@@ -163,7 +294,7 @@ _BORDER_BLANK = "⠀"     # 점자 빈칸(U+2800) — 제목 앞뒤 띔
 #   ⚠ `.brf`(BRF-ASCII) 내보내기는 `unicode_to_ascii` 가 담당하고 그쪽 빈칸은 U+0020 이 맞다.
 #     여기서 바꾸는 것은 **유니코드 점자 층**뿐이다.
 _PAD = "⠀"              # 들여쓰기·정렬에 쓰는 점자 빈칸
-_BORDER_LEFT_FILL = 4   # 캡1+채움4+빈칸1 → 제목 7칸째 시작 (NLD-1.2.5(4)②)
+from semojum_braille.encoder.constants import BORDER_LEFT_FILL as _BORDER_LEFT_FILL  # noqa: E402 — 캡1+채움4+빈칸1 → 제목 7칸째 시작 (NLD-1.2.5(4)②, #1232 한 곳)
 # 위계별 테두리 (start_cap, fill, end_cap) — 공용 표(`constants.BOX_LEVELS`, 근거 행 번호도 거기).
 # 위계는 추출이 단다(`pdf_analyzer.tag_boxed_elements` 의 사각형 깊이 → `<!상자2>`).
 from semojum_braille.encoder.constants import BOX_LEVELS as _BOX_LEVELS  # noqa: E402
@@ -177,18 +308,27 @@ _BORDER_START_CAPS = frozenset("⠿⠖⠓")
 _BORDER_END_CAPS = frozenset("⠿⠲⠚")
 
 
+# 테두리 줄은 캡 다음이 같은 채움 4칸이다(제목도 그 뒤에 선다, `_BORDER_LEFT_FILL`). 캡 · 길이만 보면 32칸 본문 줄이
+# 테두리로 잡힌다 — 보기 항목 `ㄴ. 동생은 … 한다.`(⠿⠒⠲ … ⠲)는 온표 ⠿ 로 시작해 마침표 ⠲(2단계 끝 캡)로 끝나서, 마침 32칸이면
+# 아래 테두리로 다시 그려져 항목 글이 사라졌다(#1172). 게이트 실행분(862227a) 경계, 자모 글머리 줄이 있는 371쪽에서
+# 가짜 테두리 줄 15 · 그중 8줄은 최종 출력에서 항목 글이 사라졌다(생명과학 7 · 사회문화 1).
+# 되돌리기 `BORDER_LINE_STRICT=0`(호출 때 읽음).
+# 표 전체 테두리 ⠿×32(`table_braille._border_line`)도 테두리다.
+_BORDER_FILLS = frozenset(f for lv in _BOX_LEVELS.values() for _s, f, _e in lv.values()) | {_BOX_BORDER_END}
+
+
 def _is_border_line(line: str) -> bool:
     """글상자/표 테두리 줄(32칸, 양 끝이 테두리 캡)인지 — 들여쓰기 금지 대상(B2).
 
     translator/table_braille가 32칸 테두리를 렌더하고 layout이 위계로 재렌더하므로,
     여기에 문단·글머리 들여(3칸)를 더하면 35칸이 되어 _break_line이 테두리를 망가뜨린다.
-    1·2·3단계 캡을 모두 인식한다.
+    1·2·3단계 캡을 모두 인식한다. 캡 다음 채움 4칸까지 본다(위 `_BORDER_FILLS` 주석).
     """
-    return (
-        len(line) == _COLS
-        and line[:1] in _BORDER_START_CAPS
-        and line[-1:] in _BORDER_END_CAPS
-    )
+    if not (len(line) == _COLS and line[:1] in _BORDER_START_CAPS and line[-1:] in _BORDER_END_CAPS):
+        return False
+    if os.environ.get("BORDER_LINE_STRICT", "1") == "0":
+        return True
+    return line[1] in _BORDER_FILLS and line[1:1 + _BORDER_LEFT_FILL] == line[1] * _BORDER_LEFT_FILL
 
 
 def _tail_blanks(lines: list[str]) -> int:
@@ -223,7 +363,7 @@ def format_citation(text: str) -> str:
 
 def format_paragraph_start(text: str) -> str:
     """새 문단을 3칸에서 시작 (NLD 2장2절2 문단 형식)."""
-    return _PAD * _PARAGRAPH_INDENT + text
+    return _PAD * _PARA_INDENT + text
 
 
 def format_bullet_item(text: str, tier: int) -> str:
@@ -558,8 +698,8 @@ class LayoutBraille:
     ) -> list[list[str]]:
         """이미 조판된 블록 줄들을 페이지로 조립(NLD): 제목·표·시각자료 빈 줄 + 페이지 + 페이지행.
 
-        재-wrap·들여쓰기는 하지 않는다(블록 줄은 이미 32칸 조판본). layout()(초안)과
-        finalize()(편집본)가 공유하는 순수 조립부.
+        재-wrap·들여쓰기는 하지 않는다(블록 줄은 이미 32칸 조판본). layout()의 순수 조립부다
+        (편집본을 조립하던 REST `/finalize` 와 `finalize()` 는 #1233 으로 지웠다).
 
         ★ 인접 빈 줄 병합은 **실제로 쌓인 빈 줄**을 세서 한다(선언값 before/after가 아니라).
         `_expand_box_borders`가 글상자 위아래 빈 줄을 el_lines **안에** 박아 넣기 때문이다 —
@@ -597,43 +737,6 @@ class LayoutBraille:
             lines.append("")
         return self._paginate(lines, page_no, footer, orig_page)
 
-    def finalize(self, blocks: list[dict], page_no: int = 1) -> list[list[str]]:
-        """점역사가 편집한 블록(이미 32칸 줄)을 규정대로 페이지 조립(REST /finalize 전용).
-
-        blocks 항목: {type, heading_level, order, lines:[점자 줄...]}.
-        page_number type만 페이지행으로 분리(header_footer는 본문 — _partition 주석).
-        본문은 order로 정렬.
-        재-wrap 없음(줄 단위 편집 가정) — 점자 규정 조판은 AI가 소유, BE/FE는 호출만.
-        반환: 점자 페이지 목록(각 32칸×25줄).
-        """
-        def _first_line(want: str) -> str:
-            for b in blocks:
-                if b.get("type") == want:
-                    for ln in b.get("lines", []):
-                        if ln.strip():
-                            return ln.strip()
-            return ""
-
-        body = sorted(
-            (b for b in blocks if b.get("type") not in _PAGE_LINE_TYPES),
-            key=lambda b: b.get("order", 1_000_000),
-        )
-        formatted = [(int(b.get("heading_level") or 0), b.get("type") or "", list(b.get("lines", [])))
-                     for b in body]
-        # 꼬리말 = 페이지의 1·2단계 제목 (지침 제1장 3-3) — _footer_text 주석과 같은 규칙)
-        footer = ""
-        for lvl in _FOOTER_HEADING_LEVELS:
-            cands = [b for b in body if int(b.get("heading_level") or 0) == lvl]
-            for b in cands:
-                line = next((ln.strip() for ln in b.get("lines", []) if ln.strip()), "")
-                if line:
-                    footer = line
-                    break
-            if footer:
-                break
-        orig_page = _first_line("page_number")
-        return self._assemble_pages(formatted, footer, orig_page, page_no)
-
     def _format_element(
         self, bo: BrailleOutput, etype: str, hlevel: int, *, tight_box: bool = False
     ) -> tuple[list[str], int]:
@@ -657,6 +760,7 @@ class LayoutBraille:
             self._apply_bullet_marker(bo)
         is_heading = hlevel >= 1
         first_indent = self._first_indent(bo, etype, is_heading, hlevel)
+        _combine_choice_lines(bo, etype, first_indent)   # 멱등 — flatten 이 먼저 묶고 layout 은 그대로 지나간다
         self._mark_item_lines(bo, etype, first_indent)
         # 32칸 테두리 줄(글상자 NLD-1.2.5·표 격자)은 layout이 폭을 소유하므로 들이지 않는다
         # — 들이면 35칸이 되어 _break_line이 테두리를 쪼갠다. 그렇다고 요소 전체의 들여쓰기를
@@ -913,10 +1017,10 @@ class LayoutBraille:
             return
         if getattr(bo, "line_indents", None) is not None:  # 골격 들여쓰기 있으면 유지
             return
-        src = (getattr(bo, "corrected_text", "") or "").split("\n")
+        src = _aligned_src(getattr(bo, "corrected_text", "") or "", bo.braille_lines)
         if len(src) != len(bo.braille_lines) or len(src) < 2:
             return
-        heads = [i for i, ln in enumerate(src) if _ITEM_HEAD.match(ln.strip())]
+        heads = [i for i, ln in enumerate(src) if _is_item_head(ln.strip())]
         if len(heads) < 2:                   # 항목이 하나뿐이면 기본 동작으로 충분
             return
         bo.line_indents = [first_indent if i in set(heads) else 0 for i in range(len(src))]
@@ -941,6 +1045,7 @@ class LayoutBraille:
         is_heading = hlevel >= 1
         first_indent = self._first_indent(bo, etype, is_heading, hlevel)
         if not draft:
+            _combine_choice_lines(bo, etype, first_indent)
             self._mark_item_lines(bo, etype, first_indent)
         lines = list(lines if draft else bo.braille_lines)
         # 32칸 테두리 줄은 들이면 폭을 넘어 깨진다. 그렇다고 요소 전체의 들여쓰기를 버리면
@@ -994,7 +1099,7 @@ class LayoutBraille:
             #     **0개**다. val은 악화가 아니라 변화 없음(중립)이다.
             return _PARA_INDENT
         if etype == "list_item":
-            return _BULLET_LINE_INDENT
+            return _BULLET_INDENT
         return 0
 
     def _build_meta(
@@ -1298,6 +1403,8 @@ class FlatElement(NamedTuple):
     prefix/suffix — 초안(drafts)도 같은 구조적 빈 줄을 달아야 해서 따로 들고 있는다.
     draft_texts — 초안별 통 문자열. 들여쓰기·가운데 정렬까지 본문과 같은 규칙으로 넣는다
       (proto 불변식 `contents == drafts[selected_idx].contents`).
+    breaks · draft_breaks — `text` · 초안 통 문자열 안에서 줄을 바꿔도 되는 자리(`_flat_breaks`, #1240).
+      응답 `TextElement.breaks` · `Draft.breaks`.
     """
 
     text: str
@@ -1305,6 +1412,8 @@ class FlatElement(NamedTuple):
     prefix: str
     suffix: str
     draft_texts: tuple[str, ...] = ()
+    breaks: tuple[int, ...] = ()
+    draft_breaks: tuple[tuple[int, ...], ...] = ()
 
 
 # 통 문자열에서 접을 줄의 폭 임계. 이만큼 찬 줄 뒤 개행은 **칸수에 밀린 것**이라
@@ -1344,16 +1453,27 @@ def _fold_full_lines(lines: list[str], pads: list[int],
       그중 2건이 OCR 이 깨진 수식 쪽(`x` 를 `⑦` 로 읽은 자리)이다.
 
     반환: (조정된 pads, 줄 사이 구분자 목록 — 길이 len(lines)-1)
+
+    ★ **기본은 안 잇는다**(#1242, 대표 결재 2026-10-09). 응답 = 쪽 조판이 된다(구분자가 모두 개행).
+      위 잇기는 2026-08-17(#207 · #208)에 넣었는데, 이은 자리 898곳 중 앞 줄이 28~32칸(32칸에 밀린 꼴)인 것은
+      70곳(7.8%)뿐이고 828곳은 32칸보다 긴 원문 줄 뒤였다(그 줄은 접는 쪽이 어차피 접는다). 잇기를 끄면
+      dev · val 1,746쪽 응답 접은 줄이 gold 와 같은 줄 dev +52 · val +37, 응답 접은 줄 중 쪽 출력에 없는 줄이
+      3,882 → 69(남은 것은 글상자 테두리 같은 32칸 구조 줄). 앱은 로컬 엔진이 음절 단위로 접으므로 끊을 자리
+      (`breaks`)만 정확하면 된다. 결과 V2 temp/n10/결과_응답잇기끄기_1242.md. 되돌리기 `RESPONSE_FOLD_JOIN=1`.
     """
     seps = ["\n"] * max(0, len(lines) - 1)
-    if len(lines) < 2 or etype not in _FOLDABLE_TYPES:
+    if (len(lines) < 2 or etype not in _FOLDABLE_TYPES
+            or os.environ.get("RESPONSE_FOLD_JOIN", "0") != "1"):
         return list(pads), seps
     out_pads = list(pads)
     src = src_lines if src_lines and len(src_lines) == len(lines) else None
     for i in range(len(lines) - 1):
         width = (pads[i] if i < len(pads) else 0) + len(lines[i])
         # ★ 항목 머리 줄은 접지 않는다 — NLD 3장3절2 4)(3) "선택지는 한 줄에 하나".
-        if src is not None and _ITEM_HEAD.match(src[i + 1].strip()):
+        if src is not None and _is_item_head(src[i + 1].strip()):
+            continue
+        # 묶은 선택지 줄(`_combine_choice_lines`) 뒤도 접지 않는다 — 항목이 다 든 줄이라 다음 줄은 이어지는 글이 아니다.
+        if src is not None and _CHOICE_ROW_RE.match(src[i]):
             continue
         # ★ 테두리 줄은 접지 않는다. 위 `_FOLDABLE_TYPES` 주석이 "글상자는 32칸 줄이
         #   조판 결과가 아니라 구조"라고 적어 뒀는데, 글상자는 **유형이 아니라 줄**이다 —
@@ -1417,6 +1537,36 @@ def _flat_trail(
     return out
 
 
+def _flat_breaks(
+    lines: list[str], pads: list[int], line_breaks: list[list[int]], base: int,
+    seps: Optional[list[str]] = None,
+) -> tuple[int, ...]:
+    """줄별 끊을 자리(`break_points`: 음절 경계 · 빈칸) → 통 문자열 오프셋. 그 셀 앞에서 끊어도 된다(#1240).
+
+    접는 쪽(braille-assist `wrap` · 앱 사이드카)이 줄바꿈 '음절' 로 접을 때 쓴다. 좌표 셈은 `_flat_trail` 과 같다
+    (줄 사이 구분자를 실제 길이로 센다 — `_fold_full_lines` 의 구분자는 개행 · 빈칸 · 빈 문자열이다).
+    · 자리 목록이 없는 줄(격자 표 · 도표는 `break_points` 를 안 채운다)은 빈칸 무리의 첫 자리를 쓴다. 접는 쪽이 목록
+      없는 줄에서 하는 것과 같다. 그래서 빈칸이 하나라도 있는 요소는 목록이 비지 않고, 빈 목록은 '모름' 으로만 남는다.
+    · 줄머리 빈칸(들여쓰기 · 표 줄에 박힌 칸) 안에서는 안 끊는다.
+    · 꽉 찬 줄을 빈칸으로 이은 자리는 그 빈칸 앞에서 끊을 수 있다.
+    """
+    out: list[int] = []
+    acc = base
+    for i, ln in enumerate(lines):
+        pad = pads[i] if i < len(pads) else 0
+        bps = line_breaks[i] if i < len(line_breaks) else []
+        if not bps:
+            bps = [j for j, c in enumerate(ln) if c == _PAD and j and ln[j - 1] != _PAD]
+        lead = len(ln) - len(ln.lstrip(_PAD))
+        out += [acc + pad + b for b in bps if lead < b < len(ln)]
+        acc += pad + len(ln)
+        sep = seps[i] if seps and i < len(seps) else "\n"
+        if i < len(lines) - 1 and sep == _PAD:
+            out.append(acc)
+        acc += len(sep)
+    return tuple(sorted(set(out)))
+
+
 def flatten_elements(
     braille_outputs: list[BrailleOutput],
     layout_result: Optional["LayoutResult"] = None,
@@ -1460,7 +1610,7 @@ def flatten_elements(
         etype, _order, hlevel = meta.get(bo.element_id, _DEFAULT_META)
         lines, pads = lb._indent_lines(bo, etype, hlevel)
         pads, seps = _fold_full_lines(
-            lines, pads, etype, (bo.corrected_text or "").split("\n"))
+            lines, pads, etype, _aligned_src(bo.corrected_text or "", lines))
         before, after = _HEADING_BLANK.get(hlevel, (0, 0))
         if etype in _BLANK_AROUND_TYPES:      # 표·시각자료 위아래(NLD 2장2절2 2)(2)④)
             before, after = max(before, 1), max(after, 1)
@@ -1486,15 +1636,18 @@ def flatten_elements(
         prefix = "\n" * before
         suffix = "\n" * (after + 1)           # +1 = 본문 마지막 줄 끝내기
         text_body = _pad_join(lines, pads, seps)
-        drafts = []
+        drafts, d_breaks = [], []
         for d in getattr(bo, "drafts", []) or []:
             d_lines, d_pads = lb._indent_lines(bo, etype, hlevel, list(d.braille_lines))
             drafts.append(prefix + _pad_join(d_lines, d_pads) + suffix)
+            d_breaks.append(_flat_breaks(d_lines, d_pads, getattr(d, "break_points", None) or [], len(prefix)))
         out[bo.element_id] = FlatElement(
             text=prefix + text_body + suffix,
             trail=_flat_trail(bo.rule_trail, lines, len(prefix), len(text_body), pads, seps),
             prefix=prefix,
             suffix=suffix,
             draft_texts=tuple(drafts),
+            breaks=_flat_breaks(lines, pads, bo.break_points, len(prefix), seps),
+            draft_breaks=tuple(d_breaks),
         )
     return out
