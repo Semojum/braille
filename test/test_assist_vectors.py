@@ -1,7 +1,8 @@
-"""braille-assist `vectors.json`(0.3.0)을 옮겨 온 조판 함수에 그대로 맞춘다.
+"""조판 함수(`semojum_braille.assist`)를 저장소 루트 `vectors.json` 에 맞춘다.
 
-벡터는 옮기기 전 동작의 명세다. 이 시험이 깨지면 옮기면서 동작이 바뀐 것이다.
-벡터 파일은 braille-assist develop 2c41d8d 의 것을 바이트 그대로 둔다(`test/data/assist_vectors.json`).
+`vectors.json` 은 파이썬 · ts(`ts/`) · java(`java/`) 세 구현이 같은 출력을 내는지 보는 하나뿐인 정답 파일이다.
+ts · java 는 `.github/workflows/assist.yml` 이 같은 파일로 돌린다. 케이스 정의의 정본은 `tools/gen_vectors.py` 다.
+(braille-assist develop 38e21e2 에서 옮겨 왔다. 그 전에는 `test/data/assist_vectors.json` 에 같은 바이트의 사본을 두었다.)
 """
 import json
 from pathlib import Path
@@ -11,7 +12,7 @@ import pytest
 from semojum_braille import assist
 from semojum_braille.brf import serialize_brf
 
-_DATA = json.loads((Path(__file__).parent / "data" / "assist_vectors.json").read_text(encoding="utf-8"))
+_DATA = json.loads((Path(__file__).parents[1] / "vectors.json").read_text(encoding="utf-8"))
 _CASES = [(fn, c) for fn, cases in _DATA["cases"].items() for c in cases]
 
 

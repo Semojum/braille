@@ -1,0 +1,15 @@
+{
+  "name": "@semojum/braille-assist",
+  "version": "0.1.0",
+  "description": "점자 조판 공용 함수 3개 — 페이지행 · 원본 페이지 변경선 · BRF-ASCII 변환",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types test/vectors.test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": { "typescript": "^5.6.0" }
+}
