@@ -14,8 +14,8 @@ public final class BrailleAssist {
     public static final char SPACE = '⠀';
     private static final char NUM_SIGN = '⠼';    // 수표 ⠼
     private static final char CHANGE_MARK = '⠤'; // 변경선 채움 ⠤
-    /** 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 뜻은 {@link #wrap(String, int, String, int[], boolean)}. */
-    public static final java.util.List<String> WRAP_MODES = java.util.List.of("syllable", "word", "cell");
+    /** 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절). 뜻은 {@link #wrap(String, int, String, int[], boolean)}. */
+    public static final java.util.List<String> WRAP_MODES = java.util.List.of("syllable", "word");
     private static final String TN_MARK = "⠠⠄";   // 점역자 주 표(두 칸). 강제로 자를 때 가르지 않는다
 
     // 숫자·알파벳은 같은 점형(1=a=⠁ … 0=j=⠚). 수표가 앞에 오면 숫자로 읽는다.
@@ -52,7 +52,7 @@ public final class BrailleAssist {
         public final boolean showChangeLine;
         /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다. */
         public final String footerAlign;
-        /** 32칸을 넘는 줄을 접는 갈래. syllable(기본) | word | cell. 블록에 breaks 가 없으면 syllable 이어도 word. */
+        /** 32칸을 넘는 줄을 접는 갈래. syllable(기본) | word. 블록에 breaks 가 없으면 syllable 이어도 word. */
         public final String wrap;
 
         public Options(int cols, int rows, boolean showOrigPage, boolean showBraillePage,
@@ -67,7 +67,7 @@ public final class BrailleAssist {
             if (coverPages < 0)
                 throw new IllegalArgumentException("coverPages는 0 이상이어야 한다: " + coverPages);
             if (!WRAP_MODES.contains(wrap))
-                throw new IllegalArgumentException("wrap은 syllable|word|cell: " + wrap);
+                throw new IllegalArgumentException("wrap은 syllable|word: " + wrap);
             this.cols = cols;
             this.rows = rows;
             this.showOrigPage = showOrigPage;
@@ -283,24 +283,18 @@ public final class BrailleAssist {
     }
 
     /**
-     * 논리 줄 하나를 cols 칸 줄들로 접는다. 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 근거는 python {@code wrap}.
+     * 논리 줄 하나를 cols 칸 줄들로 접는다. 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절). 근거는 python {@code wrap}.
      * <ul>
      * <li>syllable — breaks(그 셀 앞에서 끊어도 되는 자리, 이 줄 기준) 가운데 cols 칸 안에서 가장 먼 자리에서 끊는다.
      *     없으면 cols 칸째에서 강제로 자르되 점역자 주 표 ⠠⠄ 는 가르지 않는다. 이어지는 줄 머리 빈칸은 버린다.
      *     breaks 가 비면 word 로 접는다(설계 §6-1).</li>
      * <li>word — 빈칸(어절) 자리에서 자른다.</li>
-     * <li>cell — cols 칸마다 그대로 자른다(빈칸을 버리지 않고 가운데에도 놓지 않는다).</li>
-     * <li>center — 1단계 제목. cols 를 넘어 접힌 줄만 조각마다 가운데에 놓는다(syllable · word).</li>
+     * <li>center — 1단계 제목. cols 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.</li>
      * </ul>
      */
     public static java.util.List<String> wrap(String line, int cols, String mode, int[] breaks, boolean center) {
-        if (!WRAP_MODES.contains(mode)) throw new IllegalArgumentException("wrap은 syllable|word|cell: " + mode);
+        if (!WRAP_MODES.contains(mode)) throw new IllegalArgumentException("wrap은 syllable|word: " + mode);
         java.util.List<String> out = new java.util.ArrayList<>();
-        if (mode.equals("cell")) {
-            for (int i = 0; i < line.length(); i += cols) out.add(line.substring(i, Math.min(line.length(), i + cols)));
-            if (out.isEmpty()) out.add("");
-            return out;
-        }
         if (mode.equals("word") || breaks == null || breaks.length == 0) {
             out = wordWrap(line, cols);
         } else {
@@ -574,7 +568,7 @@ public final class BrailleAssist {
         public final java.util.Map<Integer, String> footersBraille;
         public final int startBraillePage;
         public final java.util.List<JobPage> pages;
-        /** 줄바꿈 갈래. syllable(기본) | word | cell. */
+        /** 줄바꿈 갈래. syllable(기본) | word. */
         public final String wrap;
 
         public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
