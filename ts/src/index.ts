@@ -10,8 +10,8 @@
 export const SPACE = '⠀'; // 공백 셀 ⠀
 const NUM_SIGN = '⠼'; // 수표 ⠼
 const CHANGE_MARK = '⠤'; // 변경선 채움 ⠤
-/** 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 뜻은 `wrap` 에 적었다. */
-export const WRAP_MODES = ['syllable', 'word', 'cell'] as const;
+/** 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절). 뜻은 `wrap` 에 적었다. */
+export const WRAP_MODES = ['syllable', 'word'] as const;
 export type WrapMode = typeof WRAP_MODES[number];
 const TN_MARK = '⠠⠄'; // 점역자 주 표(두 칸). 강제로 자를 때 가르지 않는다
 
@@ -68,7 +68,7 @@ function resolve(opts?: Partial<Options>): Options {
   if (o.cols < 8) throw new Error(`cols는 8 이상이어야 한다: ${o.cols}`);
   if (!['every', 'odd', 'even', 'none'].includes(o.pageRowOn))
     throw new Error(`pageRowOn은 odd|every|even|none: ${o.pageRowOn}`);
-  if (!WRAP_MODES.includes(o.wrap)) throw new Error(`wrap은 syllable|word|cell: ${o.wrap}`);
+  if (!WRAP_MODES.includes(o.wrap)) throw new Error(`wrap은 syllable|word: ${o.wrap}`);
   return o;
 }
 
@@ -213,22 +213,16 @@ function wordWrap(line: string, cols: number): string[] {
 }
 
 /**
- * 논리 줄 하나를 cols 칸 줄들로 접는다. 줄바꿈 세 갈래(대표 결재 2026-10-09, 기본 음절). 근거는 python `wrap`.
+ * 논리 줄 하나를 cols 칸 줄들로 접는다. 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절). 근거는 python `wrap`.
  * - syllable: breaks(그 셀 앞에서 끊어도 되는 자리, 이 줄 기준) 가운데 cols 칸 안에서 가장 먼 자리에서 끊는다.
  *   없으면 cols 칸째에서 강제로 자르되 점역자 주 표 ⠠⠄ 는 가르지 않는다. 이어지는 줄 머리 빈칸은 버린다.
  *   breaks 가 비면 word 로 접는다(설계 §6-1).
  * - word: 빈칸(어절) 자리에서 자른다.
- * - cell: cols 칸마다 그대로 자른다(빈칸을 버리지 않고 가운데에도 놓지 않는다).
- * - center: 1단계 제목. cols 를 넘어 접힌 줄만 조각마다 가운데에 놓는다(syllable · word).
+ * - center: 1단계 제목. cols 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.
  */
 export function wrap(line: string, cols = 32, mode: WrapMode = 'syllable',
                      breaks?: number[] | null, center = false): string[] {
-  if (!WRAP_MODES.includes(mode)) throw new Error(`wrap은 syllable|word|cell: ${mode}`);
-  if (mode === 'cell') {
-    const out: string[] = [];
-    for (let i = 0; i < line.length; i += cols) out.push(line.slice(i, i + cols));
-    return out.length ? out : [''];
-  }
+  if (!WRAP_MODES.includes(mode)) throw new Error(`wrap은 syllable|word: ${mode}`);
   let out: string[];
   if (mode === 'word' || !breaks || breaks.length === 0) {
     out = wordWrap(line, cols);

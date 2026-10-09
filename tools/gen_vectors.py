@@ -184,7 +184,7 @@ BUILD = [
 ]
 
 
-# ── 줄바꿈 세 갈래(2026-10-09 대표 결재, 기본 음절, #23) ──────────────────────────────
+# ── 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절, #28. 10-09 #23 의 점자 칸 갈래는 뺐다) ──────────
 # 줄과 끊을 자리(`breaks`, 그 셀 앞에서 끊어도 되는 자리)는 사이드카 `translate`(main 378d865e)로 한 번
 # 뽑아 **값으로 굳혔다.** 여기서 재는 것은 접는 셈이지 점역이 아니다. 엔진이 바뀌어도 이 입력은 그대로다.
 _S1 = '⠀⠀⠨⠥⠠⠾⠀⠚⠍⠈⠕⠝⠉⠵⠀⠇⠶⠙⠍⠢⠀⠚⠧⠙⠌⠀⠈⠻⠨⠝⠫⠀⠘⠂⠊⠂⠚⠑⠡⠠⠎⠀⠨⠶⠠⠕⠫⠀⠋⠪⠈⠝⠀⠉⠮⠎⠉⠌⠈⠥⠀⠘⠥⠘⠍⠇⠶⠺⠀⠚⠧⠂⠊⠿⠊⠥⠀⠚⠧⠂⠘⠂⠚⠗⠨⠱⠌⠊⠲'   # "조선 후기에는 … 활발해졌다." 89칸(문단 들여쓰기 두 칸)
@@ -199,7 +199,6 @@ WRAP = [
     ("음절: 32칸 안에서 가장 먼 끊을 자리에서", dict(line=_S1, cols=32, mode="syllable", breaks=_B1),
      "docs/sidecar.md §5 규칙 1 · 2"),
     ("어절: 같은 줄을 빈칸 자리에서", dict(line=_S1, cols=32, mode="word"), "자료지침 §2.1.1(2) · 원장 C-83"),
-    ("셀: 같은 줄을 32칸마다 그대로", dict(line=_S1, cols=32, mode="cell"), ""),
     ("음절: 띄어쓰기 없는 긴 낱말도 음절 경계에서", dict(line=_S2, cols=32, mode="syllable", breaks=_B2), ""),
     ("어절: 띄어쓰기 없는 긴 낱말은 통째로 다음 줄로", dict(line=_S2, cols=32, mode="word"), ""),
     ("음절: 끊을 자리를 모르면 어절로", dict(line=_S2, cols=32, mode="syllable", breaks=[]),
@@ -209,7 +208,6 @@ WRAP = [
     ("음절 · 1단계 제목: 접힌 조각을 가운데에", dict(line=_T2, cols=32, mode="syllable", breaks=_TB2, center=True),
      "docs/sidecar.md §5 규칙 4"),
     ("어절 · 1단계 제목: 접힌 조각을 가운데에", dict(line=_T2, cols=32, mode="word", center=True), ""),
-    ("셀 · 1단계 제목: 셀은 가운데에 놓지 않는다", dict(line=_T2, cols=32, mode="cell", center=True), ""),
     ("음절: 32칸 안의 줄은 그대로", dict(line=_S2[:30], cols=32, mode="syllable", breaks=[5, 7], center=True), ""),
 ]
 
@@ -223,10 +221,9 @@ _WRAP_SRC = [{"orig_page": 3, "blocks": _WRAP_BLOCKS}]
 _WRAP_SRC_NO_BREAKS = [{"orig_page": 3, "blocks": [{k: v for k, v in b.items() if k != "breaks"}
                                                    for b in _WRAP_BLOCKS]}]
 BUILD_WRAP = [
-    ("세 갈래 · 음절: 블록 셋의 끊을 자리를 이은 문자열 기준으로", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="syllable")), ""),
-    ("세 갈래 · 어절", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="word")), ""),
-    ("세 갈래 · 셀", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="cell")), ""),
-    ("세 갈래 · 음절인데 블록에 끊을 자리가 없으면 어절", dict(sources=_WRAP_SRC_NO_BREAKS, opts=opt(rows=12, wrap="syllable")),
+    ("두 갈래 · 음절: 블록 셋의 끊을 자리를 이은 문자열 기준으로", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="syllable")), ""),
+    ("두 갈래 · 어절", dict(sources=_WRAP_SRC, opts=opt(rows=12, wrap="word")), ""),
+    ("두 갈래 · 음절인데 블록에 끊을 자리가 없으면 어절", dict(sources=_WRAP_SRC_NO_BREAKS, opts=opt(rows=12, wrap="syllable")),
      "설계 §6-1"),
 ]
 
@@ -275,15 +272,11 @@ BRF_JOB = [
           {"id": "w1", "type": "title", "heading_level": 1, "text": _T2 + "\n", "breaks": _TB2},
           {"id": "w2", "type": "text", "heading_level": 0, "text": _S1 + "\n", "breaks": _B1}]}]},
      "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"),
-    ("조립 JSON 줄바꿈 셀",
-     {"options": {"include_page_number": True, "rows": 12, "cols": 32, "wrap": "cell"},
-      "pages": [{"orig_page_no": 3, "elements": [
-          {"id": "w2", "type": "text", "heading_level": 0, "text": _S1 + "\n", "breaks": _B1}]}]}, ""),
 ]
 
 
 def build() -> dict:
-    out = {"version": "0.4.0", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.5.0", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
                                          "build_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:
