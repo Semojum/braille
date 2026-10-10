@@ -245,18 +245,25 @@ export function wrap(line: string, cols = 32, mode: WrapMode = 'syllable',
 
 /** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 o.wrap 갈래로 접는다. 근거는 python `_fold_blocks`. */
 function foldBlocks(blocks: Block[], o: Options): string[] {
-  let seg = blocks.map((b) => b.text ?? '').join('');
+  // 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
+  // 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
+  // 마지막 블록은 종전과 같다. breaks 는 그 블록 글 기준이라 끝에 붙인 개행이 오프셋을 안 흔든다.
+  const texts = blocks.map((b) => {
+    const t = b.text ?? '';
+    return t === '' || t.endsWith('\n') ? t : `${t}\n`;
+  });
+  let seg = texts.join('');
   if (seg === '') return [];   // 내용이 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
   const starts: number[] = [];
   const centers: boolean[] = [];
   const gbreaks: number[] = [];
   let acc = 0;
-  for (const b of blocks) {
+  blocks.forEach((b, i) => {
     starts.push(acc);
     centers.push((b.heading_level ?? 0) === 1);
     for (const x of b.breaks ?? []) gbreaks.push(acc + x);
-    acc += (b.text ?? '').length;
-  }
+    acc += texts[i].length;
+  });
   // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
   // split('\n')이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
   if (seg.endsWith('\n')) seg = seg.slice(0, -1);

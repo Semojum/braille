@@ -330,7 +330,12 @@ public final class BrailleAssist {
             starts.add(sb.length());
             centers.add(b.headingLevel == 1);
             if (b.breaks != null) for (int x : b.breaks) gbreaks.add(sb.length() + x);
-            sb.append(b.text == null ? "" : b.text);
+            String t = b.text == null ? "" : b.text;
+            sb.append(t);
+            // 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
+            // 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
+            // 마지막 블록은 종전과 같다. breaks 는 그 블록 글 기준이라 끝에 붙인 개행이 오프셋을 안 흔든다.
+            if (!t.isEmpty() && !t.endsWith("\n")) sb.append('\n');
         }
         java.util.List<String> out = new java.util.ArrayList<>();
         String seg = sb.toString();

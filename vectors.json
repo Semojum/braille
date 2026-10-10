@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.5.1",
   "cases": {
     "page_row": [
       {
@@ -1558,6 +1558,242 @@
         "source": "자료지침 §2.1.1(2)(443~450행) — 빈칸(어절) 자리에서 접는다"
       },
       {
+        "name": "블록 끝 개행이 없어도 다음 블록과 붙지 않는다(#40)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉"
+                },
+                {
+                  "order": 1,
+                  "text": "⠀⠀⠙⠑⠋\n⠀⠀⠛⠓"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "⠀⠀⠙⠑⠋",
+            "⠀⠀⠛⠓",
+            "",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "블록 경계 — 다음 블록 앞 빈 줄이 살아 있다(#40)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉"
+                },
+                {
+                  "order": 1,
+                  "text": "\n⠀⠀⠀⠀⠙⠑⠋\n\n"
+                },
+                {
+                  "order": 2,
+                  "text": "⠀⠀⠛⠓"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "",
+            "⠀⠀⠀⠀⠙⠑⠋",
+            "",
+            "⠀⠀⠛⠓",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "블록 경계 — 빈 블록은 줄을 더하지 않는다(#40)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠁⠃\n"
+                },
+                {
+                  "order": 1,
+                  "text": ""
+                },
+                {
+                  "order": 2,
+                  "text": "⠉⠙"
+                },
+                {
+                  "order": 3,
+                  "text": ""
+                },
+                {
+                  "order": 4,
+                  "text": "⠑⠋"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠁⠃",
+            "⠉⠙",
+            "⠑⠋",
+            "",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "블록 경계 — 끝 개행 없는 블록 뒤 원본 쪽이 바뀌어도 같다(#40)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 7,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠁⠁"
+                },
+                {
+                  "order": 1,
+                  "text": "⠃⠃"
+                }
+              ]
+            },
+            {
+              "orig_page": 8,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠉⠉"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠁⠁",
+            "⠃⠃",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠓",
+            "⠉⠉",
+            "",
+            "⠼⠛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ]
+        ]
+      },
+      {
+        "name": "블록 경계 — 끝 개행을 붙여도 다음 블록의 끊을 자리는 그대로다(#40)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚",
+                  "breaks": [
+                    5
+                  ]
+                },
+                {
+                  "order": 1,
+                  "text": "⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚\n",
+                  "breaks": [
+                    3
+                  ]
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 8,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠁⠃⠉⠙⠑",
+            "⠋⠛⠓⠊⠚",
+            "⠁⠃⠉",
+            "⠙⠑⠋⠛⠓⠊⠚",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
         "name": "두 갈래 · 음절: 블록 셋의 끊을 자리를 이은 문자열 기준으로",
         "args": {
           "sources": [
@@ -2325,6 +2561,35 @@
         },
         "expect": "@v7jb,}z ~o2ncs.o\"! jvjancs.o\"u\n         .)jv3jcz@v.}oi\n  .u,) jm@oncz l7dm5 jvd/ @}.n$ \n~1i1je*,s .7,o$ f{@n c!sc/@u ~u\n~ml7w jv1i=iu jv1~1jr.:/i4\n\n\n\n\n\n\n#c                            #a",
         "source": "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"
+      },
+      {
+        "name": "조립 JSON 요소 글 끝 개행 없음(#40)",
+        "args": {
+          "job": {
+            "options": {
+              "include_page_number": false,
+              "rows": 6,
+              "cols": 32
+            },
+            "pages": [
+              {
+                "orig_page_no": 1,
+                "elements": [
+                  {
+                    "id": "e1",
+                    "text": "⠀⠀⠁⠃⠉"
+                  },
+                  {
+                    "id": "e2",
+                    "text": "⠀⠀⠙⠑⠋"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  abc\n  def\n\n\n\n",
+        "source": "웹에서 저장한 쪽 — 요소마다 줄이 갈린다"
       }
     ],
     "wrap": [
