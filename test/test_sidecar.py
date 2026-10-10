@@ -147,3 +147,31 @@ def test_옵션은_참거짓만_받는다():
     assert a["cells"].lstrip("⠀") == "⠈⠣" and a["id"] == 1
     assert "korean_grade1" in b["error"] and b["id"] == 2
     assert c["cells"].lstrip("⠀") == "⠫"
+
+
+def test_정자로_점역하고_역점역_등급까지_한_바퀴_돈다():
+    """#36 · AI#1276. 정자 점자를 2급 역맵으로 읽으면 왕복이 깨져 정자 문서의 등급이 거의 다 low 가 됐다.
+    옵션이 translate 에만 가고 decode · grade 에 안 가면 앱에서 같은 일이 난다. 문장은 「한국 점자 규정」 제18항 예(909행)."""
+    src = "비가 왔다. 그래서 소풍 계획은 취소되었다."
+    p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
+                       input=json.dumps({"id": 1, "op": "translate", "text": src, "korean_grade1": True}) + "\n",
+                       capture_output=True, text=True, timeout=120)
+    cells = json.loads(p.stdout)["cells"]
+    assert "⠁⠎" not in cells                                      # 약어 '그래서'(901행)를 안 썼다
+    reqs = [{"id": 2, "op": "decode", "braille": cells, "korean_grade1": True},
+            {"id": 3, "op": "grade", "braille": cells, "source": src, "korean_grade1": True},
+            {"id": 4, "op": "grade", "braille": cells, "source": src}]       # 옵션 없이: 2급으로 읽는다
+    p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
+                       input="".join(json.dumps(r) + "\n" for r in reqs), capture_output=True, text=True, timeout=120)
+    dec, g1, g2 = (json.loads(x) for x in p.stdout.splitlines())
+    assert dec["text"].strip() == src
+    assert g1["grade"] == "high" and g1["round_trip"] == 1.0
+    assert g2["round_trip"] < 1.0                                  # 옵션이 안 가면 사슬이 끊긴다
+
+
+def test_decode_grade_는_옵션이_없으면_그대로다():
+    src = "대한민국의 모든 국민은 법 앞에 평등하다."
+    from semojum_braille.encoder.translator import translate_tagged_text
+    br = translate_tagged_text(src)
+    assert sidecar.handle({"op": "decode", "braille": br}) == sidecar.handle({"op": "decode", "braille": br, "korean_grade1": False})
+    assert sidecar.handle({"op": "grade", "braille": br, "source": src}) == {"grade": "high", "round_trip": 1.0}

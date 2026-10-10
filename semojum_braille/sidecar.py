@@ -64,14 +64,18 @@ def _flag(req: dict, key: str) -> bool:
     raise ValueError(f"{key} 는 true · false 여야 한다: {v!r}")
 
 
-def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None) -> dict:
+def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None,
+          korean_grade1: bool = False) -> dict:
     """요소 하나의 검수 등급과 왕복 일치도. AI 서버가 응답에 붙이는 `review_grade` · `round_trip` 과 같은 길이다
     (`confidence.annotate` 를 그대로 부른다 — 등급 기준이 그 길로 잰 실측에서 나왔다).
+
+    `korean_grade1` 은 `braille` 이 한글 정자로 점역된 것이라는 뜻이다. 왕복 일치도를 잴 때 역점역이 정자로 읽는다.
+    2급 역맵으로 읽으면 정자 문서의 등급이 거의 다 low 가 된다(AI #1276).
 
     ⚠ 등급은 **검수 순서**다. high 도 실측 정확도 89%라 '확인 불필요'가 아니라 '나중에 봐도 되는 것'이다.
     """
     el = {"id": 0, "type": etype, "contents": [braille], "ocr_confidence": ocr_confidence}
-    confidence.annotate([el], {0: {"contents": [source]}}, decode)
+    confidence.annotate([el], {0: {"contents": [source]}}, lambda b: decode(b, korean_grade1=korean_grade1))
     return {"grade": el["review_grade"], "round_trip": el.get("round_trip")}
 
 
@@ -81,14 +85,15 @@ def handle(req: dict) -> dict:
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
                          _flag(req, "korean_grade1"), _flag(req, "english_grade1"))
     if op == "decode":
-        return {"text": decode(req.get("braille", ""), english=bool(req.get("english")))}
+        return {"text": decode(req.get("braille", ""), english=bool(req.get("english")),
+                               korean_grade1=_flag(req, "korean_grade1"))}
     if op == "brf":
         return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
     if op == "read_brf":
         return {"pages": parse_brf(req.get("brf", ""))}
     if op == "grade":
         return grade(req.get("braille", ""), req.get("source", ""), req.get("type") or "text",
-                     req.get("ocr_confidence"))
+                     req.get("ocr_confidence"), _flag(req, "korean_grade1"))
     if op == "ping":
         return {"ok": True}
     return {"error": f"모르는 op: {op!r}"}

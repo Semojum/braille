@@ -49,6 +49,7 @@ REWRITES = [
     (re.compile(r"\bapp\.ai\.braille\b"), "semojum_braille.encoder"),
     (re.compile(r"\bapp\.schemas\.content\b"), "semojum_braille.schemas"),
     (re.compile(r"\bapp\.utils\.braille_back\b"), "semojum_braille.decoder.back"),
+    (re.compile(r"\bfrom app\.ai\.quality import confidence\b"), "from semojum_braille import confidence"),
     (re.compile(r"\bapp\.ai\.quality\.confidence\b"), "semojum_braille.confidence"),
     # `from app.utils import braille_back as B` 꼴. 점으로 이어진 경로만 바꾸면 이게 남는다.
     # ⚠ `as B` 가 뒤따르므로 별칭을 여기서 붙이면 `as X as B` 가 되어 문법이 깨진다.
