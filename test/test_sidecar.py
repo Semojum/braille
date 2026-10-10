@@ -175,3 +175,16 @@ def test_decode_grade_는_옵션이_없으면_그대로다():
     br = translate_tagged_text(src)
     assert sidecar.handle({"op": "decode", "braille": br}) == sidecar.handle({"op": "decode", "braille": br, "korean_grade1": False})
     assert sidecar.handle({"op": "grade", "braille": br, "source": src}) == {"grade": "high", "round_trip": 1.0}
+
+
+def test_수식_쪽_문맥을_받으면_평문_속_좌표를_수식_괄호로_적는다():
+    """#38. AI 서버는 수식 쪽(쪽 PDF 한컴 수식 글꼴 비율)에서 평문 속 `(1, 0)` 을 수식으로 적는다. 앱이 그 쪽 글을 다시
+    점역할 때 같은 꼴이 나와야 한다. 「한국 점자 규정」(재추출) 수학 제6항 3089~3091행 소괄호 `8`·`0`(⠦ · ⠴),
+    한글 점자 문장 부호 표 2156~2157행 소괄호 `8'`·`,0`(⠦⠄ · ⠠⠴)."""
+    text = "그래프는 점 (1, 0)을 지나고"
+    plain = sidecar.translate(text)["cells"]
+    math = sidecar.translate(text, math_page=True)["cells"]
+    assert "⠦⠄⠼⠁⠐⠀⠼⠚⠠⠴" in plain                               # 한글 소괄호
+    assert "⠦⠼⠁⠐⠀⠼⠚⠴" in math and "⠦⠄" not in math            # 수식 소괄호
+    assert sidecar.translate(text)["cells"] == plain                 # 켠 값이 새지 않는다
+    assert sidecar.handle({"op": "translate", "text": text, "math_page": True})["cells"] == math

@@ -15,6 +15,7 @@ from semojum_braille import confidence
 from semojum_braille.assist import build_brf_file
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
+from semojum_braille.encoder import inline_math
 from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.text_braille import TextBraille
@@ -30,7 +31,7 @@ _DROPPED = (("R15", dropped_pua), ("R17", dropped_symbols), ("R18", dropped_old_
 
 
 def translate(text: str, etype: str = "text", hlevel: int = 0,
-              korean_grade1: bool = False, english_grade1: bool = False) -> dict:
+              korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False) -> dict:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자.
 
@@ -40,8 +41,12 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
 
     `korean_grade1` · `english_grade1` 은 한글 정자 · 영어 1급이다(AI proto 의 같은 이름 필드). 엔진 문맥 값을
     이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이 다음 요청으로 새면 안 된다(#34).
+
+    `math_page` 는 그 요소가 든 쪽이 수식 쪽이라는 뜻이다(`inline_math.MATH_PAGE`, #38). AI 서버는 쪽 PDF 의 한컴
+    수식 글꼴 비율로 정하고, 수식 쪽이면 평문 속 `(1, 0)` · `p-q` 를 수식으로 적는다. 앱에서 수식 쪽 글을 다시
+    점역할 때 넘겨야 서버가 낸 점자와 같다.
     """
-    tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1)
+    tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1), inline_math.MATH_PAGE.set(math_page)
     try:
         bo = _TB._translate_one(LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO"))
         el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
@@ -49,6 +54,7 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     finally:
         KOREAN_GRADE1.reset(tokens[0])
         ENGLISH_GRADE1.reset(tokens[1])
+        inline_math.MATH_PAGE.reset(tokens[2])
     dropped = [{"text": t, "count": n, "flag": flag} for flag, count in _DROPPED for t, n in count(text).most_common()]
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
         return {"cells": "", "breaks": [], "dropped": dropped}
@@ -83,7 +89,7 @@ def handle(req: dict) -> dict:
     op = req.get("op")
     if op == "translate":
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
-                         _flag(req, "korean_grade1"), _flag(req, "english_grade1"))
+                         _flag(req, "korean_grade1"), _flag(req, "english_grade1"), _flag(req, "math_page"))
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=bool(req.get("english")),
                                korean_grade1=_flag(req, "korean_grade1"))}
