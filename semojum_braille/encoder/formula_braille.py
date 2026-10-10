@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.isolation import BLOCKED_TEXT_PREFIXES, blocked_braille, safe_translate
 from semojum_braille.encoder.kor_math_rules import convert_latex, latex_rule_ids
 from semojum_braille.encoder.regulations import make_rule
 from semojum_braille.schemas import BrailleOutput, LLMOutput
@@ -22,8 +22,8 @@ class FormulaBraille:
 
     def _translate_one(self, opt: LLMOutput) -> BrailleOutput:
         text = opt.corrected_text
-        if text.startswith("[처리 불가") or text.startswith("[수식"):
-            lines = [text]
+        if text.startswith(BLOCKED_TEXT_PREFIXES) or text.startswith("[수식"):
+            lines = [blocked_braille()]        # 자리표시는 묵자 쪽에만(#1275)
             struct_rules: list[str] = []
         else:
             lines = [convert_latex(text)]   # 논리 줄, 32칸 줄바꿈은 layout

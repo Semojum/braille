@@ -334,7 +334,7 @@ Klass().translate(optimized: list[LLMOutput]) -> list[BrailleOutput]
 | `optimized` | `list[LLMOutput]` | 없음 | 요소 입력 목록. `LLMOutput` 필드는 2.3 | 요소마다 규정 근거(`rule_trail`)와 줄바꿈 자리를 함께 받고 싶을 때, 또 1.7 조판에 넣을 때 |
 
 - **반환**: 입력과 같은 차례, 같은 길이의 `BrailleOutput` 목록(2.3).
-- **예외**: 한 요소가 실패하면 그 요소의 `braille_lines` 가 `[처리 불가: …]` 자리표시가 되고 나머지 요소는 계속 옮긴다. 이때 표준오류에 경고가 한 줄 찍힌다. `LLMOutput` 을 만들 때 필수 필드가 빠지면 pydantic `ValidationError` 가 난다.
+- **예외**: 한 요소가 실패하면 그 요소의 `braille_lines` 가 점역자 주 꼴 '점역 못 함' 점자 한 줄(`isolation.blocked_braille()`)이 되고 나머지 요소는 계속 옮긴다. 까닭(`[처리 불가: …]`)은 점자 칸에 싣지 않는다. 한글이 섞이면 BRF 로 못 옮기기 때문이다(AI#1278). 그 요소는 `isolation.is_blocked_braille(lines)` 로 알아본다. 이때 표준오류에 경고가 한 줄 찍힌다. `LLMOutput` 을 만들 때 필수 필드가 빠지면 pydantic `ValidationError` 가 난다.
 
 | 클래스 | 모듈 | 읽는 `LLMOutput` 필드 | 하는 일 |
 |---|---|---|---|

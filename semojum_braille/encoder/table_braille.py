@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import re
 
-from semojum_braille.encoder.isolation import safe_translate
+from semojum_braille.encoder.isolation import BLOCKED_TEXT_PREFIXES, blocked_braille, safe_translate
 from semojum_braille.encoder.nested_block import append_nested
 from semojum_braille.encoder.regulations import make_rule, make_rule_at
 from semojum_braille.encoder.symbol_rules import symbol_rule_spans
@@ -1328,8 +1328,8 @@ class TableBraille:
     def _translate_one(self, opt: LLMOutput) -> BrailleOutput:
         text = opt.corrected_text
 
-        if text.startswith("[처리 불가") or text.startswith("[표 수동"):
-            lines = [text]
+        if text.startswith(BLOCKED_TEXT_PREFIXES):
+            lines = [blocked_braille()]        # 자리표시는 묵자 쪽에만(#1275)
             return BrailleOutput(
                 element_id=opt.element_id, braille_lines=lines,
                 # 플레이스홀더는 점역 안 된 원문 그대로 — 내용 규정 emit 금지(환각 0).
