@@ -296,15 +296,19 @@ def _fold_blocks(blocks: list, opts: Options) -> list:
     그 줄의 시작 오프셋을 뺀다(sidecar.md §5 규칙 5). 줄 끝 · 줄 머리 자리는 안 쓴다(그 셀 앞에서 끊을 일이 없다).
     가운데 놓기(`heading_level` 1)는 그 줄이 시작하는 블록의 값을 쓴다.
     """
-    seg = "".join(b.get("text", "") for b in blocks)
+    # 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
+    # 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
+    # 마지막 블록은 종전과 같다. `breaks` 는 그 블록 글 기준이라 끝에 붙인 개행이 오프셋을 안 흔든다.
+    texts = [t if not t or t.endswith("\n") else t + "\n" for t in (b.get("text", "") for b in blocks)]
+    seg = "".join(texts)
     if not seg:
         return []        # 내용이 아예 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
     starts, centers, gbreaks, acc = [], [], [], 0
-    for b in blocks:
+    for b, t in zip(blocks, texts):
         starts.append(acc)
         centers.append(int(b.get("heading_level") or 0) == 1)
         gbreaks += [acc + x for x in (b.get("breaks") or [])]
-        acc += len(b.get("text", ""))
+        acc += len(t)
     # 통 문자열의 **끝 개행은 마지막 줄을 끝내는 종결자**이지 빈 줄이 아니다.
     # AI `flatten_elements`가 `suffix = "\n" * (after + 1)`로 내보내는데 그 +1이
     # 종결자다(docstring: "본문 마지막 줄을 끝내는 개행"). split("\n")은 그걸 빈
