@@ -113,6 +113,7 @@ python -m semojum_braille.sidecar
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
 | translate | `korean_grade1` | 참거짓 | `false` | 한글 정자(1급). `true` 면 약자 · 약어(「한국 점자 규정」 제13~18항)를 쓰지 않는다. 받침 ㅆ `⠌` 는 자모 규정(제4항)이라 그대로다. AI proto 의 같은 이름 필드다 | `true` |
 | translate | `english_grade1` | 참거짓 | `false` | 영어 1급. `true` 면 약자 없이 글자대로 적고, 문단 전체가 영어여도 로마자표 `⠴` · 종료표 `⠲` 를 생략하지 않는다. AI proto 의 같은 이름 필드다 | `true` |
+| translate | `math_page` | 참거짓 | `false` | 그 요소가 든 쪽이 **수식 쪽**이면 `true`. 평문 속 `(1, 0)` · `p-q` 를 수식으로 적는다(수식 소괄호 `⠦…⠴`). AI 서버는 쪽 PDF 의 한컴 수식 글꼴 비율로 정한다. 서버가 낸 점자와 같게 다시 점역하려면 그 쪽의 값을 넘긴다(아래 '수식 쪽 값') | `true` |
 | decode | `braille` | 문자열 | `""` | 점자. 여러 줄이면 `\n` 으로 잇는다 | `"⠊⠗⠚⠒…"` |
 | decode | `english` | 참거짓 | `false` | 영어 교과 책이면 `true`. 한글로 잘못 읽힌 영어 토막을 되찾는다. 다른 책에서는 켜지 않는다 | `true` |
 | decode | `korean_grade1` | 참거짓 | `false` | 점자가 한글 정자로 점역된 것이면 `true`. 정자 음절로 읽는다. 정자 점자를 `false` 로 읽으면 받침 ㄹ 을 쉼표로 읽는 등 글이 깨진다 | `true` |
@@ -140,13 +141,14 @@ python -m semojum_braille.sidecar
 | ping | `ok` | 참거짓 | 늘 `true` |
 | 실패 | `error` | 문자열 | `"예외이름: 내용"` 또는 설명. 이때 다른 필드는 없다 |
 
+- **수식 쪽 값**(`math_page`): AI 응답에는 아직 쪽 표지가 없다(proto 묶음 대기). 그동안은 그 쪽에 수식(`formula`) 요소가 하나라도 있으면 `true` 로 넘긴다. 2027 dev · val 1,746쪽에서 이 근사는 쪽 판정이 서버와 1,718쪽 같고(28쪽 다름), 글 요소로는 39,564 중 39,558이 서버 점자와 같다(6 다름). 서버 판정을 그대로 넘기면 39,564 전부 같다(하네스 ⑥, #38).
 - 정자로 점역한 문서는 `translate` · `decode` · `grade` 세 op 모두에 `korean_grade1: true` 를 넣는다. 한 op 에만 넣으면 점역과 되읽기가 어긋난다.
 - `korean_grade1` · `english_grade1` 은 그 요청 하나에만 걸린다. 다음 요청으로 이어지지 않는다. `true` · `false` · `null`(= `false`)만 받고, 문자열 `"true"` 같은 값은 `error` 로 돌려준다(조용히 켜거나 끄지 않는다).
 - `decode` 는 `math` 를 받지 않는다. 수식 요소를 수식으로 되돌리려면 파이썬에서 `decode(…, math=True)` 를 부른다([decoder.md](decoder.md) 2.1).
 
 `brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
 
-**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False) -> dict`(`{"cells", "breaks", "dropped"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
+**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False, math_page=False) -> dict`(`{"cells", "breaks", "dropped"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
 ## 5. 32칸 접기 (부르는 쪽이 할 일)
 
