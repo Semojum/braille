@@ -15,30 +15,53 @@ from semojum_braille import confidence
 from semojum_braille.assist import build_brf_file
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
+from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.text_braille import TextBraille
+from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols
 from semojum_braille.schemas import LLMOutput
 
 _TB = TextBraille()
 # 역점역은 영어책의 모호한 토막에서 낱말 판정을 처음 부를 때 판정기를 올린다(kiwi 면 약 2초).
 # 그 판정을 반드시 부르는 실물 한 줄(`  1. universal / 셰익스피어`)로 기동 직후 뒤에서 한 번 불러 둔다.
 _WARMUP = "⠀⠀⠼⠁⠲⠀⠴⠥⠝⠊⠧⠻⠎⠁⠇⠲⠀⠸⠌⠀⠠⠌⠕⠁⠠⠪⠙⠕⠎"
+# 점자 기호가 없어 조용히 빠지는 글자. AI 서버가 쪽 플래그(R15 PUA · R17 기호 · R18 옛한글)를 세는 함수 그대로다.
+_DROPPED = (("R15", dropped_pua), ("R17", dropped_symbols), ("R18", dropped_old_jamo))
 
 
-def translate(text: str, etype: str = "text", hlevel: int = 0) -> dict:
-    """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리.
+def translate(text: str, etype: str = "text", hlevel: int = 0,
+              korean_grade1: bool = False, english_grade1: bool = False) -> dict:
+    """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
+    + 점자에서 빠진 글자.
 
     `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
     뒤로 끊을 자리가 하나씩 밀렸다(#30). AI 응답 `TextElement.breaks` 와 같은 함수(`_flat_breaks`)다.
+
+    `korean_grade1` · `english_grade1` 은 한글 정자 · 영어 1급이다(AI proto 의 같은 이름 필드). 엔진 문맥 값을
+    이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이 다음 요청으로 새면 안 된다(#34).
     """
-    bo = _TB._translate_one(LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO"))
-    el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
-    fe = flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
+    tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1)
+    try:
+        bo = _TB._translate_one(LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO"))
+        el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
+        fe = flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
+    finally:
+        KOREAN_GRADE1.reset(tokens[0])
+        ENGLISH_GRADE1.reset(tokens[1])
+    dropped = [{"text": t, "count": n, "flag": flag} for flag, count in _DROPPED for t, n in count(text).most_common()]
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
-        return {"cells": "", "breaks": []}
+        return {"cells": "", "breaks": [], "dropped": dropped}
     n = len(fe.prefix)
-    return {"cells": fe.text[n:len(fe.text) - len(fe.suffix)], "breaks": [b - n for b in fe.breaks]}
+    return {"cells": fe.text[n:len(fe.text) - len(fe.suffix)], "breaks": [b - n for b in fe.breaks], "dropped": dropped}
+
+
+def _flag(req: dict, key: str) -> bool:
+    """참거짓 옵션. 없거나 null 이면 false. 문자열 "true" 같은 값은 조용히 켜거나 끄지 않고 오류로 돌려준다."""
+    v = req.get(key)
+    if v is None or isinstance(v, bool):
+        return bool(v)
+    raise ValueError(f"{key} 는 true · false 여야 한다: {v!r}")
 
 
 def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None) -> dict:
@@ -55,7 +78,8 @@ def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float 
 def handle(req: dict) -> dict:
     op = req.get("op")
     if op == "translate":
-        return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0))
+        return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
+                         _flag(req, "korean_grade1"), _flag(req, "english_grade1"))
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=bool(req.get("english")))}
     if op == "brf":

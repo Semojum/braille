@@ -39,13 +39,13 @@ python -m semojum_braille.sidecar
 
 ## 3. 실제로 오간 줄
 
-아래는 사이드카를 띄워 실제로 주고받은 줄이다(엔진 3.4.0). `→` 가 표준입력, `←` 가 표준출력이다.
+아래는 사이드카를 띄워 실제로 주고받은 줄이다(엔진 3.4.6). `→` 가 표준입력, `←` 가 표준출력이다.
 
 **전선 위 모습 그대로** (제목 요소 하나):
 
 ```
 → {"id": 3, "op": "translate", "text": "1 \uad6d\uc5b4\uc758 \ud0d0\uad6c\uc640 \ud65c\uc6a9", "type": "title", "heading_level": 2}
-← {"cells": "\u2800\u2800\u2800\u2800\u2800\u2800\u283c\u2801\u2832\u2800\u2808\u280d\u2801\u280e\u283a\u2800\u2813\u2822\u2808\u280d\u2827\u2800\u281a\u2827\u2802\u282c\u2836", "breaks": [9, 10, 13, 14, 15, 16, 18, 20, 21, 22, 25], "id": 3}
+← {"cells": "\u2800\u2800\u2800\u2800\u2800\u2800\u283c\u2801\u2832\u2800\u2808\u280d\u2801\u280e\u283a\u2800\u2813\u2822\u2808\u280d\u2827\u2800\u281a\u2827\u2802\u282c\u2836", "breaks": [9, 10, 13, 14, 15, 16, 18, 20, 21, 22, 25], "dropped": [], "id": 3}
 ```
 
 풀어 쓰면 `cells` 는 `⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶` 이다(2단계 제목이라 7칸에서 시작). 아래부터는 `\uXXXX` 를 풀어 적는다.
@@ -61,7 +61,7 @@ python -m semojum_braille.sidecar
 
 ```
 → {"id": 2, "op": "translate", "text": "대한민국의 모든 국민은 법 앞에 평등하며, 누구든지 성별이나 종교 때문에 차별받지 아니한다.", "type": "text", "heading_level": 0}
-← {"cells": "⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝⠀⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲", "breaks": [4, 6, 8, 11, 12, 13, 15, 17, 18, 21, 23, 24, 25, 28, 29, 31, 32, 33, 35, 38, 39, 42, 43, 45, 47, 49, 51, 52, 54, 56, 57, 58, 59, 61, 63, 64, 67, 69, 70, 71, 73, 75, 77, 79, 80, 81, 83, 85], "id": 2}
+← {"cells": "⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝⠀⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲", "breaks": [4, 6, 8, 11, 12, 13, 15, 17, 18, 21, 23, 24, 25, 28, 29, 31, 32, 33, 35, 38, 39, 42, 43, 45, 47, 49, 51, 52, 54, 56, 57, 58, 59, 61, 63, 64, 67, 69, 70, 71, 73, 75, 77, 79, 80, 81, 83, 85], "dropped": [], "id": 2}
 ```
 
 `cells` 앞 두 칸(`⠀⠀`)은 문단 들여쓰기다(3칸에서 시작). 85칸짜리 한 줄이고 아직 32칸으로 접지 않았다. 접는 법은 5절.
@@ -81,6 +81,15 @@ python -m semojum_braille.sidecar
 ```
 
 `[kiwi]` 를 깐 환경의 결과다. 기본 설치(낱말 목록)에서는 이 줄이 `  1. universal / StoaOwdos` 로 온다([decoder.md](decoder.md) 1절).
+
+**translate**, 한글 정자로 · 점자 기호가 없는 글자가 섞인 요소:
+
+```
+→ {"id": 7, "op": "translate", "text": "가▶나", "korean_grade1": true}
+← {"cells": "⠀⠀⠈⠣⠉⠣", "breaks": [4], "dropped": [{"text": "▶", "count": 1, "flag": "R17"}], "id": 7}
+```
+
+정자라 `가` 를 약자 `⠫` 가 아니라 `⠈⠣` 로 적었다. `▶` 는 점자 기호가 없어 `cells` 에서 빠졌고, 그 사실이 `dropped` 로 온다. 앱은 이 요소에 검토 표시를 띄운다(4절).
 
 **오류** (모르는 op, JSON 이 아닌 줄):
 
@@ -102,6 +111,8 @@ python -m semojum_braille.sidecar
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` 중 하나. 들여쓰기가 이것에 따라 달라진다 | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
+| translate | `korean_grade1` | 참거짓 | `false` | 한글 정자(1급). `true` 면 약자 · 약어(「한국 점자 규정」 제13~18항)를 쓰지 않는다. 받침 ㅆ `⠌` 는 자모 규정(제4항)이라 그대로다. AI proto 의 같은 이름 필드다 | `true` |
+| translate | `english_grade1` | 참거짓 | `false` | 영어 1급. `true` 면 약자 없이 글자대로 적고, 문단 전체가 영어여도 로마자표 `⠴` · 종료표 `⠲` 를 생략하지 않는다. AI proto 의 같은 이름 필드다 | `true` |
 | decode | `braille` | 문자열 | `""` | 점자. 여러 줄이면 `\n` 으로 잇는다 | `"⠊⠗⠚⠒…"` |
 | decode | `english` | 참거짓 | `false` | 영어 교과 책이면 `true`. 한글로 잘못 읽힌 영어 토막을 되찾는다. 다른 책에서는 켜지 않는다 | `true` |
 | brf | `job` | 객체 | `{}` | 조판할 문서. 쪽마다 점역된 요소 통 문자열을 담는다(아래). 조판 옵션도 여기 넣는다 | `{"pages": […]}` |
@@ -118,6 +129,7 @@ python -m semojum_braille.sidecar
 | 모두 | `id` | 요청과 같음 | 요청의 `id`. JSON 이 아닌 줄을 받으면 `null` |
 | translate | `cells` | 문자열 | 점역 결과. `flatten_elements` 가 내는 요소 통 문자열([encoder.md](encoder.md) 1.7)에서 앞뒤 빈 줄(`prefix`·`suffix`)을 뺀 본문과 같다. 들여쓰기 칸과 가운데 여백이 들어 있고, 논리 줄은 `\n` 으로 잇는다. **32칸으로 접지 않았다.** 제목·표 둘레의 앞뒤 빈 줄은 이웃 요소에 따라 정해지므로 부르는 쪽의 조판이 넣는다 |
 | translate | `breaks` | 정수 배열 | `cells` 안에서 줄을 바꿔도 되는 자리. 값 `b` 는 "`cells[b]` 앞에서 끊어도 된다" 는 뜻이다. 음절 경계와 빈칸 자리가 모두 들어 있다. 오름차순이고 겹치지 않는다. `flatten_elements` 의 `breaks`(AI 응답 `TextElement.breaks` 와 같은 함수)에서 `prefix` 길이만큼 뺀 값이라 따로 세지 않는다(#30). 여는 괄호 · 따옴표 바로 뒤는 들지 않는다(AI #1245) |
+| translate | `dropped` | 객체 배열 | 점자 기호가 없어 `cells` 에서 **조용히 빠진 글자**. `[{"text": 글자, "count": 횟수, "flag": 갈래}]`. 갈래는 AI 서버 검수 플래그와 같은 이름이다. `R15` 글꼴 사설영역(PUA) 글리프 · `R17` 기호표에 없는 기호 · `R18` 규정에 점형이 없는 옛한글 음절(이때 `text` 는 자모 여럿으로 된 음절 하나). 빠진 것이 없으면 `[]`. 앱은 이 배열이 빈 배열이 아닌 요소에 검토 표시를 띄운다. AI 서버가 쪽 플래그를 세는 함수를 그대로 써서 같은 원문이면 같은 결과다 |
 | decode | `text` | 문자열 | 역점역한 글. 원문 복원이 아니라 **검수용 근사**다. 줄바꿈은 그대로 둔다 |
 | brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
 | read_brf | `pages` | 문자열 배열의 배열 | 쪽마다 유니코드 점자 줄 목록. 빈칸은 `⠀`, 탭은 4칸 자리로 펼친다. 역점역하려면 줄(또는 `\n` 으로 이은 쪽)을 `decode` 에 넘긴다. BRF ASCII 가 아닌 글자가 있으면 `error` |
@@ -126,11 +138,12 @@ python -m semojum_braille.sidecar
 | ping | `ok` | 참거짓 | 늘 `true` |
 | 실패 | `error` | 문자열 | `"예외이름: 내용"` 또는 설명. 이때 다른 필드는 없다 |
 
+- `korean_grade1` · `english_grade1` 은 그 요청 하나에만 걸린다. 다음 요청으로 이어지지 않는다. `true` · `false` · `null`(= `false`)만 받고, 문자열 `"true"` 같은 값은 `error` 로 돌려준다(조용히 켜거나 끄지 않는다).
 - `decode` 는 `math` 를 받지 않는다. 수식 요소를 수식으로 되돌리려면 파이썬에서 `decode(…, math=True)` 를 부른다([decoder.md](decoder.md) 2.1).
 
 `brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
 
-**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0) -> dict`(`{"cells", "breaks"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
+**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False) -> dict`(`{"cells", "breaks", "dropped"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
 ## 5. 32칸 접기 (부르는 쪽이 할 일)
 

@@ -91,3 +91,59 @@ def test_braillify_고지는_묶은_판의_것이다():
     d = Path(sidecar.__file__).with_name("third_party")
     assert [p.name for p in d.iterdir()] == [f"braillify-{pin.group(1)}"]
     assert (d / f"braillify-{pin.group(1)}" / "LICENSE").read_text(encoding="utf-8").lstrip().startswith("Apache License")
+
+
+def _cells(text, **opts):
+    return sidecar.translate(text, **opts)["cells"].lstrip("⠀")      # 문단 들여쓰기는 빼고 본다
+
+
+def test_문서에_적은_translate_줄이_지금도_그대로_오간다():
+    """#34. 옵션 인자를 보태도 옵션 없는 기존 호출의 응답은 같아야 한다. 기대값은 docs/sidecar.md 3절의 실제로 오간 줄이다."""
+    doc = (Path(__file__).parents[1] / "docs" / "sidecar.md").read_text(encoding="utf-8")
+    pairs = [(json.loads(q), json.loads(a)) for q, a in re.findall(r"^→ (\{.*\})\n← (\{.*\})$", doc, re.M)]
+    pairs = [(q, a) for q, a in pairs if q["op"] == "translate"]
+    assert len(pairs) >= 3
+    for q, a in pairs:
+        assert {**sidecar.handle(q), "id": q["id"]} == a
+        if not {"korean_grade1", "english_grade1"} & q.keys():
+            assert sidecar.handle({**q, "korean_grade1": False, "english_grade1": False})["cells"] == a["cells"]
+
+
+def test_한글_정자는_약자를_쓰지_않는다():
+    """#34. 「한국 점자 규정」(재추출): 제13항 573행 '가' 약자 $(585행, ⠫). 정자는 제1항 133행 첫소리 ㄱ @(148행, ⠈)
+    + 제6항 364행 ㅏ <(375행, ⠣)."""
+    assert _cells("가") == "⠫"
+    assert _cells("가", korean_grade1=True) == "⠈⠣"
+    assert _cells("가") == "⠫"                       # 켠 값이 다음 호출로 새지 않는다
+
+
+def test_영어_1급은_약자_없이_적고_로마자표를_생략하지_않는다():
+    """#34. 「한국 점자 규정」(재추출) 제28항 1329행 t(1429행, ⠞) · h(1369행, ⠓) · e(1354행, ⠑), 제29항 1496~1497행
+    로마자표 0(⠴) · 종료표 4(⠲). 문단 전체가 로마자면 표를 생략할 수 있으나(제29항 [다만] 1507행) 1급(초급자 자료)은
+    생략하지 않는다(「점자 도서 제작 지침」 제2장 제4절 1.1)(1), 재추출 1494~1499행)."""
+    assert _cells("the", english_grade1=True) == "⠴⠞⠓⠑⠲"
+    assert "⠞⠓⠑" not in _cells("the")               # 기본(2급)은 약자로 적는다
+
+
+def test_빠진_글자를_AI_쪽_플래그와_같은_갈래로_알린다():
+    """#34. 점자 기호가 없어 조용히 빠진 글자. 기호가 생기면 이 시험의 글자를 다른 것으로 바꾼다."""
+    r = sidecar.translate("가▶나")
+    assert r["cells"].lstrip("⠀") == "⠫⠉"
+    assert r["dropped"] == [{"text": "▶", "count": 1, "flag": "R17"}]
+    assert sidecar.translate("★★★★☆")["dropped"] == [{"text": "★", "count": 4, "flag": "R17"}]
+    assert sidecar.translate("")["dropped"] == [{"text": "", "count": 1, "flag": "R15"}]
+    assert sidecar.translate("하ᄀᆞᄋᆉ다")["dropped"] == [{"text": "ᄋᆉ", "count": 1, "flag": "R18"}]
+    assert sidecar.translate("가나")["dropped"] == []
+
+
+def test_옵션은_참거짓만_받는다():
+    """문자열 "true" 를 조용히 켜거나 끄면 정자 · 약자가 바뀐 채로 나간다. 오류로 돌려준다."""
+    p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
+                       input='{"id": 1, "op": "translate", "text": "\\uac00", "korean_grade1": true}\n'
+                             '{"id": 2, "op": "translate", "text": "\\uac00", "korean_grade1": "true"}\n'
+                             '{"id": 3, "op": "translate", "text": "\\uac00", "english_grade1": null}\n',
+                       capture_output=True, text=True, timeout=120)
+    a, b, c = (json.loads(x) for x in p.stdout.splitlines())
+    assert a["cells"].lstrip("⠀") == "⠈⠣" and a["id"] == 1
+    assert "korean_grade1" in b["error"] and b["id"] == 2
+    assert c["cells"].lstrip("⠀") == "⠫"
