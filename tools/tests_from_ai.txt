@@ -97,6 +97,7 @@ test/unit_test/pipeline/test_c5_comma_digit.py
 test/unit_test/table/test_grid_row_head_sep.py
 test/unit_test/table/test_record_rows.py
 test/unit_test/table/test_row_continuation.py
+test/unit_test/braille/test_chem_terminator_1269.py
 
 # ── 역점역(decoder) ──
 test/unit_test/braille/test_alpha_fallback.py
@@ -158,6 +159,8 @@ test/unit_test/braille/test_vowel_jamo_decode.py
 test/unit_test/braille/test_ye_syllables.py
 test/unit_test/formula/test_latex_cmd_span_head.py
 test/unit_test/formula/test_latex_text_span.py
+test/unit_test/braille/test_decode_roman_period_number.py
+test/unit_test/braille/test_decode_grade1_1276.py
 
 # ── 검수 등급(confidence) ──
 test/unit_test/quality/test_page_content_risk.py

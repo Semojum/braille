@@ -115,12 +115,14 @@ python -m semojum_braille.sidecar
 | translate | `english_grade1` | 참거짓 | `false` | 영어 1급. `true` 면 약자 없이 글자대로 적고, 문단 전체가 영어여도 로마자표 `⠴` · 종료표 `⠲` 를 생략하지 않는다. AI proto 의 같은 이름 필드다 | `true` |
 | decode | `braille` | 문자열 | `""` | 점자. 여러 줄이면 `\n` 으로 잇는다 | `"⠊⠗⠚⠒…"` |
 | decode | `english` | 참거짓 | `false` | 영어 교과 책이면 `true`. 한글로 잘못 읽힌 영어 토막을 되찾는다. 다른 책에서는 켜지 않는다 | `true` |
+| decode | `korean_grade1` | 참거짓 | `false` | 점자가 한글 정자로 점역된 것이면 `true`. 정자 음절로 읽는다. 정자 점자를 `false` 로 읽으면 받침 ㄹ 을 쉼표로 읽는 등 글이 깨진다 | `true` |
 | brf | `job` | 객체 | `{}` | 조판할 문서. 쪽마다 점역된 요소 통 문자열을 담는다(아래). 조판 옵션도 여기 넣는다 | `{"pages": […]}` |
 | read_brf | `brf` | 문자열 | `""` | `.brf` 파일 내용(ASCII 그대로). 소문자+백틱 · 대문자+`@` 두 꼴을 다 받는다. 백틱은 ⠈(초성 ㄱ)로 읽는다 | `"#a\r\nab\r\n\x0c"` |
 | grade | `braille` | 문자열 | `""` | 그 요소의 점역 결과(`translate` 의 `cells`) | `"⠊⠗⠚⠒…"` |
 | grade | `source` | 문자열 | `""` | 그 요소의 묵자 원문(`translate` 에 넣은 `text`) | `"대한민국의 모든…"` |
 | grade | `type` | 문자열 | `"text"` | 요소 종류. `table` · `formula` 는 늘 `low` 다 | `"table"` |
 | grade | `ocr_confidence` | 수 | 없음 | 추출 신뢰도(0~1). 0.7 미만이면 `low`. 모르면 넣지 않는다 | `0.95` |
+| grade | `korean_grade1` | 참거짓 | `false` | `braille` 이 한글 정자로 점역된 것이면 `true`. 왕복 일치도를 잴 때 정자로 역점역한다. **정자 문서는 꼭 넣는다** — 안 넣으면 요소 대부분이 `low` 가 된다(AI #1276) | `true` |
 
 **응답**
 
@@ -138,6 +140,7 @@ python -m semojum_braille.sidecar
 | ping | `ok` | 참거짓 | 늘 `true` |
 | 실패 | `error` | 문자열 | `"예외이름: 내용"` 또는 설명. 이때 다른 필드는 없다 |
 
+- 정자로 점역한 문서는 `translate` · `decode` · `grade` 세 op 모두에 `korean_grade1: true` 를 넣는다. 한 op 에만 넣으면 점역과 되읽기가 어긋난다.
 - `korean_grade1` · `english_grade1` 은 그 요청 하나에만 걸린다. 다음 요청으로 이어지지 않는다. `true` · `false` · `null`(= `false`)만 받고, 문자열 `"true"` 같은 값은 `error` 로 돌려준다(조용히 켜거나 끄지 않는다).
 - `decode` 는 `math` 를 받지 않는다. 수식 요소를 수식으로 되돌리려면 파이썬에서 `decode(…, math=True)` 를 부른다([decoder.md](decoder.md) 2.1).
 
@@ -240,4 +243,4 @@ def fold(cells, breaks, center=False, cuts=None):
 - 화면 문구는 순서로만 쓴다. 쓸 만한 말: `먼저 확인` · `확인` · `나중에 확인`. **쓰면 안 되는 말: `확인 불필요` · `검수 완료` · `정확` · `통과` · 퍼센트 점수.** 숫자를 보이면 "89%면 안 봐도 되나"로 읽힌다.
 - 표 · 수식 · 영문이 늘 `low` 인 것은 그 갈래의 실측 정확도가 가장 낮아서다(표 2.0% · 영문 23.7% · 수식 25.9%, 전체 55.6%).
 - 왕복 일치도는 정답 없이 런타임에 잰다. 역점역기가 틀리게 되돌리면 맞는 점역도 `low` 가 될 수 있다.
-- 기준과 실측의 출처는 `semojum_braille.confidence` 모듈 설명이다(AI 저장소 `app/ai/quality/confidence.py` 를 옮긴 것). 파이썬에서는 `semojum_braille.sidecar.grade(braille, source, etype="text", ocr_confidence=None) -> dict` 다.
+- 기준과 실측의 출처는 `semojum_braille.confidence` 모듈 설명이다(AI 저장소 `app/ai/quality/confidence.py` 를 옮긴 것). 파이썬에서는 `semojum_braille.sidecar.grade(braille, source, etype="text", ocr_confidence=None, korean_grade1=False) -> dict` 다.
