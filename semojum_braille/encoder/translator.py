@@ -2731,13 +2731,21 @@ def _symbol_droppable(ch: str) -> bool:
         return True
 
 
+# 표 묵자 초안의 테두리 · 구분선 표지 줄(`table_braille._print_frame` 의 `┌ ├ └`, 점자 쪽 글상자 · 표 구분선의 짝).
+# 지면 글자가 아니라 우리가 두른 표지다. R17 이 이걸 '빠진 기호'로 세어 2027 dev · val 1,746쪽 중 571쪽에 붙고
+# 265쪽을 그것 하나로 NEEDS_REVIEW 로 세웠다(#1280). 표지는 늘 한 글자뿐인 줄이라 그 줄만 뺀다 — 글 가운데 낀
+# 진짜 `┌` 는 그대로 센다.
+_PRINT_FRAME_LINE_RE = re.compile(r"^[┌├└]$", re.M)
+
+
 def dropped_symbols(text: str) -> collections.Counter:
     """점역에서 조용히 빠질 기호를 글자별로 센다. 페이지 플래그(R17)의 근거 수치다.
 
     문맥으로 점형을 받는 자리는 먼저 걷는다 — `정답 해설 ▶` 의 ▶ 는 쌍점으로 나간다
     (`_ARROW_LABEL_RE`, 2027 8권 128회). 안 걷으면 플래그가 멀쩡한 쪽에 켜진다.
+    표 묵자 초안의 테두리 표지 줄(위 `_PRINT_FRAME_LINE_RE`)도 걷는다.
     """
-    text = _ARROW_LABEL_RE.sub("", text)
+    text = _ARROW_LABEL_RE.sub("", _PRINT_FRAME_LINE_RE.sub("", text))
     return collections.Counter(ch for ch in text if _symbol_droppable(ch))
 
 
@@ -3912,6 +3920,11 @@ def translate_with_breaks(text: str, *, force_roman: bool = False,
     #   한다: 아래 _drop_nonkorean_emphasis·isolate_border_tags·substitute_tags 가 전부
     #   `<!` 앵커로 짝을 세기 때문이다(_MIRRORED_CLOSE_RE 주석 참조).
     text = _MIRRORED_CLOSE_RE.sub("<!/", text)
+    # ★ 첫 줄 들여쓰기 태그 `<!N칸>` 은 조판 표시다. 요소 첫머리를 보는 아래 판정(_QNUM_RE 문항 번호 등)보다
+    #   먼저 뗀다(#1282). 묵자 창 글은 첫 줄에 이 태그를 달고 나가(`pipeline._print_contents`) mode b · 앱이
+    #   그대로 되돌린다. 줄마다 `translate_tagged_text` 가 어차피 떼던 것이고, 들여쓰기 값은 layout 이
+    #   `corrected_text` 에서 읽으므로 여기서 떼도 잃지 않는다.
+    text = _TAGS._INDENT_TAG_RE.sub("", text)
     text = _TAGS.ITALIC_TAG_RE.sub("", text)   # 기울임(#1205) — 요소 전체를 보는 아래 단계 전에(`translate_tagged_text` 주석)
     text = _strip_markup_fragments(text)   # #667 마크업 조각
     text = isolate_border_tags(text)
