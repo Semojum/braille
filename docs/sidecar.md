@@ -12,6 +12,7 @@ C#·자바스크립트처럼 파이썬이 아닌 프로그램은 이 엔진을 �
 | 5 | 32칸 접기(부르는 쪽이 할 일) |
 | 6 | `breaks` 를 꼭 써야 하는 까닭 |
 | 7 | 오류와 사이드카가 죽었을 때 |
+| 8 | 윈도우 · .NET 앱에서 띄우기 |
 
 C#·자바스크립트처럼 파이썬이 아닌 프로그램은 이 엔진을 담은 파이썬 프로세스(**사이드카**)를 띄워 두고 표준입출력으로 말을 건다.
 
@@ -239,6 +240,49 @@ def fold(cells, breaks, center=False, cuts=None):
 - 부르는 프로그램이 끝날 때 사이드카도 함께 끝나게 하려면 Windows 에서는 Job Object(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)에 넣는다. 평소에는 표준입력을 닫으면 스스로 끝난다.
 - 이 저장소에는 C# 코드가 없다. 위 C# 이름(`Process`·`RedirectStandardError`·`BeginErrorReadLine`)은 .NET 표준 API 이고, 여기서 돌려 본 것은 같은 일을 하는 파이썬 부르는 쪽이다.
 - 스레드: 점역은 CPU 계산이라 한 프로세스 안에서 스레드를 늘려도 빨라지지 않는다. 사이드카 하나가 요청을 차례로 처리하게 두고, 동시에 여러 건이 필요하면 사이드카를 여럿 띄운다.
+
+## 8. 윈도우 · .NET 앱에서 띄우기
+
+**앱은 표준입출력 인코딩을 UTF-8 로 정해 주어야 한다.** .NET 은 따로 안 주면 콘솔 인코딩을 쓰는데 한국어 윈도우 기본이 cp949 다. 그러면 한글이 든 요청이 전부 `error` 로 돌아온다(아래 표 A).
+
+```csharp
+var psi = new ProcessStartInfo {
+    FileName  = pythonPath,
+    Arguments = "-m semojum_braille.sidecar",
+    RedirectStandardInput  = true,
+    RedirectStandardOutput = true,
+    RedirectStandardError  = true,          // 7절대로 비동기로 읽어 비운다
+    UseShellExecute = false,
+    CreateNoWindow  = true,
+    StandardInputEncoding  = new UTF8Encoding(false),   // BOM 없이. 이 둘이 핵심이다
+    StandardOutputEncoding = new UTF8Encoding(false),
+};
+psi.Environment["PYTHONUTF8"] = "1";
+```
+
+⚠ 이 C# 코드는 돌려 보지 않았다(이 저장소에 C# 이 없고 윈도우에서 재지 않았다). 아래 표는 리눅스에서 **윈도우라서 달라지는 것만**(앱이 쓰는 인코딩 · 줄 끝 · BOM · 파이썬 표준입력 기본 인코딩) 바꿔 가며 실제 사이드카 프로세스에 보낸 결과다. 실제 .NET `Process` · cp949 콘솔 · 윈도우 경로 · 프로세스 죽임 · 설치는 재지 않았다.
+
+| | 앱이 쓰는 인코딩 | 파이썬 쪽 | 줄 끝 | 3.4.10 | 3.4.11 부터 |
+|---|---|---|---|---|---|
+| A | cp949(.NET 기본) | 기본(cp949) | CRLF | 정상 | **한글 요청 `error`**(id 돌려줌) |
+| B | UTF-8 | 기본(cp949) | CRLF | **죽음 · 응답 0줄** | 정상 |
+| C | UTF-8 + BOM | 기본(cp949) | CRLF | **죽음 · 응답 0줄** | 정상 |
+| D | UTF-8 | UTF-8 모드(`PYTHONUTF8=1`) | CRLF | 정상 | 정상 |
+| E | UTF-8 | UTF-8 모드 | LF | 정상 | 정상 |
+| F | cp949 | UTF-8 모드 | CRLF | **깨진 점자 · 오류 없음** | 한글 요청 `error` |
+| G | UTF-16LE | UTF-8 모드 | CRLF | 전부 `error` | 전부 `error` |
+
+- 3.4.10 까지는 앱과 파이썬이 **둘 다 cp949** 일 때(A)만 맞았다. 앱이 아무것도 안 정하면 우연히 맞던 셈이다. 3.4.11 부터 표준입력을 바이트로 받아 UTF-8 로만 풀기 때문에(2절) A 가 `error` 로 바뀐다. **앱이 이미 있다면 지금 어느 설정으로 부르는지부터 본다.**
+- F 는 3.4.10 에서 **글이 깨진 점자를 오류 없이** 돌려줬다(`다음 글을 읽고 물음에 답하시오.` → `cells` 7칸 `⠀⠀⠽⠈⠲⠲⠲`). 앱은 점역됐다고 믿는다. 3.4.11 부터 `error` 로 드러난다.
+- 줄 끝은 CRLF · LF 둘 다 된다. BOM 은 붙어도 된다(2절). UTF-16 은 안 된다.
+- 기동하면 `ping` 의 `protocol` 이 앱이 아는 값인지 본다(3절). `version` 은 로그에 남긴다.
+
+**아직 남은 것**
+- 줄 하나가 길면 오래 걸린다. 사이드카는 요청을 차례로 처리하니 뒤 요청이 다 기다린다. 3.4.12 에서 같은 글 되풀이 순한글 1,000자는 새 프로세스 첫 요청까지 약 1초다(kiwi 없음). 숫자 · 괄호가 든 긴 산문 줄은 아직 줄 길이의 제곱으로 늘어난다(AI#1323). 앱은 긴 요청에 시간 제한을 두고 넘으면 사용자에게 알린다.
+- 엔진이 `os.environ` 으로 읽는 스위치가 있다(A/B 용). 앱 프로세스 환경이 그대로 넘어가므로 필요한 것만 남긴 환경으로 띄우는 쪽이 안전하다.
+- 형태소 분석기(`[kiwi]`)는 앱에 넣지 않는다([NOTICE.md](../NOTICE.md) ①). 깔면 기동 직후 첫 요청이 판정기 올리는 시간(약 2.7초)과 겹친다.
+
+**윈도우 휠**: `braillify` 2.0.1 은 cp310~cp314 `win_amd64`, `pydantic-core` 2.23.4 는 `win32` · `win_amd64` 휠이 PyPI 에 있다(2026-10-12 PyPI 확인). 윈도우에서 실제로 깔아 보지는 않았다.
 
 ---
 

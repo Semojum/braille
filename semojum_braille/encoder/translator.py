@@ -18,6 +18,8 @@ braillify 미설치 시 (폴백):
 
 from __future__ import annotations
 
+import bisect
+import contextvars
 import logging
 import os
 import collections
@@ -25,7 +27,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-from semojum_braille.encoder.kor_math_rules import (convert_latex, digits_to_braille,
+from semojum_braille.encoder.kor_math_rules import (convert_latex as _convert_latex_raw, digits_to_braille,
                                           caps_phrase_run, caps_phrase_cells, bond_chain)
 from semojum_braille.encoder import eng_braille, inline_math
 from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1, WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
@@ -38,6 +40,21 @@ from semojum_braille.encoder.symbol_rules import (
 )
 from semojum_braille.encoder import tag_names as _TAGS
 from semojum_braille.encoder import gates as _gates          # 관문 G3 — 무거운 의존 없음(gates 도크스트링)
+
+# 수식 변환 기억(#1323). `_break_offsets` 가 음절 자리마다 접두를 다시 점역하는 동안만 켠다. 그 안에서는 문맥(요청 깃발 ·
+#   훅 · 환경)이 그대로라 같은 LaTeX 에 늘 같은 점자가 나온다. 접두마다 같은 수식을 다시 바꾸던 몫(수식 든 1,050자 줄
+#   11.6초 중 8.8초)을 없앤다. 밖에서는 None 이라 종전과 같다.
+_LATEX_MEMO: contextvars.ContextVar[dict | None] = contextvars.ContextVar("_LATEX_MEMO", default=None)
+
+
+def convert_latex(latex: str) -> str:
+    memo = _LATEX_MEMO.get()
+    if memo is None:
+        return _convert_latex_raw(latex)
+    if latex not in memo:
+        memo[latex] = _convert_latex_raw(latex)
+    return memo[latex]
+
 
 logger = logging.getLogger(__name__)
 
@@ -2625,13 +2642,17 @@ def _normalize_big_circle(s: str) -> str:
         # ★ 줄머리라도 ◯◯ 뒤에 한글이 바로 붙으면 이름 가림이다(2026-09-29, T25). 사회문화
         #   dv-013 p173 `◯◯국의 계층` 의 gold 는 ⠸⠴⠴⠇(○○ 숨김표)다. 종전에는 줄머리라서
         #   건너뛰었고, ◯ 은 braillify 가 거부해 **통째로 지워졌다**. ◎ 런은 근거를 못 봐 그대로 둔다.
+        # ★ 한 칸 띄고 한글이 와도 같다(#1307). 동아시아사 vl-012 p0137 `◯◯ 씨는` 의 gold 가
+        #   ⠸⠴⠴⠇⠀⠠⠠⠕⠉⠵ 이고, 제57항 예문 `김○○ 씨` 도 그 꼴이다(재추출 L2493~2497). 종전에는
+        #   '뒤가 빈칸이면 표 값 자리'로 남겼으나 dev·val 줄머리 ◯ 런 일곱이 모두 이름·날짜 가림이고
+        #   표 값은 0이었다(표 값은 홑 ◯ 이다, 위 ②).
         if at_line_start and not (set(run) == {"◯"} and _HANGUL_HEAD_RE.match(s, m.end())):
             return run
         return "○" * len(run)
     return _BIG_CIRCLE_RUN_RE.sub(repl, s)
 
 
-_HANGUL_HEAD_RE = re.compile(r"[가-힣]")
+_HANGUL_HEAD_RE = re.compile(r"[ \t]?[가-힣]")
 # ★ 채운 삼각형 **연속**(▲▲)은 이름 가림이다(T25). 대표 Q12 재결재(2026-08-22)가 ▲→△ 를 승인했지만
 #   #239 는 줄머리 홑 ▲(글머리 ⠸⠲)만 넣고 연속은 "근거를 한 건씩 못 짚었다"며 뺐다. 근거:
 #   2027 gold 언어와 매체 dv-004 p177 `▲▲일보` = ⠸⠬⠬⠇(△△ 숨김표, 제57항). 종전에는 통째로 지워졌다.
@@ -3610,6 +3631,34 @@ def _bracket_attach_on() -> bool:
     return os.environ.get("BREAK_BRACKET_ATTACH", "1") != "0"
 
 
+_SEGMENT_RE = re.compile(r"^ +|[^ ]+ *")      # 줄 머리 빈칸 · 낱말 + 뒤 빈칸
+# 조각 경로는 한글 · 빈칸 · 문장 부호 넷만 든 줄에만 쓴다(#1323). 로마자 · 로마 숫자는 줄 한글 비율로 로마자표를 정하고,
+#   줄 머리 문항 번호 · 괄호 · 따옴표 · 탭은 앞 조각의 점역이 뒤 글을 보고 갈려서 조각만 따로 점역하면 접두 재점역과
+#   달라진다(dev · val 입력 29만 줄 대조에서 1만 1천 줄이 갈렸고 표본 300줄 중 284줄이 로마자 든 줄이었다).
+_PLAIN_LINE_RE = re.compile(r"[가-힣 .,?!]*")
+
+
+def _segment_starts(src: str, braille: str) -> list[tuple[int, int]] | None:
+    """순한글 줄(`_PLAIN_LINE_RE`)의 점역이 '낱말(뒤 빈칸 포함)마다 따로 점역해 이은 것'과 같으면 조각마다
+    (원문 시작, 점자 시작). 아니면 None 이고 `_break_offsets` 는 종전 계산(접두 통째 재점역)을 그대로 한다.
+
+    같으면 접두 `src[:sp]` 의 점역은 앞 조각들의 점자에 그 조각 앞부분의 점역을 이은 것이다. 그래서 음절 자리마다
+    접두를 통째로 다시 점역하지 않고 조각 앞부분만 점역한다. 종전에는 그 접두 재점역이 줄 길이의 제곱으로 늘어
+    (같은 문장 되풀이 1,000자 21초) 사이드카와 서버가 긴 줄 하나에 멈췄다.
+    """
+    if not _PLAIN_LINE_RE.fullmatch(src):
+        return None
+    segs = _SEGMENT_RE.findall(src)
+    cells = [translate_tagged_text(s) for s in segs]
+    if "".join(segs) != src or "".join(cells) != braille:
+        return None
+    out, s, b = [], 0, 0
+    for seg, c in zip(segs, cells):
+        out.append((s, b))
+        s, b = s + len(seg), b + len(c)
+    return out
+
+
 def _break_offsets(src: str, braille: str) -> list[int]:
     """src(원문 한 줄)→braille의 줄바꿈 허용 셀 offset 목록(그 위치 '앞'에서 끊기 가능).
 
@@ -3619,6 +3668,16 @@ def _break_offsets(src: str, braille: str) -> list[int]:
     """
     if len(braille) <= 1:
         return []
+    token = _LATEX_MEMO.set({})
+    try:
+        return _break_offsets_in(src, braille)
+    finally:
+        _LATEX_MEMO.reset(token)
+
+
+def _break_offsets_in(src: str, braille: str) -> list[int]:
+    starts = _segment_starts(src, braille)
+    seg_src = [s for s, _ in starts] if starts else []
     offs: set[int] = set()
     # 바닥선: 출력 점자 공백 = 어절 경계, 항상 안전한 줄바꿈 지점(§1.2.1 단어 단위).
     # 한영 혼합 등 접두가 깨지는 경우에도 최소 어절 단위 줄바꿈은 보장한다.
@@ -3647,9 +3706,17 @@ def _break_offsets(src: str, braille: str) -> list[int]:
                 continue
         if nxt in _NO_BREAK_BEFORE and _HANGUL_OR_JAMO_RE.search(head.rstrip(_CLOSERS)):
             continue
-        pre = translate_tagged_text(src[:sp])
-        if not (pre and len(pre) < len(braille) and braille.startswith(pre)):
-            continue
+        if starts:                                       # 조각 앞부분만 점역(`_segment_starts`)
+            ws, bs = starts[bisect.bisect_right(seg_src, sp) - 1]
+            part = translate_tagged_text(src[ws:sp]) if sp > ws else ""
+            n = bs + len(part)
+            if not (n and n < len(braille) and braille.startswith(part, bs)):
+                continue
+        else:
+            pre = translate_tagged_text(src[:sp])
+            if not (pre and len(pre) < len(braille) and braille.startswith(pre)):
+                continue
+            n = len(pre)
         # ★ 뒤쪽도 따로 점역해 이어 붙인 것과 같아야 끊는 자리다(2026-09-29). 접두만 보면
         #   `나이`(⠉⠣⠕)의 접두 `나`가 약자 ⠉ 로 통과해 ⠉|⠣(ㄴ과 ㅏ 사이)에 후보가 섰다 —
         #   제14항: 나·다·마·바·자·카·타·파·하 에 모음이 붙으면 약자를 안 쓴다. 줄머리 ⠣ 는
@@ -3657,9 +3724,9 @@ def _break_offsets(src: str, braille: str) -> list[int]:
         #   한글 뒤에서만 본다 — 수식 조각은 따로 점역하면 문맥이 달라 후보가 빠지고 강제분리가 는다.
         if after_hangul:
             end = next((k for k in range(sp, len(src)) if src[k].isspace()), len(src))
-            if not braille.startswith(translate_tagged_text(src[sp:end]), len(pre)):
+            if not braille.startswith(translate_tagged_text(src[sp:end]), n):
                 continue
-        offs.add(len(pre))
+        offs.add(n)
     return sorted(offs)
 
 

@@ -113,17 +113,21 @@ KIWI_OPTIONAL = [
         '    """읽힌 한글이 **실재하는 한국어 낱말**인가(kiwi 형태소 분석)."""',
         '    """읽힌 한글이 **실재하는 한국어 낱말**인가(kiwi 형태소 분석. kiwi 가 없으면 낱말 목록)."""',
     ),
-    (
+    (   # AI #1324 · #1325: 판정기를 잠금 안에서 한 번만 올린다(기동 워밍업 스레드와 첫 호출이 겹쳐 두 번 올리던 것).
         '    if _KIWI is None:\n'
-        '        from kiwipiepy import Kiwi\n'
-        '        _KIWI = Kiwi()\n',
+        '        with _KIWI_LOCK:\n'
+        '            if _KIWI is None:\n'
+        '                from kiwipiepy import Kiwi\n'
+        '                _KIWI = Kiwi()\n',
         '    if _KIWI is None:\n'
-        '        try:\n'
-        '            from kiwipiepy import Kiwi\n'
-        '        except ImportError:          # [kiwi] 선택 의존을 안 깔았다 → 낱말 목록(이 레포 전용 패치)\n'
-        '            _KIWI = False\n'
-        '        else:\n'
-        '            _KIWI = Kiwi()\n'
+        '        with _KIWI_LOCK:\n'
+        '            if _KIWI is None:\n'
+        '                try:\n'
+        '                    from kiwipiepy import Kiwi\n'
+        '                except ImportError:  # [kiwi] 선택 의존을 안 깔았다 → 낱말 목록(이 레포 전용 패치)\n'
+        '                    _KIWI = False\n'
+        '                else:\n'
+        '                    _KIWI = Kiwi()\n'
         '    if _KIWI is False:\n'
         '        from semojum_braille.decoder.wordlist import known\n'
         '        return known(runs)\n',
