@@ -11,7 +11,7 @@ import threading
 import uuid
 from types import SimpleNamespace
 
-from semojum_braille import confidence
+from semojum_braille import __version__, confidence
 from semojum_braille.assist import build_brf_file
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
@@ -28,6 +28,9 @@ _TB = TextBraille()
 _WARMUP = "⠀⠀⠼⠁⠲⠀⠴⠥⠝⠊⠧⠻⠎⠁⠇⠲⠀⠸⠌⠀⠠⠌⠕⠁⠠⠪⠙⠕⠎"
 # 점자 기호가 없어 조용히 빠지는 글자. AI 서버가 쪽 플래그(R15 PUA · R17 기호 · R18 옛한글)를 세는 함수 그대로다.
 _DROPPED = (("R15", dropped_pua), ("R17", dropped_symbols), ("R18", dropped_old_jamo))
+# 프로토콜 판. 요청 · 응답 꼴이 앞 판과 호환되지 않게 바뀔 때만 올린다. 필드 · op 를 더하는 것은 올리지 않는다(docs/sidecar.md 4절).
+PROTOCOL = 1
+_BOM = b"\xef\xbb\xbf"
 
 
 def translate(text: str, etype: str = "text", hlevel: int = 0,
@@ -101,24 +104,47 @@ def handle(req: dict) -> dict:
         return grade(req.get("braille", ""), req.get("source", ""), req.get("type") or "text",
                      req.get("ocr_confidence"), _flag(req, "korean_grade1"))
     if op == "ping":
-        return {"ok": True}
+        return {"ok": True, "version": __version__, "protocol": PROTOCOL}
     return {"error": f"모르는 op: {op!r}"}
+
+
+def _answer(raw: bytes) -> dict | None:
+    """표준입력 한 줄(바이트) → 응답. 빈 줄(공백뿐인 줄 포함)에는 응답하지 않아 None 이다.
+
+    줄마다 UTF-8 로 푼다. 종전에는 `sys.stdin` 을 플랫폼 인코딩으로 풀다가 못 푸는 바이트에서 프로세스가 죽었다
+    (한국어 Windows 의 cp949 표준입력에 UTF-8 한글 · 깨진 바이트 0xff, #44). 이제 그 줄만 `error` 로 답하고 계속 돈다.
+    줄 머리 UTF-8 BOM 은 뗀다(C# `StreamWriter` 를 BOM 있는 `Encoding.UTF8` 로 만들면 첫 줄 앞에 붙는다).
+    """
+    if raw.startswith(_BOM):
+        raw = raw[len(_BOM):]
+    if not raw.strip():
+        return None
+    req = {}
+    try:
+        line = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        try:                              # 짝짓기에 쓰는 id 만 건진다. 깨진 글로 점역하지는 않는다
+            req = json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            pass
+        res = {"error": f"UnicodeDecodeError: 표준입력은 UTF-8 이어야 한다({exc.start}번째 바이트 0x{raw[exc.start]:02x})"}
+    else:
+        try:
+            req = json.loads(line)
+            res = handle(req)
+        except Exception as exc:          # 한 요청이 실패해도 사이드카는 산다
+            res = {"error": f"{type(exc).__name__}: {exc}"}
+    res["id"] = req.get("id") if isinstance(req, dict) else None
+    return res
 
 
 def main() -> None:
     threading.Thread(target=decode, args=(_WARMUP,), kwargs={"english": True}, daemon=True).start()
-    for raw in sys.stdin:
-        if not raw.strip():
-            continue
-        req = {}
-        try:
-            req = json.loads(raw)
-            res = handle(req)
-        except Exception as exc:          # 한 요청이 실패해도 사이드카는 산다
-            res = {"error": f"{type(exc).__name__}: {exc}"}
-        res["id"] = req.get("id") if isinstance(req, dict) else None
-        sys.stdout.write(json.dumps(res, ensure_ascii=True) + "\n")
-        sys.stdout.flush()
+    for raw in sys.stdin.buffer:          # 바이트로 읽는다. 표준입력 인코딩(cp949 등)에 끌려가지 않는다
+        res = _answer(raw)
+        if res is not None:
+            sys.stdout.write(json.dumps(res, ensure_ascii=True) + "\n")
+            sys.stdout.flush()
 
 
 if __name__ == "__main__":

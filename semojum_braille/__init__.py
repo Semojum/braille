@@ -8,3 +8,6 @@
 - `semojum_braille.confidence`: 요소별 검수 순서 등급과 왕복 일치도. high 도 '확인 불필요'가 아니다.
 - `semojum_braille.sidecar`: 파이썬이 아닌 프로그램이 표준입출력으로 부르는 입구.
 """
+
+# 판 번호는 여기 한 곳에 둔다. pyproject 가 이 값을 읽고(`tool.setuptools.dynamic`), 사이드카 `ping` 이 이 값을 낸다(#44).
+__version__ = "3.4.11"

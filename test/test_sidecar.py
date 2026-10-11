@@ -1,11 +1,15 @@
 """사이드카 프로토콜(README 8절)이 README 에 적은 대로 도는지 본다."""
 import json
+import os
 import re
+import select
 import subprocess
 import sys
 from pathlib import Path
 
-from semojum_braille import sidecar
+import pytest
+
+from semojum_braille import __version__, sidecar
 from semojum_braille.encoder.layout_braille import _flat_breaks
 
 
@@ -40,8 +44,11 @@ def test_title_level2_starts_at_seventh_cell():
     assert r["cells"].startswith("⠀" * 6) and r["cells"][6] != "⠀"
 
 
+PING = {"ok": True, "version": __version__, "protocol": sidecar.PROTOCOL}
+
+
 def test_handle_answers_ping_and_reports_unknown_op():
-    assert sidecar.handle({"op": "ping"}) == {"ok": True}
+    assert sidecar.handle({"op": "ping"}) == PING
     assert "error" in sidecar.handle({"op": "fold"})
 
 
@@ -59,9 +66,9 @@ def test_stdio_keeps_id_and_survives_bad_line():
                        input='{"id": 7, "op": "ping"}\nnot json\n{"id": 8, "op": "ping"}\n',
                        capture_output=True, text=True, timeout=120)
     a, b, c = (json.loads(x) for x in p.stdout.splitlines())
-    assert a == {"ok": True, "id": 7}
+    assert a == {**PING, "id": 7}
     assert b["id"] is None and "error" in b
-    assert c == {"ok": True, "id": 8}
+    assert c == {**PING, "id": 8}
 
 
 def test_read_brf_gives_unicode_pages():
@@ -188,3 +195,49 @@ def test_수식_쪽_문맥을_받으면_평문_속_좌표를_수식_괄호로_�
     assert "⠦⠼⠁⠐⠀⠼⠚⠴" in math and "⠦⠄" not in math            # 수식 소괄호
     assert sidecar.translate(text)["cells"] == plain                 # 켠 값이 새지 않는다
     assert sidecar.handle({"op": "translate", "text": text, "math_page": True})["cells"] == math
+
+
+def test_표준입력은_줄마다_UTF8_로_풀고_못_푸는_줄만_오류로_답한다():
+    """#44. 종전에는 표준입력을 플랫폼 인코딩으로 풀다 못 푸는 바이트에서 프로세스가 죽었다. 한국어 Windows 의
+    표준입력 인코딩(cp949)을 `PYTHONIOENCODING` 으로 흉내 내고 실제 프로세스에 바이트를 보낸다.
+    '가' = ⠫ 은 「한국 점자 규정」(재추출) 제13항 573행 약자(585행)."""
+    lines = [b"\xef\xbb\xbf" + b'{"id": 1, "op": "ping"}',                        # BOM 으로 시작하는 첫 줄(C# Encoding.UTF8)
+             '{"id": 2, "op": "translate", "text": "가"}'.encode("utf-8"),           # 이스케이프 안 한 UTF-8 한글
+             '{"id": 3, "op": "translate", "text": "가"}'.encode("cp949"),           # UTF-8 이 아닌 줄: 오류, id 는 돌려준다
+             b"\xff",                                                              # 깨진 바이트: 오류, id 는 모른다
+             b"   ",                                                               # 빈 줄: 응답 없음
+             b'{"id": 6, "op": "ping"}']
+    p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"], input=b"\r\n".join(lines) + b"\r\n",
+                       capture_output=True, timeout=120, env={**os.environ, "PYTHONIOENCODING": "cp949"})
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    r1, r2, r3, r4, r6 = (json.loads(x) for x in p.stdout.splitlines())
+    assert r1 == {**PING, "id": 1}
+    assert r2["cells"].lstrip("⠀") == "⠫" and r2["id"] == 2
+    assert r3["error"].startswith("UnicodeDecodeError") and r3["id"] == 3 and "cells" not in r3
+    assert r4["error"].startswith("UnicodeDecodeError") and r4["id"] is None
+    assert r6 == {**PING, "id": 6}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="select 가 파이프를 못 기다린다")
+def test_표준입력을_닫지_않아도_한_줄씩_답한다():
+    """#44. 바이트로 읽어도 줄이 오는 대로 답해야 한다. 표준입력이 닫힐 때까지 모아 두면 앱이 첫 응답을 못 받는다."""
+    p = subprocess.Popen([sys.executable, "-m", "semojum_braille.sidecar"],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        for i in (1, 2):
+            p.stdin.write(json.dumps({"id": i, "op": "ping"}).encode("ascii") + b"\n")
+            p.stdin.flush()
+            assert select.select([p.stdout], [], [], 60)[0], "응답이 안 온다"
+            assert json.loads(p.stdout.readline()) == {**PING, "id": i}
+    finally:
+        p.stdin.close()
+        p.wait(timeout=60)
+    assert p.returncode == 0
+
+
+def test_판_번호는_한_곳에서_읽는다():
+    """#44. pyproject 는 판을 따로 적지 않고 `semojum_braille.__version__` 을 읽는다. ping 이 내는 값이 그 값이다."""
+    toml = (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'^dynamic = \["version"\]', toml, re.M) and not re.search(r'^version = "', toml, re.M)
+    assert 'version = {attr = "semojum_braille.__version__"}' in toml
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
