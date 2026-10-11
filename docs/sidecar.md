@@ -33,13 +33,17 @@ python -m semojum_braille.sidecar
 
 ## 2. 문자와 인코딩
 
-- JSON 은 **ASCII 로만** 오간다. 한글과 점자는 `\uXXXX` 로 적는다(.NET `System.Text.Json` 기본 직렬화와 같은 꼴).
+- 요청은 **UTF-8 바이트**로 받아 줄마다 따로 푼다. 사이드카 프로세스의 표준입력 인코딩(한국어 Windows 는 cp949)과는 상관없다.
+- 그래도 **ASCII 로 보내기를 권한다.** 한글과 점자를 `\uXXXX` 로 적는다(.NET `System.Text.Json` 기본 직렬화와 같은 꼴). ASCII 는 어느 인코딩으로 써도 같은 바이트라 앱 쪽 인코딩 설정이 어긋나도 안전하다.
+- UTF-8 로 못 푸는 줄(cp949 로 쓴 한글, 깨진 바이트)은 **그 줄만** `error` 로 답하고 다음 줄을 받는다(3절 예). 그 줄에서 `id` 를 읽을 수 있으면 돌려준다. 깨진 글로 점역하지는 않는다. 3.4.10 까지는 이런 줄에서 사이드카가 응답 없이 죽었다(#44).
+- 줄 머리의 UTF-8 BOM(`EF BB BF`)은 뗀다. C# `StreamWriter` 를 BOM 있는 `Encoding.UTF8` 로 만들면 첫 줄 앞에 붙는다.
+- 줄 끝은 `\n` · `\r\n` 을 다 받는다. 응답은 늘 ASCII 다(한글과 점자는 `\uXXXX`).
 - 점자·빈칸·줄바꿈이 모두 BMP 안이라 **UTF-16 문자열(C# `string`, 자바스크립트 문자열)의 인덱스와 이 문서의 오프셋이 같다.** `breaks` 값을 그대로 인덱스로 쓴다.
   단서 하나: 엔진이 점자로 못 옮긴 글자가 `cells` 에 드물게 남을 수 있다. 그 글자가 BMP 밖(이모지 등)이면 UTF-16 에서는 두 칸으로 세어져 뒤 오프셋이 하나씩 밀린다. 그런 요소는 `breaks` 를 버리고 빈칸 자리로 접는다.
 
 ## 3. 실제로 오간 줄
 
-아래는 사이드카를 띄워 실제로 주고받은 줄이다(엔진 3.4.6). `→` 가 표준입력, `←` 가 표준출력이다.
+아래는 사이드카를 띄워 실제로 주고받은 줄이다(엔진 3.4.11). `→` 가 표준입력, `←` 가 표준출력이다.
 
 **전선 위 모습 그대로** (제목 요소 하나):
 
@@ -50,12 +54,14 @@ python -m semojum_braille.sidecar
 
 풀어 쓰면 `cells` 는 `⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶` 이다(2단계 제목이라 7칸에서 시작). 아래부터는 `\uXXXX` 를 풀어 적는다.
 
-**ping** (기동 확인):
+**ping** (기동 확인 · 판 확인):
 
 ```
 → {"id": 1, "op": "ping"}
-← {"ok": true, "id": 1}
+← {"ok": true, "version": "3.4.11", "protocol": 1, "id": 1}
 ```
+
+`version` 은 엔진 판, `protocol` 은 프로토콜 판이다(4절). 앱은 기동할 때 `protocol` 이 자기가 아는 값인지 보고, 다르면 쓰지 말고 사용자에게 알린다. `version` 은 로그와 오류 보고에 남긴다.
 
 **translate** (본문 한 요소):
 
@@ -91,13 +97,15 @@ python -m semojum_braille.sidecar
 
 정자라 `가` 를 약자 `⠫` 가 아니라 `⠈⠣` 로 적었다. `▶` 는 점자 기호가 없어 `cells` 에서 빠졌고, 그 사실이 `dropped` 로 온다. 앱은 이 요소에 검토 표시를 띄운다(4절).
 
-**오류** (모르는 op, JSON 이 아닌 줄):
+**오류** (모르는 op, JSON 이 아닌 줄, UTF-8 이 아닌 줄):
 
 ```
 → {"id": 6, "op": "fold"}
 ← {"error": "모르는 op: 'fold'", "id": 6}
 → not json
 ← {"error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)", "id": null}
+→ (cp949 로 쓴 줄) {"id": 8, "op": "translate", "text": "가"}
+← {"error": "UnicodeDecodeError: 표준입력은 UTF-8 이어야 한다(38번째 바이트 0xb0)", "id": 8}
 ```
 
 ## 4. 필드
@@ -129,7 +137,7 @@ python -m semojum_braille.sidecar
 
 | op | 필드 | 타입 | 뜻 |
 |---|---|---|---|
-| 모두 | `id` | 요청과 같음 | 요청의 `id`. JSON 이 아닌 줄을 받으면 `null` |
+| 모두 | `id` | 요청과 같음 | 요청의 `id`. JSON 이 아닌 줄을 받으면 `null`. UTF-8 로 못 푸는 줄은 `id` 를 읽을 수 있으면 그 값, 아니면 `null` |
 | translate | `cells` | 문자열 | 점역 결과. `flatten_elements` 가 내는 요소 통 문자열([encoder.md](encoder.md) 1.7)에서 앞뒤 빈 줄(`prefix`·`suffix`)을 뺀 본문과 같다. 들여쓰기 칸과 가운데 여백이 들어 있고, 논리 줄은 `\n` 으로 잇는다. **32칸으로 접지 않았다.** 제목·표 둘레의 앞뒤 빈 줄은 이웃 요소에 따라 정해지므로 부르는 쪽의 조판이 넣는다 |
 | translate | `breaks` | 정수 배열 | `cells` 안에서 줄을 바꿔도 되는 자리. 값 `b` 는 "`cells[b]` 앞에서 끊어도 된다" 는 뜻이다. 음절 경계와 빈칸 자리가 모두 들어 있다. 오름차순이고 겹치지 않는다. `flatten_elements` 의 `breaks`(AI 응답 `TextElement.breaks` 와 같은 함수)에서 `prefix` 길이만큼 뺀 값이라 따로 세지 않는다(#30). 여는 괄호 · 따옴표 바로 뒤는 들지 않는다(AI #1245) |
 | translate | `dropped` | 객체 배열 | 점자 기호가 없어 `cells` 에서 **조용히 빠진 글자**. `[{"text": 글자, "count": 횟수, "flag": 갈래}]`. 갈래는 AI 서버 검수 플래그와 같은 이름이다. `R15` 글꼴 사설영역(PUA) 글리프 · `R17` 기호표에 없는 기호 · `R18` 규정에 점형이 없는 옛한글 음절(이때 `text` 는 자모 여럿으로 된 음절 하나). 빠진 것이 없으면 `[]`. 앱은 이 배열이 빈 배열이 아닌 요소에 검토 표시를 띄운다. AI 서버가 쪽 플래그를 세는 함수를 그대로 써서 같은 원문이면 같은 결과다 |
@@ -139,6 +147,8 @@ python -m semojum_braille.sidecar
 | grade | `grade` | 문자열 | 검수 순서 등급. `low` · `medium` · `high`. **아래 '검수 등급의 뜻'을 반드시 읽을 것** |
 | grade | `round_trip` | 수 또는 `null` | 왕복 일치도(0~1). 점역 결과를 역점역해 원문과 대조한 값. 잴 수 없거나(원문이 짧음 · 표 · 수식 · 영문) 등급을 규칙으로 정했으면 `null` |
 | ping | `ok` | 참거짓 | 늘 `true` |
+| ping | `version` | 문자열 | 엔진 판(`semojum_braille.__version__`). 예 `"3.4.11"` |
+| ping | `protocol` | 정수 | 프로토콜 판. 요청 · 응답 꼴이 앞 판과 **호환되지 않게** 바뀔 때만 올린다. 필드나 op 를 더하는 것은 올리지 않는다. 지금 `1` |
 | 실패 | `error` | 문자열 | `"예외이름: 내용"` 또는 설명. 이때 다른 필드는 없다 |
 
 - **수식 쪽 값**(`math_page`): AI 응답에는 아직 쪽 표지가 없다(proto 묶음 대기). 그동안은 그 쪽에 수식(`formula`) 요소가 하나라도 있으면 `true` 로 넘긴다. 2027 dev · val 1,746쪽에서 이 근사는 쪽 판정이 서버와 1,718쪽 같고(28쪽 다름), 글 요소로는 39,564 중 39,558이 서버 점자와 같다(6 다름). 서버 판정을 그대로 넘기면 39,564 전부 같다(하네스 ⑥, #38).
@@ -148,7 +158,7 @@ python -m semojum_braille.sidecar
 
 `brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
 
-**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False, math_page=False) -> dict`(`{"cells", "breaks", "dropped"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
+**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False, math_page=False) -> dict`(`{"cells", "breaks", "dropped"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). 판 번호는 `semojum_braille.__version__` · `semojum_braille.sidecar.PROTOCOL` 이다. `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
 ## 5. 32칸 접기 (부르는 쪽이 할 일)
 
@@ -222,7 +232,8 @@ def fold(cells, breaks, center=False, cuts=None):
 
 ## 7. 오류와 사이드카가 죽었을 때
 
-- 한 요청이 실패하면 `error` 응답이 오고 사이드카는 계속 돈다(3절 예).
+- 한 요청이 실패하면 `error` 응답이 오고 사이드카는 계속 돈다(3절 예). UTF-8 로 못 푸는 줄도 그 줄만 `error` 다(2절).
+- **빈 줄 · 공백뿐인 줄에는 응답이 없다.** 요청과 응답은 줄 수가 아니라 `id` 로 짝짓는다.
 - **표준오류를 반드시 비운다.** 엔진이 경고를 표준오류로 쓴다. 표준오류를 파이프로 받고 읽지 않으면 파이프가 차서 사이드카가 멈춘다. C# 이면 `RedirectStandardError = true` 로 두고 `BeginErrorReadLine` 으로 비동기로 읽어 버리거나, 리디렉트를 끈다.
 - 사이드카가 죽으면 표준출력이 닫힌다(C# `ReadLine()` 이 `null`). 부르는 쪽은 다시 띄우고, 답을 못 받은 요청을 다시 보낸다. translate 와 decode 는 같은 입력에 늘 같은 출력을 내므로 다시 보내도 된다. 짧은 사이에 거듭 죽으면(예: 1분에 세 번) 다시 띄우기를 멈추고 사용자에게 알린다.
 - 부르는 프로그램이 끝날 때 사이드카도 함께 끝나게 하려면 Windows 에서는 Job Object(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)에 넣는다. 평소에는 표준입력을 닫으면 스스로 끝난다.
