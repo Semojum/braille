@@ -10,4 +10,4 @@
 """
 
 # 판 번호는 여기 한 곳에 둔다. pyproject 가 이 값을 읽고(`tool.setuptools.dynamic`), 사이드카 `ping` 이 이 값을 낸다(#44).
-__version__ = "3.4.11"
+__version__ = "3.4.12"
