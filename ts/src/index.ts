@@ -43,10 +43,12 @@ export interface Options {
   origPageStart: number | null;
   /** 원본 페이지 변경선을 넣을지. showOrigPage가 꺼지면 함께 꺼진다(결정 D). */
   showChangeLine: boolean;
-  /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다. */
-  footerAlign: 'center' | 'right';
+  /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝, left는 원본 번호에서 두 칸 띄운 자리가 시작이다. */
+  footerAlign: 'center' | 'right' | 'left';
   /** 32칸을 넘는 줄을 접는 갈래. 블록에 breaks 가 없으면 syllable 이어도 word 로 접는다. */
   wrap: WrapMode;
+  /** 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드). 더한 면도 같은 페이지행 규칙을 따른다. */
+  padToEven: boolean;
 }
 
 /** 1차 PoC 고정값 (조판 가이드 §5). */
@@ -61,6 +63,7 @@ export const DEFAULT_OPTIONS: Options = {
   showChangeLine: true,
   footerAlign: 'center',
   wrap: 'syllable',
+  padToEven: false,
 };
 
 function resolve(opts?: Partial<Options>): Options {
@@ -135,7 +138,9 @@ export function pageRow(
       // 우측 정렬이면 번호와 두 칸 띄운 자리가 오른쪽 끝이다.
       let start = o.footerAlign === 'right'
         ? hi - f.length
-        : (n - f.length + 1) >> 1;          // ★ 올림 — 지침 실물로 확정
+        : o.footerAlign === 'left'
+          ? lo
+          : (n - f.length + 1) >> 1;        // ★ 올림 — 지침 실물로 확정
       start = Math.min(Math.max(start, lo), hi - f.length);
       for (let i = 0; i < f.length; i++) cells[start + i] = f[i];
     }
@@ -407,95 +412,94 @@ export function buildPages(
     if (!onCover) bpn++;                          // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
     pages.push(body);
   }
+  if (o.padToEven && pages.length % 2 === 1) {
+    // 빈 면 하나. 페이지행은 다른 면과 같은 규칙이고, 원본 번호는 마지막 면의 원본 쪽을 잇는다.
+    const head = last >= 0 ? flat[last][1] : 0;
+    const hasRow = last >= 0 && hasPageRow(bpn, o.pageRowOn) && !flat[last][2];
+    const body: string[] = new Array(o.rows - (hasRow ? 1 : 0)).fill('');
+    if (hasRow) {
+      const f = fmap.get(bpn) ?? footer;
+      body.push(pageRow(head, pages.length - (firstSeen.get(head) ?? pages.length), bpn, f, opts));
+    }
+    pages.push(body);
+  }
   return pages;
 }
 
 
-// ── BE 조립 JSON 진입점 (2026-08-06) ────────────────────────────────────────
-// BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
-//
-// ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
-// ★ 들여쓰기·가운데 정렬·구조적 빈 줄은 AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`).
-//   `type`은 쓰지 않는다. `heading_level`은 1단계 제목이 32칸을 넘어 접힐 때만 조각을 가운데에 놓는 데 쓴다.
-// ★ `breaks`(선택)는 응답 TextElement.breaks 그대로다. `text` 를 고치면 오프셋이 어긋난다.
-export interface JobElement {
-  id?: string;
-  type?: string;
-  heading_level?: number;
-  text: string;
+// ── 조판 job 진입점 (V4 엔진 가이드 build_brf, 2026-10-14) ─────────────────────────
+// ★ `blocks` 는 `order` 로 정렬한다(없으면 배열 순서). `braille` 은 translate 의 `cells`, `breaks` 는 그 `breaks` 그대로다.
+// ★ 들여쓰기 · 가운데 정렬 · 구조적 빈 줄은 이미 `braille` 에 들어 있다. `heading_level`(가이드 밖, 받기는 한다)이 1이면
+//   32칸을 넘어 접힌 1단계 제목 조각을 가운데에 놓는다. 원본 페이지 변경선은 `show_orig_page` 를 따른다.
+export interface JobBlock {
+  order?: number;
+  braille: string;
   breaks?: number[] | null;
+  heading_level?: number;
 }
 
-export interface JobPage {
-  orig_page_no: number;
-  elements: JobElement[];
+export interface JobSource {
+  orig_page?: number;
+  blocks: JobBlock[];
 }
 
 export interface JobOptions {
-  include_page_number?: boolean;
-  page_row_on?: 'every' | 'odd' | 'even' | 'none';
-  rows?: number;
   cols?: number;
+  rows?: number;
+  wrap?: WrapMode;
+  footer_align?: 'left' | 'center' | 'right';
+  first_braille_page?: number;
+  cover_orig_page_count?: number;
+  orig_page_first_no?: number | null;
+  page_row_pages?: 'odd' | 'every';
   show_orig_page?: boolean;
   show_braille_page?: boolean;
-  cover_pages?: number;
-  orig_page_start?: number | null;
-  show_change_line?: boolean;
-  footer_align?: 'center' | 'right';
-  wrap?: WrapMode;
+  pad_to_even?: boolean;
 }
 
 export interface Job {
-  job_id?: string;
-  options?: JobOptions;
+  sources: JobSource[];
   /** 이미 점역된 꼬리말 점자. 이 레포는 점역하지 않는다. */
-  footer_braille?: string;
-  /** 면별 꼬리말. `{점자 면 번호: 꼬리말 점자}` — 없는 면은 footer_braille를 쓴다. */
-  footers_braille?: Record<string, string>;
-  start_braille_page?: number;
-  pages: JobPage[];
+  footer?: string;
+  /** 면별 꼬리말. `{점자 면 번호: 꼬리말 점자}` — 없는 면은 footer를 쓴다. */
+  footers?: Record<string, string> | null;
+  opts?: JobOptions;
 }
 
-/**
- * BE 조립 JSON의 options → Options.
- *
- * include_page_number — 점역사가 Job을 만들 때 고른 값. **끄면 페이지행을 넣지 않는다.**
- * 원본 페이지 변경선은 유지한다 — 그건 쪽 번호가 아니라 쪽 경계 표시다.
- */
+/** 조판 job 의 opts → Options(V4 가이드 이름). */
 export function optionsFromJob(job: Job): Partial<Options> {
-  const o = job.options ?? {};
-  // include_page_number(켜기·끄기)와 page_row_on(어느 면)은 **같은 스위치**다(결정 B).
-  const on = (o.include_page_number ?? true) ? (o.page_row_on ?? 'odd') : 'none';
+  const o = job.opts ?? {};
+  const rowsOn = o.page_row_pages ?? 'odd';
+  if (rowsOn !== 'odd' && rowsOn !== 'every') throw new Error(`page_row_pages는 odd|every: ${rowsOn}`);
   return {
     cols: o.cols ?? 32,
     rows: o.rows ?? 26,
     showOrigPage: o.show_orig_page ?? true,
     showBraillePage: o.show_braille_page ?? true,
-    pageRowOn: on,
-    coverPages: o.cover_pages ?? 0,
-    origPageStart: o.orig_page_start ?? null,
-    showChangeLine: o.show_change_line ?? true,
+    pageRowOn: rowsOn,
+    coverPages: o.cover_orig_page_count ?? 0,
+    origPageStart: o.orig_page_first_no ?? null,
+    showChangeLine: true,
     footerAlign: o.footer_align ?? 'center',
     wrap: o.wrap ?? 'syllable',
+    padToEven: o.pad_to_even ?? false,
   };
 }
 
-/** BE 조립 JSON → 점자 면 배열. buildPages의 얇은 어댑터다. */
+/** 조판 job → 점자 면 배열. buildPages의 얇은 어댑터다. */
 export function buildPagesFromJob(job: Job): string[][] {
-  const sources: Source[] = (job.pages ?? []).map((pg, i) => ({
-    orig_page: pg.orig_page_no ?? i + 1,
-    // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
-    blocks: (pg.elements ?? []).map((el, k) => ({
-      order: k, text: el.text ?? '', breaks: el.breaks ?? null, heading_level: el.heading_level ?? 0,
+  const sources: Source[] = (job.sources ?? []).map((src, i) => ({
+    orig_page: src.orig_page ?? i + 1,
+    blocks: (src.blocks ?? []).map((b, k) => ({
+      order: b.order ?? k, text: b.braille ?? '', breaks: b.breaks ?? null, heading_level: b.heading_level ?? 0,
     })),
   }));
-  return buildPages(sources, job.footer_braille ?? '',
-                    job.start_braille_page ?? 1, optionsFromJob(job),
-                    job.footers_braille ?? null);
+  return buildPages(sources, job.footer ?? '', job.opts?.first_braille_page ?? 1,
+                    optionsFromJob(job), job.footers ?? null);
 }
 
 /**
- * BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 \n).
+ * 조판 job → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 \n).
  * 점역은 하지 않는다 — 이미 점역된 통 문자열을 조판만 한다.
  */
 export function buildBrf(job: Job): string {

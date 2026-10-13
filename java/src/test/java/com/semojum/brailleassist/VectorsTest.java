@@ -28,7 +28,8 @@ class VectorsTest {
                         ? o.get("orig_page_start").asInt() : null,
                 !o.has("show_change_line") || o.get("show_change_line").asBoolean(),
                 o.has("footer_align") ? o.get("footer_align").asText() : "center",
-                o.has("wrap") ? o.get("wrap").asText() : "syllable");
+                o.has("wrap") ? o.get("wrap").asText() : "syllable",
+                o.has("pad_to_even") && o.get("pad_to_even").asBoolean());
     }
 
     /** breaks 칸 → int[]. 없거나 null 이면 null(그 블록은 word 로 접는다). */
@@ -103,53 +104,58 @@ class VectorsTest {
                         toOpts(a.get("opts")), footers));
             }
             case "build_brf": {
+                // V4 엔진 가이드 job: sources[].blocks[].{order, braille, breaks} · footer · footers · opts.
+                // java Job 은 BE 용 필드 이름 그대로라 여기서 옮긴다(V4 에서 java 조판은 BE 와 함께 빠진다).
                 JsonNode j = a.get("job");
-                JsonNode o = j.has("options") ? j.get("options") : null;
+                JsonNode o = j.has("opts") ? j.get("opts") : null;
                 List<BrailleAssist.JobPage> pages = new ArrayList<>();
-                if (j.has("pages")) {
-                    for (JsonNode pg : j.get("pages")) {
+                if (j.has("sources")) {
+                    int i = 0;
+                    for (JsonNode src : j.get("sources")) {
+                        List<JsonNode> blocks = new ArrayList<>();
+                        if (src.has("blocks")) src.get("blocks").forEach(blocks::add);
+                        final int[] k = {0};
+                        List<int[]> keyed = new ArrayList<>();
+                        for (JsonNode b : blocks) keyed.add(new int[]{b.has("order") ? b.get("order").asInt() : k[0], k[0]++});
+                        keyed.sort((x, y) -> x[0] != y[0] ? Integer.compare(x[0], y[0]) : Integer.compare(x[1], y[1]));
                         List<BrailleAssist.JobElement> els = new ArrayList<>();
-                        if (pg.has("elements")) {
-                            for (JsonNode el : pg.get("elements")) {
-                                els.add(new BrailleAssist.JobElement(
-                                        el.has("id") ? el.get("id").asText() : null,
-                                        el.has("type") ? el.get("type").asText() : "text",
-                                        el.has("heading_level") ? el.get("heading_level").asInt() : 0,
-                                        el.get("text").asText(),
-                                        ints(el.get("breaks"))));
-                            }
+                        for (int[] kk : keyed) {
+                            JsonNode b = blocks.get(kk[1]);
+                            els.add(new BrailleAssist.JobElement(null, "text",
+                                    b.has("heading_level") ? b.get("heading_level").asInt() : 0,
+                                    b.has("braille") ? b.get("braille").asText() : "",
+                                    ints(b.get("breaks"))));
                         }
                         pages.add(new BrailleAssist.JobPage(
-                                pg.has("orig_page_no") ? pg.get("orig_page_no").asInt() : 0, els));
+                                src.has("orig_page") ? src.get("orig_page").asInt() : i + 1, els));
+                        i++;
                     }
                 }
                 java.util.Map<Integer, String> jf = new java.util.HashMap<>();
-                if (j.has("footers_braille") && !j.get("footers_braille").isNull()) {
-                    JsonNode fs = j.get("footers_braille");
+                if (j.has("footers") && !j.get("footers").isNull()) {
+                    JsonNode fs = j.get("footers");
                     fs.fieldNames().forEachRemaining(
-                            k -> jf.put(Integer.parseInt(k), fs.get(k).asText()));
+                            kk -> jf.put(Integer.parseInt(kk), fs.get(kk).asText()));
                 }
                 BrailleAssist.Job job = new BrailleAssist.Job(
-                        j.has("job_id") ? j.get("job_id").asText() : null,
-                        o == null || !o.has("include_page_number")
-                                || o.get("include_page_number").asBoolean(),
-                        o != null && o.has("page_row_on") ? o.get("page_row_on").asText() : "odd",
+                        null, true,
+                        o != null && o.has("page_row_pages") ? o.get("page_row_pages").asText() : "odd",
                         o != null && o.has("rows") ? o.get("rows").asInt() : 26,
                         o != null && o.has("cols") ? o.get("cols").asInt() : 32,
                         o == null || !o.has("show_orig_page") || o.get("show_orig_page").asBoolean(),
                         o == null || !o.has("show_braille_page")
                                 || o.get("show_braille_page").asBoolean(),
-                        o != null && o.has("cover_pages") ? o.get("cover_pages").asInt() : 0,
-                        o != null && o.has("orig_page_start") && !o.get("orig_page_start").isNull()
-                                ? o.get("orig_page_start").asInt() : null,
-                        o == null || !o.has("show_change_line")
-                                || o.get("show_change_line").asBoolean(),
+                        o != null && o.has("cover_orig_page_count") ? o.get("cover_orig_page_count").asInt() : 0,
+                        o != null && o.has("orig_page_first_no") && !o.get("orig_page_first_no").isNull()
+                                ? o.get("orig_page_first_no").asInt() : null,
+                        true,
                         o != null && o.has("footer_align") ? o.get("footer_align").asText() : "center",
-                        j.has("footer_braille") ? j.get("footer_braille").asText() : "",
+                        j.has("footer") ? j.get("footer").asText() : "",
                         jf,
-                        j.has("start_braille_page") ? j.get("start_braille_page").asInt() : 1,
+                        o != null && o.has("first_braille_page") ? o.get("first_braille_page").asInt() : 1,
                         pages,
-                        o != null && o.has("wrap") ? o.get("wrap").asText() : "syllable");
+                        o != null && o.has("wrap") ? o.get("wrap").asText() : "syllable",
+                        o != null && o.has("pad_to_even") && o.get("pad_to_even").asBoolean());
                 return BrailleAssist.buildBrf(job);
             }
             case "wrap":

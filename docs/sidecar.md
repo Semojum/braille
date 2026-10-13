@@ -126,7 +126,7 @@ python -m semojum_braille.sidecar
 | op | 필드 | 타입 | 기본값 | 뜻 | 예 |
 |---|---|---|---|---|---|
 | 모두 | `id` | 아무 JSON 값 | 없음 | 응답에 그대로 돌아온다. 요청과 응답을 짝짓는 데 쓴다 | `2` |
-| 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `brf` · `read_brf` · `grade` · `symbols` · `ping` | `"translate"` |
+| 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `build_brf` · `read_brf` · `grade` · `symbols` · `ping` | `"translate"` |
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` · `header_footer` · `table` 중 하나. 들여쓰기가 이것에 따라 달라진다. `table` 이면 표 길로 간다(아래 '표도 `translate` 로'). `header_footer` 면 로마자 강제(`force_roman`)가 저절로 켜진다(#60) | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
@@ -144,7 +144,7 @@ python -m semojum_braille.sidecar
 | decode | `braille` | 문자열 | `""` | 점자. 여러 줄이면 `\n` 으로 잇는다 | `"⠊⠗⠚⠒…"` |
 | decode | `english` | 참거짓 | `false` | 영어 교과 책이면 `true`. 한글로 잘못 읽힌 영어 토막을 되찾는다. 다른 책에서는 켜지 않는다 | `true` |
 | decode | `korean_grade` | 정수 | `2` | 그 점자가 점역된 급수. `1`(정자)이면 정자 음절로 읽는다. 정자 점자를 `2` 로 읽으면 받침 ㄹ 을 쉼표로 읽는 등 글이 깨진다 | `1` |
-| brf | `job` | 객체 | `{}` | 조판할 문서. 쪽마다 점역된 요소 통 문자열을 담는다(아래). 조판 옵션도 여기 넣는다 | `{"pages": […]}` |
+| build_brf | `job` | 객체 | `{}` | 조판할 문서. 원본 쪽마다 점역된 블록(translate 의 `cells` · `breaks`)을 담는다(아래). 조판 옵션은 `opts` 에 | `{"sources": […]}` |
 | read_brf | `brf` | 문자열 | `""` | `.brf` 파일 내용(ASCII 그대로). 소문자+백틱 · 대문자+`@` 두 꼴을 다 받는다. 백틱은 ⠈(초성 ㄱ)로 읽는다 | `"#a\r\nab\r\n\x0c"` |
 | grade | `braille` | 문자열 | `""` | 그 요소의 점역 결과(`translate` 의 `cells`) | `"⠊⠗⠚⠒…"` |
 | grade | `source` | 문자열 | `""` | 그 요소의 묵자 원문(`translate` 에 넣은 `text`) | `"대한민국의 모든…"` |
@@ -169,7 +169,7 @@ python -m semojum_braille.sidecar
 | table | `dropped` · `blocked` | 객체 배열 · 참거짓 | `translate` 와 같다. `dropped` 는 `table_source` 의 글자로 센다(태그는 세지 않는다) |
 | translate | `render_mode` · `drafts` | 문자열 · 객체 배열 | **표일 때만 붙는다**(#60). 뜻은 `table` 의 같은 이름 필드와 같다. 표가 아니면 응답은 `cells` · `breaks` · `dropped` · `blocked` 넷뿐이다 |
 | decode | `text` | 문자열 | 역점역한 글. 원문 복원이 아니라 **검수용 근사**다. 줄바꿈은 그대로 둔다 |
-| brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
+| build_brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
 | read_brf | `pages` | 문자열 배열의 배열 | 쪽마다 유니코드 점자 줄 목록. 빈칸은 `⠀`, 탭은 4칸 자리로 펼친다. 역점역하려면 줄(또는 `\n` 으로 이은 쪽)을 `decode` 에 넘긴다. BRF ASCII 가 아닌 글자가 있으면 `error` |
 | grade | `grade` | 문자열 | 검수 순서 등급. `low` · `medium` · `high`. **아래 '검수 등급의 뜻'을 반드시 읽을 것** |
 | grade | `round_trip` | 수 또는 `null` | 왕복 일치도(0~1). 점역 결과를 역점역해 원문과 대조한 값. 잴 수 없거나(원문이 짧음 · 표 · 수식 · 영문) 등급을 규칙으로 정했으면 `null` |
@@ -187,9 +187,9 @@ python -m semojum_braille.sidecar
 - **오류 코드**(V4 엔진 가이드 오류 표): `BAD_JSON` JSON 이 아닌 줄(UTF-8 이 아닌 줄 포함, `id` 가 `null` 일 수 있다) · `BAD_FIELD` 필드 타입 · 값 범위가 맞지 않음(모르는 op 포함, 그 밖의 예외도 요청 값 탓으로 이 코드) · `TOO_LONG` translate 묵자 1,000자 초과(**태그를 뺀 글자 수**. 태그째 세면 2027 dev · val 표 2개가 걸리는데 표는 문장으로 못 쪼갠다) · `BAD_LATEX` `<!수식>…<!/수식>` 안 LaTeX 가 중괄호 10중첩 또는 1,000자 초과(묵자 상한보다 먼저 본다) · `BAD_BRF` `read_brf` 입력에 BRF ASCII 가 아닌 글자.
 - `decode` 는 `math` 를 받지 않는다. 수식 요소를 수식으로 되돌리려면 파이썬에서 `decode(…, math=True)` 를 부른다([decoder.md](decoder.md) 2.1).
 
-`brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `footer_braille` 은 이미 점역된 점자다. 꼬리말 글은 `translate` 에 `type: "header_footer"` 로 넣어 받은 `cells` 를 넘긴다(로마자 강제가 저절로 켜져 로마숫자 단원명 `Ⅳ` 에 로마자표가 붙는다, #60). `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
+`build_brf` 의 `job`: `{"sources": [{"orig_page": 정수, "blocks": [{"order": 정수, "braille": 점자, "breaks": [정수, …]}, …]}, …], "footer": 점자, "footers": {면 번호: 점자}, "opts": {…}}`(V4 엔진 가이드). `footer` 는 이미 점역된 꼬리말이다. 꼬리말 글은 `translate` 에 `type: "header_footer"` 로 넣어 받은 `cells` 를 넘긴다(로마자 강제가 저절로 켜진다). `blocks` 는 `order` 로 정렬하고, `breaks` 는 그 블록의 translate `breaks` 그대로다(없으면 그 블록은 빈칸에서 접는다). `opts` 는 `cols` · `rows` · `wrap`(`syllable` · `word`) · `footer_align`(`left` · `center` · `right`) · `first_braille_page` · `cover_orig_page_count` · `orig_page_first_no` · `page_row_pages`(`odd` · `every`) · `show_orig_page`(끄면 원본 페이지 변경선도 꺼진다) · `show_braille_page` · `pad_to_even` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`, [assist.md](assist.md)).
 
-**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade=2, english_grade=2, math_page=False, split_choices=False, render_mode="", tn_text="", box_level=0, force_roman=False) -> dict`(`{"cells", "breaks", "dropped", "blocked", "unknown_tags"}` 를 내고, 표면 `table` 과 같은 것을 낸다) · `table(source, render_mode="", tn_text="", box_level=0, korean_grade=2, english_grade=2, math_page=False) -> dict`(`{"cells", "breaks", "render_mode", "drafts", "dropped", "blocked"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). 판 번호는 `semojum_braille.__version__` · `semojum_braille.sidecar.PROTOCOL` 이다. `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
+**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade=2, english_grade=2, math_page=False, split_choices=False, render_mode="", tn_text="", box_level=0, force_roman=False) -> dict`(`{"cells", "breaks", "dropped", "blocked", "unknown_tags"}` 를 내고, 표면 `table` 과 같은 것을 낸다) · `table(source, render_mode="", tn_text="", box_level=0, korean_grade=2, english_grade=2, math_page=False) -> dict`(`{"cells", "breaks", "render_mode", "drafts", "dropped", "blocked"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). 판 번호는 `semojum_braille.__version__` · `semojum_braille.sidecar.PROTOCOL` 이다. `build_brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
 ## 5. 32칸 접기 (부르는 쪽이 할 일)
 

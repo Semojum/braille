@@ -82,6 +82,10 @@ PAGE_ROW = [
                    opts=opt(show_braille_page=False)), "조판 옵션 §5"),
     ("폭 40칸", dict(orig_page=7, cont_idx=0, braille_page=12, footer=FOOT_C,
                   opts=opt(cols=40)), "조판 옵션 §5 — 면 규격 변경"),
+    ("꼬리말 왼쪽 정렬", dict(orig_page=10, cont_idx=0, braille_page=5, footer=FOOT_C,
+                       opts=opt(footer_align="left")), "V4 엔진 가이드 footer_align left — 원본 번호에서 두 칸 띈 자리"),
+    ("꼬리말 왼쪽 정렬 · 원본 번호 끔", dict(orig_page=10, cont_idx=0, braille_page=5, footer=FOOT_C,
+                                   opts=opt(footer_align="left", show_orig_page=False)), "번호가 없으면 첫 칸에서"),
 ]
 
 CHANGE_LINE = [
@@ -263,61 +267,71 @@ BUILD_WRAP = [
      "설계 §6-1"),
 ]
 
+# ── 짝수 면 채우기(V4 엔진 가이드 pad_to_even) ───────────────────────────────────
+BUILD_PAD = [
+    ("짝수 면 채우기 · 홀수 면에서 끝남", dict(sources=_TWO_PAGES, footer=FOOT_C, opts=opt(rows=6, pad_to_even=True)),
+     "V4 엔진 가이드 — 빈 면 하나를 더하고 페이지행 규칙은 같다"),
+    ("짝수 면 채우기 · 홀수 면만 페이지행", dict(sources=_TWO_PAGES, footer=FOOT_C,
+                                         opts=opt(rows=6, page_row_on="odd", pad_to_even=True)), ""),
+    ("짝수 면 채우기 · 이미 짝수", dict(sources=[{"orig_page": 3, "blocks": [{"order": 0, "text": _LONG}]}],
+                                  opts=opt(rows=8, pad_to_even=True)), ""),
+]
 
-# ── build_brf (BE 조립 JSON) ─────────────────────────────────────────────────
-# BE가 넘기는 형식 그대로. 세 언어가 **같은 .brf 문자열**을 내야 한다.
-_JOB_PAGES = [
-    {"orig_page_no": 7, "elements": [
-        {"id": "e1", "type": "title", "heading_level": 1, "text": "  ⠠⠕⠂⠠⠪⠃\n"},
-        {"id": "e2", "type": "text", "heading_level": 0, "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"}]},
-    {"orig_page_no": 8, "elements": [
-        {"id": "e3", "type": "text", "heading_level": 0, "text": "  ⠼⠃⠌⠼⠁\n"}]},
+
+# ── build_brf (V4 엔진 가이드 조판 job) ───────────────────────────────────────
+# 앱이 사이드카 build_brf 로 넘기는 꼴. 세 언어가 **같은 .brf 문자열**을 내야 한다.
+_JOB_SOURCES = [
+    {"orig_page": 7, "blocks": [
+        {"order": 0, "heading_level": 1, "braille": "  ⠠⠕⠂⠠⠪⠃\n"},
+        {"order": 1, "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"}]},
+    {"orig_page": 8, "blocks": [
+        {"order": 0, "braille": "  ⠼⠃⠌⠼⠁\n"}]},
 ]
 
 BRF_JOB = [
-    ("조립 JSON 기본(페이지행 켬)",
-     {"job_id": "j1", "options": {"include_page_number": True, "rows": 26, "cols": 32},
-      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
-     "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11"),
-    ("조립 JSON 새 조판 옵션 전부",
-     {"job_id": "j2",
-      "options": {"include_page_number": True, "page_row_on": "every", "rows": 6, "cols": 32,
-                  "show_orig_page": True, "show_braille_page": True,
-                  "cover_pages": 1, "orig_page_start": 20,
-                  "show_change_line": True, "footer_align": "right"},
-      "footer_braille": FOOT_C, "footers_braille": {"2": FOOT_A},
-      "start_braille_page": 1, "pages": _JOB_PAGES},
-     "2026-09-01 결정 B·C·D·E — 표지 순번·번호 재매김·우측 정렬·면별 꼬리말"),
-    ("조립 JSON 변경선 끔",
-     {"options": {"include_page_number": True, "rows": 6, "cols": 32,
-                  "show_change_line": False},
-      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
-     "show_change_line=false → 원본 페이지 변경선 생략(결정 D)"),
-    ("조립 JSON 페이지행 끔",
-     {"job_id": "j1", "options": {"include_page_number": False, "rows": 26, "cols": 32},
-      "footer_braille": "", "start_braille_page": 1, "pages": _JOB_PAGES},
-     "include_page_number=false → 페이지행 생략(변경선은 유지)"),
-    ("조립 JSON 꼬리말·시작 면 지정",
-     {"options": {"include_page_number": True, "rows": 6, "cols": 32},
-      "footer_braille": FOOT_C, "start_braille_page": 105, "pages": _JOB_PAGES}, ""),
-    ("조립 JSON 빈 입력", {"pages": []}, ""),
-    ("조립 JSON options 생략(기본값)", {"pages": _JOB_PAGES}, ""),
-    ("조립 JSON 줄바꿈 음절 · 요소 breaks · 1단계 제목",
-     {"options": {"include_page_number": True, "rows": 12, "cols": 32, "wrap": "syllable"},
-      "pages": [{"orig_page_no": 3, "elements": [
-          {"id": "w1", "type": "title", "heading_level": 1, "text": _T2 + "\n", "breaks": _TB2},
-          {"id": "w2", "type": "text", "heading_level": 0, "text": _S1 + "\n", "breaks": _B1}]}]},
-     "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"),
-    ("조립 JSON 요소 글 끝 개행 없음(#40)",
-     {"options": {"include_page_number": False, "rows": 6, "cols": 32},
-      "pages": [{"orig_page_no": 1, "elements": [
-          {"id": "e1", "text": "⠀⠀⠁⠃⠉"}, {"id": "e2", "text": "⠀⠀⠙⠑⠋"}]}]},
-     "웹에서 저장한 쪽 — 요소마다 줄이 갈린다"),
+    ("조판 job 기본(홀수 면 페이지행)",
+     {"sources": _JOB_SOURCES, "opts": {"rows": 26, "cols": 32}},
+     "기본 page_row_pages=odd — 지침 1장2절2-1·원장 C-11"),
+    ("조판 job 옵션 전부",
+     {"opts": {"page_row_pages": "every", "rows": 6, "cols": 32,
+               "show_orig_page": True, "show_braille_page": True,
+               "cover_orig_page_count": 1, "orig_page_first_no": 20,
+               "footer_align": "right", "first_braille_page": 1},
+      "footer": FOOT_C, "footers": {"2": FOOT_A}, "sources": _JOB_SOURCES},
+     "표지 순번·번호 재매김·우측 정렬·면별 꼬리말(2026-09-01 결정 B·C·D·E)"),
+    ("조판 job 원본 번호 끔(변경선도 꺼짐)",
+     {"opts": {"rows": 6, "cols": 32, "show_orig_page": False},
+      "footer": "", "sources": _JOB_SOURCES},
+     "show_orig_page=false → 원본 페이지 변경선도 함께 꺼진다(결정 D, V4 가이드)"),
+    ("조판 job 꼬리말·첫 면 번호",
+     {"opts": {"rows": 6, "cols": 32, "first_braille_page": 105},
+      "footer": FOOT_C, "sources": _JOB_SOURCES}, ""),
+    ("조판 job 빈 입력", {"sources": []}, ""),
+    ("조판 job opts 생략(기본값)", {"sources": _JOB_SOURCES}, ""),
+    ("조판 job 줄바꿈 음절 · 블록 breaks · 1단계 제목",
+     {"opts": {"rows": 12, "cols": 32, "wrap": "syllable"},
+      "sources": [{"orig_page": 3, "blocks": [
+          {"order": 0, "heading_level": 1, "braille": _T2 + "\n", "breaks": _TB2},
+          {"order": 1, "braille": _S1 + "\n", "breaks": _B1}]}]},
+     "translate 의 breaks 를 블록에 그대로 싣는다(V4 가이드 blocks[].breaks)"),
+    ("조판 job 블록 글 끝 개행 없음(#40)",
+     {"opts": {"rows": 6, "cols": 32},
+      "sources": [{"orig_page": 1, "blocks": [
+          {"order": 0, "braille": "⠀⠀⠁⠃⠉"}, {"order": 1, "braille": "⠀⠀⠙⠑⠋"}]}]},
+     "블록마다 줄이 갈린다"),
+    ("조판 job 블록 order 로 정렬",
+     {"opts": {"rows": 6, "cols": 32},
+      "sources": [{"orig_page": 1, "blocks": [
+          {"order": 2, "braille": "⠀⠀⠙⠑⠋\n"}, {"order": 1, "braille": "⠀⠀⠁⠃⠉\n"}]}]}, ""),
+    ("조판 job 꼬리말 왼쪽 · 짝수 면 채우기",
+     {"opts": {"rows": 6, "cols": 32, "footer_align": "left", "page_row_pages": "every", "pad_to_even": True},
+      "footer": FOOT_C, "sources": _JOB_SOURCES},
+     "V4 엔진 가이드 footer_align left · pad_to_even"),
 ]
 
 
 def build() -> dict:
-    out = {"version": "0.5.2", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.6.0", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
                                          "build_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:
@@ -333,7 +347,7 @@ def build() -> dict:
         out["cases"]["page_change_line"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
              **({"source": src} if src else {})})
-    for name, kw, src in BUILD + BUILD_WRAP:
+    for name, kw, src in BUILD + BUILD_WRAP + BUILD_PAD:
         o = kw.pop("opts", None)
         got = build_pages(**kw, opts=Options(**o) if o else Options())
         for pg in got:

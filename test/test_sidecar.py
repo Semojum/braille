@@ -54,9 +54,10 @@ def test_handle_answers_ping_and_reports_unknown_op():
     assert e.value.code == "BAD_FIELD"
 
 
-def test_brf_gives_field_form_file():
-    job = {"pages": [{"orig_page_no": 7, "elements": [{"text": "⠁⠃"}]}]}
-    brf = sidecar.handle({"op": "brf", "job": job})["brf"]
+def test_build_brf_gives_field_form_file():
+    """V4 엔진 가이드 build_brf — job.sources[].blocks[].braille."""
+    job = {"sources": [{"orig_page": 7, "blocks": [{"order": 0, "braille": "⠁⠃"}]}]}
+    brf = sidecar.handle({"op": "build_brf", "job": job})["brf"]
     assert brf.count("\r\n") == brf.count("\n") == 26 and brf.endswith("\x0c")
     lines = brf.split("\r\n")
     assert lines[0] == "ab"
@@ -74,7 +75,7 @@ def test_stdio_keeps_id_and_survives_bad_line():
 
 
 def test_read_brf_gives_unicode_pages():
-    brf = sidecar.handle({"op": "brf", "job": {"pages": [{"orig_page_no": 1, "elements": [{"text": "⠈⠍⠁"}]}]}})["brf"]
+    brf = sidecar.handle({"op": "build_brf", "job": {"sources": [{"orig_page": 1, "blocks": [{"braille": "⠈⠍⠁"}]}]}})["brf"]
     pages = sidecar.handle({"op": "read_brf", "brf": brf})["pages"]
     assert any("⠈⠍⠁" in line for line in pages[0])
 
@@ -419,3 +420,11 @@ def test_symbols_는_기호표_묶음과_점형을_낸다():
     arrows = sidecar.handle({"op": "symbols", "group": "화살표"})["symbols"]
     assert arrows and {x["group"] for x in arrows} == {"화살표"} and len(arrows) < len(allsym)
     assert sidecar.handle({"op": "symbols", "group": "없는 묶음"})["symbols"] == []
+
+
+def test_build_brf_옛_op_와_잘못된_옵션은_BAD_FIELD():
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.handle({"op": "brf", "job": {}})
+    assert e.value.code == "BAD_FIELD"
+    r = sidecar._answer(json.dumps({"id": 1, "op": "build_brf", "job": {"sources": [], "opts": {"page_row_pages": "even"}}}).encode())
+    assert r["code"] == "BAD_FIELD" and "page_row_pages" in r["error"]

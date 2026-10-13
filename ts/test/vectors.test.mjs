@@ -16,6 +16,7 @@ const toOpts = (o) => o && {
   showChangeLine: o.show_change_line ?? true,
   footerAlign: o.footer_align ?? 'center',
   wrap: o.wrap ?? 'syllable',
+  padToEven: o.pad_to_even ?? false,
 };
 
 const call = {
