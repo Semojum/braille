@@ -26,7 +26,8 @@ from semojum_braille.encoder.translator import (translate_tagged_text, translate
 from semojum_braille.schemas import LLMOutput, Draft
 from semojum_braille.encoder.text_braille import TextBraille, content_rules
 from semojum_braille.encoder.formula_braille import FormulaBraille
-from semojum_braille.encoder.table_braille import TableBraille, build_table_tags, parse_table_tags, print_layout
+from semojum_braille.encoder.table_braille import TableBraille, print_layout
+from semojum_braille.encoder.tag_names import build_table_tags, parse_table_tags
 from semojum_braille.encoder.visual_braille import VisualBraille, DiagramBraille
 from semojum_braille.encoder.layout_braille import LayoutBraille, flatten_elements, render_page_text, wordwrap_by_word
 from semojum_braille.encoder.regulations import make_rule, make_rule_at, rule_meta, section_text, all_rule_ids
@@ -429,7 +430,9 @@ Klass().translate(optimized: list[LLMOutput]) -> list[BrailleOutput]
 []
 ```
 
-### 1.6 표 도우미 · `semojum_braille.encoder.table_braille`
+### 1.6 표 도우미 · `semojum_braille.encoder.tag_names` · `table_braille`
+
+`build_table_tags` · `parse_table_tags` 는 `tag_names` 에, `print_layout` 은 `table_braille` 에 있다.
 
 #### `build_table_tags(rows) -> str`
 
@@ -796,7 +799,7 @@ $ BRAILLE_STYLE=regulation python -c "from semojum_braille.encoder.kor_math_rule
 | `eng_braille` | 영어 Grade 2 | `translate` · `translate_word` · `iter_words` | |
 | `symbol_rules` | 특수 기호표와 판단이 갈리는 기호 | `substitute_symbols` · `symbol_rule_spans` | `preprocess` · `postprocess` |
 | `number_sign` | `⠼` 가 수표인지 영어 약자인지 가른다(제40항) | | `number_sign_indices` · `contraction_lookalikes` · `has_number_sign` |
-| `text_braille` · `formula_braille` · `table_braille` · `visual_braille` | 요소 점역 클래스 | 1.5 · 1.6 | `table_braille.parse_print_frames` · `record_rows_enabled` |
+| `text_braille` · `formula_braille` · `table_braille` · `visual_braille` | 요소 점역 클래스 | 1.5 · 1.6 | `table_braille.record_rows_enabled` |
 | `layout_braille` | 조판과 통 문자열 | 1.7 | `format_underline_blank` · `format_citation` · `format_paragraph_start` · `format_bullet_item` · `format_page_change_line` · `format_box_top` · `format_box_bottom` · `format_overflow_page_number` |
 | `regulations` | 규정 조항표 | 1.8 | |
 | `semojum_braille.schemas` | 데이터 타입(역점역과 함께 쓴다) | 2.3 | |
@@ -804,7 +807,6 @@ $ BRAILLE_STYLE=regulation python -c "from semojum_braille.encoder.kor_math_rule
 | `nested_block` | 시각 자료 안의 시각 자료를 글상자로 묶는다 | | `box_narrative` · `append_nested` |
 | `isolation` | 요소별 격리 점역(한 요소 실패를 자리표시로) | | `safe_translate` · `dedupe_trail` |
 | `tag_names` | 인라인 태그 이름 정본(2.1) | | `tn` · `box` · `indent_tag` · `split_indent` · `apply_indent_tags` · `strip_indent_tags` · `normalize_tn_spans` · `tn_spans_ok` |
-| `tn_notices` | 점역자 주 문구 정본 | | `table_split` · `indent_hierarchy` · `omitted` · `reading_order` · `layout_scan` · `scene` |
 | `gates` | 걸러 낸 자리를 쪽마다 센다 | | `gate_reset` · `gate_hit` · `gate_counts` · `gate_flags` · `strip_format_tokens` 등. `guard_on`(`LLM_TEXT_GUARD`)은 이 패키지 안에서는 부르는 곳이 없다 |
 | `constants` | 조판 상수(`COLS = 32` · `ROWS = 26`) | | |
 

@@ -9,7 +9,8 @@
 """
 from uuid import uuid4
 
-from semojum_braille.encoder.table_braille import TableBraille, build_table_tags
+from semojum_braille.encoder.table_braille import TableBraille
+from semojum_braille.encoder.tag_names import build_table_tags
 from semojum_braille.schemas import LLMOutput
 
 ROWS = [["구분", "A", "B"], ["1차", "10", "20"], ["2차", "30", "40"]]

@@ -79,7 +79,6 @@ test/unit_test/braille/test_symbol_path_consistency.py
 test/unit_test/braille/test_table_numbered_hierarchy.py
 test/unit_test/braille/test_table_tn_not_in_braille.py
 test/unit_test/braille/test_tag_parser.py
-test/unit_test/braille/test_tn_notices.py
 test/unit_test/braille/test_token_space.py
 test/unit_test/braille/test_ueb_caps_passage.py
 test/unit_test/braille/test_ueb_grade1_indicator.py
