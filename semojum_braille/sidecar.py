@@ -17,10 +17,10 @@ from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
 from semojum_braille.encoder import inline_math
 from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
-from semojum_braille.encoder.isolation import is_blocked_braille
+from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.text_braille import TextBraille
-from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols
+from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
 from semojum_braille.schemas import LLMOutput
 
 _TB = TextBraille()
@@ -34,8 +34,20 @@ PROTOCOL = 1
 _BOM = b"\xef\xbb\xbf"
 
 
+def _roman_one(opt: LLMOutput):
+    """꼬리말처럼 점역한다(`force_roman`, #54). 한글이 없는 로마자 조각에도 로마자표 `⠴` 를 붙인다(「한국 점자 규정」 제29항).
+
+    점자 줄만 BE 가 꼬리말을 점역하는 `translate_plain` 과 같은 함수(`translate_with_breaks(force_roman=True)`)로 바꾸고,
+    근거 · 글상자 테두리는 본문 길(`_translate_one`) 그대로 둔다. 본문 길은 로마숫자 단원명 `Ⅳ` 를 `⠠⠠⠊⠧` 로 적는데
+    점자책 꼬리말은 `⠴⠠⠠⠊⠧` 다.
+    """
+    lines, breaks = translate_with_breaks(opt.corrected_text, force_roman=True)
+    return _TB._translate_one(opt).model_copy(update={"braille_lines": lines, "break_points": breaks})
+
+
 def translate(text: str, etype: str = "text", hlevel: int = 0,
-              korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False) -> dict:
+              korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False,
+              force_roman: bool = False) -> dict:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자 + 점역 못 한 요소인가.
 
@@ -56,7 +68,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     """
     tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1), inline_math.MATH_PAGE.set(math_page)
     try:
-        bo = _TB.translate([LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")])[0]
+        opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
+        bo = safe_translate([opt], _roman_one if force_roman else _TB._translate_one)[0]   # = _TB.translate([opt])[0]
         blocked = is_blocked_braille(bo.braille_lines)      # AI 서버 검토 표시(C2 · R1)와 같은 판정
         el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
         fe = flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
@@ -99,7 +112,8 @@ def handle(req: dict) -> dict:
     op = req.get("op")
     if op == "translate":
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
-                         _flag(req, "korean_grade1"), _flag(req, "english_grade1"), _flag(req, "math_page"))
+                         _flag(req, "korean_grade1"), _flag(req, "english_grade1"), _flag(req, "math_page"),
+                         _flag(req, "force_roman"))
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=bool(req.get("english")),
                                korean_grade1=_flag(req, "korean_grade1"))}
