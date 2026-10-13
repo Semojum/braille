@@ -280,9 +280,20 @@ def test_force_roman_은_꼬리말처럼_로마자표를_붙인다():
         r = sidecar.translate(t, "header_footer", force_roman=True)
         assert r["cells"] == translate_plain(t) and r["blocked"] is False, t
     assert sidecar.translate("Ⅳ", "header_footer", force_roman=True)["cells"].startswith("⠴")
-    assert not sidecar.translate("Ⅳ", "header_footer")["cells"].startswith("⠴")      # 끈 값은 종전 그대로
+    assert not sidecar.translate("Ⅳ", "text")["cells"].startswith("⠴")      # 본문 길은 종전 그대로
     r = sidecar.handle({"op": "translate", "text": "Ⅳ", "type": "header_footer", "force_roman": True})
     assert r["cells"] == translate_plain("Ⅳ")
+
+
+def test_꼬리말은_로마자_강제가_저절로_켜진다():
+    """#60. 쓰는 자리가 꼬리말뿐이라 `type="header_footer"` 면 따로 안 켜도 켜진다. 2027 dev · val header_footer
+    1,124개 중 이걸로 바뀌는 것은 34개이고, 전부 한글 없는 영어 꼬리말에 ⠴ 가 붙는 것이다('Level' · 'Mini Test')."""
+    from semojum_braille.encoder.translator import translate_plain
+    for t in ("Ⅳ", "Level", "Mini Test", "Ⅱ. 물질대사"):
+        assert sidecar.translate(t, "header_footer")["cells"] == translate_plain(t), t
+        assert sidecar.handle({"op": "translate", "text": t, "type": "header_footer"})["cells"] == translate_plain(t), t
+    assert sidecar.translate("Level", "header_footer")["cells"].startswith("⠴")
+    assert not sidecar.translate("Level", "text")["cells"].startswith("⠴")
 
 
 def test_force_roman_도_점역_못_한_요소는_드러낸다():
@@ -319,6 +330,23 @@ def test_table_상자_안_표는_테두리만_바뀐다():
 def test_table_에_태그가_없으면_점역자_주_한_안이다():
     r = sidecar.table("칸이 없는 글", tn_text="<!주>표. 칸 없음<!/주>")
     assert r["drafts"] == [] and r["render_mode"] == "" and r["cells"].lstrip("⠀").startswith("⠠⠄")
+
+
+@pytest.mark.parametrize("mode", ["unfold", "table_grid", "numbered"])
+def test_translate_에_표를_넣으면_table_과_같다(mode):
+    """#60. 앱은 창구 하나(`translate`)로 표도 점역한다. `type="table"` 이거나 글이 표 태그면 `table` op 와 같은 길이다.
+    ★ type 을 `text` 로 넘긴 표도 같아야 한다. 갈림이 엔진만 표로 바꾸고 `flatten_elements` 의 요소 type 을 `text` 로
+    두면 표 줄마다 문단 들여쓰기 2칸이 더 붙는다(2027 dev · val 표 900개가 900/900 다름)."""
+    src = _표(["구분", "가", "나"], ["값", "1", "2"])
+    want = sidecar.table(src, mode, box_level=1)
+    assert sidecar.translate(src, "table", render_mode=mode, box_level=1) == want
+    assert sidecar.translate(src, "text", render_mode=mode, box_level=1) == want
+    assert sidecar.handle({"op": "translate", "text": src, "type": "table", "render_mode": mode, "box_level": 1}) == want
+
+
+def test_표가_아니면_translate_응답은_종전_꼴이다():
+    r = sidecar.translate("가나다")
+    assert set(r) == {"cells", "breaks", "dropped", "blocked"}
 
 
 def test_table_도_엔진_예외는_그_표만_점역_못_함으로_온다(monkeypatch):

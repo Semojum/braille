@@ -20,6 +20,7 @@ from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
 from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.table_braille import TableBraille
+from semojum_braille.encoder.tag_names import parse_table_tags
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
 from semojum_braille.schemas import LLMOutput
@@ -48,9 +49,19 @@ def _roman_one(opt: LLMOutput):
 
 def translate(text: str, etype: str = "text", hlevel: int = 0,
               korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False,
-              force_roman: bool = False) -> dict:
+              force_roman: bool = False, render_mode: str = "", tn_text: str = "", box_level: int = 0) -> dict:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자 + 점역 못 한 요소인가.
+
+    표도 이 창구 하나로 된다(#60). `etype` 이 `table` 이거나 글이 표 태그(`<!표>`)로 읽히면 `table` 과 같은 길로
+    가고, 응답에 `render_mode` · `drafts` 가 더 붙는다. 표만 쓰는 선택 칸이 `render_mode` · `tn_text` · `box_level`
+    이다(뜻은 `table`). ★ 엔진만 표로 바꾸면 안 된다. `flatten_elements` 의 요소 type 도 `table` 이어야 한다.
+    type 을 `text` 로 두면 표 줄마다 문단 들여쓰기 2칸이 더 붙어(`⠀⠀⠿⠿` → `⠀⠀⠀⠀⠿⠿`) 2027 dev · val 표
+    900개가 900/900 다르다(`list_item` 도 900/900). 그 코퍼스에서 `<!표>` 가 든 요소는 표 요소 900개와 정확히
+    같았다(표 아닌 요소 43,772개 중 0).
+
+    꼬리말(`etype="header_footer"`)은 로마자 강제(`force_roman`)를 저절로 켠다(#60). 쓰는 자리가 꼬리말뿐이라
+    앱이 따로 켤 일이 없다. `force_roman` 은 옛 호출을 위해 그대로 받는다.
 
     `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
@@ -67,6 +78,9 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     점자가 0셀이거나 엔진이 예외를 던진 요소는 점역자 주 '점역 못 함'이 되고 `blocked` 가 참이다. 종전에는
     `_translate_one` 을 바로 불러 그런 요소가 빈 점자로 조용히 사라졌다(`dropped` 도 비어 표시가 없었다).
     """
+    if etype == "table" or parse_table_tags(text) is not None:
+        return table(text, render_mode, tn_text, box_level, korean_grade1, english_grade1, math_page)
+    force_roman = force_roman or etype == "header_footer"
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
     bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
                   korean_grade1, english_grade1, math_page)
@@ -82,7 +96,7 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
 
     `source` 는 표 태그 글(`<!표><!행><!칸>…`)이다. AI 응답 `TextElement.table_source` 가 이 값이다. 앱이 칸 글을
     고친 뒤 이 op 로 다시 점역하면 서버가 낸 표 점자와 같은 길(`TableBraille.translate` → `flatten_elements`)을
-    지난다. `translate` 에 태그 글을 넣으면 글 모듈이라 표 조판이 안 나온다.
+    지난다. `translate` 도 표 태그 글이나 `type="table"` 이면 이 길로 간다(#60). 이 op 는 한동안 같이 둔다.
 
     `render_mode` 는 고를 안(`unfold` · `table_grid` · `transposed` · `linear` · `numbered`)이다. 없거나 모르는
     값이면 풀어쓰기다(엔진 기본). `tn_text` 는 태그가 표로 안 풀리는 글일 때 대신 점역할 점역자 주 글이다.
@@ -161,7 +175,8 @@ def handle(req: dict) -> dict:
     if op == "translate":
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
                          _flag(req, "korean_grade1"), _flag(req, "english_grade1"), _flag(req, "math_page"),
-                         _flag(req, "force_roman"))
+                         _flag(req, "force_roman"), req.get("render_mode") or "", req.get("tn_text") or "",
+                         int(req.get("box_level") or 0))
     if op == "table":
         return table(req.get("table_source") or "", req.get("render_mode") or "", req.get("tn_text") or "",
                      int(req.get("box_level") or 0), _flag(req, "korean_grade1"), _flag(req, "english_grade1"),
