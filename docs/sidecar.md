@@ -30,7 +30,8 @@ python -m semojum_braille.sidecar
 - 기동하자마자 뒤에서 역점역을 한 번 불러 낱말 판정기를 미리 올린다. `[kiwi]` 를 깔았으면 영어책 역점역의 첫 호출이 약 2초 멈추는데, 그것을 가리려는 것이다.
 - 앱에 실어 낼 때는 site-packages 를 통째로 싣는다. `semojum_braille/third_party/` 에 braillify 의 `LICENSE` 가 들어 있다. braillify 휠에는 고지 파일이 없어 여기 실었다([NOTICE.md](../NOTICE.md) ②). 빼지 말고 같이 싣는다.
 
-리눅스 실측: 기동부터 첫 응답 약 0.1초, 한 쪽(35요소·1,318자) 점역 약 0.21초, 역점역 약 0.02초. Windows 는 재지 않았다.
+리눅스 실측: 기동부터 첫 응답 약 0.1초, 한 쪽(35요소·1,318자) 점역 약 0.21초, 역점역 약 0.02초.
+윈도우 실측(CI 러너 windows-latest, 8절 C# 예제): 기동부터 첫 응답 0.39 ~ 0.42초, 한 문장 점역 6 ~ 8ms(파이썬 3.13 · 3.10). 사용자 PC 가 아니라 CI 러너 값이다.
 
 ## 2. 문자와 인코딩
 
@@ -238,7 +239,7 @@ def fold(cells, breaks, center=False, cuts=None):
 - **표준오류를 반드시 비운다.** 엔진이 경고를 표준오류로 쓴다. 표준오류를 파이프로 받고 읽지 않으면 파이프가 차서 사이드카가 멈춘다. C# 이면 `RedirectStandardError = true` 로 두고 `BeginErrorReadLine` 으로 비동기로 읽어 버리거나, 리디렉트를 끈다.
 - 사이드카가 죽으면 표준출력이 닫힌다(C# `ReadLine()` 이 `null`). 부르는 쪽은 다시 띄우고, 답을 못 받은 요청을 다시 보낸다. translate 와 decode 는 같은 입력에 늘 같은 출력을 내므로 다시 보내도 된다. 짧은 사이에 거듭 죽으면(예: 1분에 세 번) 다시 띄우기를 멈추고 사용자에게 알린다.
 - 부르는 프로그램이 끝날 때 사이드카도 함께 끝나게 하려면 Windows 에서는 Job Object(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)에 넣는다. 평소에는 표준입력을 닫으면 스스로 끝난다.
-- 이 저장소에는 C# 코드가 없다. 위 C# 이름(`Process`·`RedirectStandardError`·`BeginErrorReadLine`)은 .NET 표준 API 이고, 여기서 돌려 본 것은 같은 일을 하는 파이썬 부르는 쪽이다.
+- C# 예제 [`examples/csharp-sidecar/Program.cs`](../examples/csharp-sidecar/Program.cs) 가 표준오류 비우기(`BeginErrorReadLine`) · `id` 로 짝짓기 · 빈 줄 · 표준입력 닫아 끝내기를 그대로 한다. CI 가 윈도우에서 돌린다(8절). Job Object 와 죽은 사이드카 다시 띄우기는 예제에 없고 시험하지 않았다.
 - 스레드: 점역은 CPU 계산이라 한 프로세스 안에서 스레드를 늘려도 빨라지지 않는다. 사이드카 하나가 요청을 차례로 처리하게 두고, 동시에 여러 건이 필요하면 사이드카를 여럿 띄운다.
 
 ## 8. 윈도우 · .NET 앱에서 띄우기
@@ -260,7 +261,12 @@ var psi = new ProcessStartInfo {
 psi.Environment["PYTHONUTF8"] = "1";
 ```
 
-⚠ 이 C# 코드는 돌려 보지 않았다(이 저장소에 C# 이 없고 윈도우에서 재지 않았다). 아래 표는 리눅스에서 **윈도우라서 달라지는 것만**(앱이 쓰는 인코딩 · 줄 끝 · BOM · 파이썬 표준입력 기본 인코딩) 바꿔 가며 실제 사이드카 프로세스에 보낸 결과다. 실제 .NET `Process` · cp949 콘솔 · 윈도우 경로 · 프로세스 죽임 · 설치는 재지 않았다.
+이 설정은 C# 예제 [`examples/csharp-sidecar`](../examples/csharp-sidecar/Program.cs) 에 그대로 있다. CI([`windows.yml`](../.github/workflows/windows.yml))가 windows-latest 에서 파이썬 3.10 · 3.13 으로 패키지를 깔고 시험을 돈 뒤, 이 예제를 `dotnet run` 으로 돌려 실제 사이드카를 부른다. 예제가 보는 것:
+
+- ping 의 `protocol` 1 · 한글 translate 를 ASCII(`System.Text.Json` 기본)로 보낸 것과 UTF-8 그대로 보낸 것이 둘 다 README 와 같은 점자 · `breaks` 가 C# `string` 인덱스 그대로 쓸 수 있는 오름차순 · decode · 빈 줄 뒤 요청도 `id` 로 바로 짝지어짐 · 표준입력을 닫으면 종료 코드 0
+- 표준입력을 cp949 로 둔 잘못된 설정(아래 표 F)에서 한글 요청이 깨진 점자가 아니라 `error` 로 오고, 같은 설정이라도 ASCII 로 보내면 맞는 것
+
+CI 러너는 영어 로캘이라 한국어 윈도우 콘솔 기본(cp949)은 예제가 `Encoding.GetEncoding(949)` 로 직접 지정해 재현한다. **한국어 로캘 PC · 앱에 파이썬을 실어 낸 꼴 · 프로세스 죽임은 아직 재지 않았다.** 아래 표는 리눅스에서 **윈도우라서 달라지는 것만**(앱이 쓰는 인코딩 · 줄 끝 · BOM · 파이썬 표준입력 기본 인코딩) 바꿔 가며 실제 사이드카 프로세스에 보낸 결과다. 그중 D(권장)와 F(앱 cp949 · 파이썬 UTF-8 모드) 줄은 윈도우 CI 에서도 같게 나왔다. A(파이썬 기본 인코딩)는 윈도우에서 돌리지 않았다.
 
 | | 앱이 쓰는 인코딩 | 파이썬 쪽 | 줄 끝 | 3.4.10 | 3.4.11 부터 |
 |---|---|---|---|---|---|
@@ -282,7 +288,7 @@ psi.Environment["PYTHONUTF8"] = "1";
 - 엔진이 `os.environ` 으로 읽는 스위치가 있다(A/B 용). 앱 프로세스 환경이 그대로 넘어가므로 필요한 것만 남긴 환경으로 띄우는 쪽이 안전하다.
 - 형태소 분석기(`[kiwi]`)는 앱에 넣지 않는다([NOTICE.md](../NOTICE.md) ①). 깔면 기동 직후 첫 요청이 판정기 올리는 시간(약 2.7초)과 겹친다.
 
-**윈도우 휠**: `braillify` 2.0.1 은 cp310~cp314 `win_amd64`, `pydantic-core` 2.23.4 는 `win32` · `win_amd64` 휠이 PyPI 에 있다(2026-10-12 PyPI 확인). 윈도우에서 실제로 깔아 보지는 않았다.
+**윈도우 휠**: `braillify` 2.0.1 은 cp310~cp314 `win_amd64`, `pydantic-core` 는 `win32` · `win_amd64` 휠이 PyPI 에 있다. 윈도우 CI 가 `pip install` 로 이 휠을 받아 깐다(2026-10-14 실측: `braillify-2.0.1-cp313-cp313-win_amd64` · `pydantic_core-2.50.1-cp313-cp313-win_amd64`).
 
 ---
 
