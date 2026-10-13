@@ -227,6 +227,43 @@ def to_brf_ascii(braille: str) -> str:
 # (2026-08-05 사용자 결정으로 함수 3개 → 4개. 초판은 "typeset 엔진 공용화 안 함"이었다.)
 
 
+# 해설 정답 목록(`01 ①  02 ③  03 ④`)은 쌍 안(번호와 답 사이)에서 접지 않는다(#48 · AI#1353). gold(수능 교재 정답 상자)는
+#   쌍 사이에서만 접는데, 어절 접기가 32칸 안 마지막 빈칸을 고르면 `5` / `③  6 ②` 처럼 쌍이 갈렸다. 줄 끝까지 `번호 답`
+#   토막이 번갈아 이어지고 번호가 1씩 늘고 원문자 답(①~⑤)이 하나 이상일 때만 그 쌍 안 빈칸을 자를 자리에서 뺀다.
+#   앞에 붙은 글(상자 제목)은 둔다. 수학 선택지 `① 1  ② 2` 는 원문자가 번호 자리라 안 걸린다. AI 쪽 `breaks` 도 같은 판정이다(AI#1360).
+_CIRCLED = ("⠼⠂", "⠼⠆", "⠼⠒", "⠼⠲", "⠼⠢")      # ①~⑤
+
+
+def _is_num(tok: str) -> bool:
+    return len(tok) > 1 and tok[0] == "⠼" and all(c in _DIGIT_CELLS for c in tok[1:])
+
+
+def _pair_gaps(line: str) -> set:
+    toks, i = [], 0
+    while i < len(line):                      # 빈칸으로 가른 토막의 (시작, 끝)
+        if line[i] == SPACE:
+            i += 1
+            continue
+        j = i
+        while j < len(line) and line[j] != SPACE:
+            j += 1
+        toks.append((i, j))
+        i = j
+    for s in range(len(toks) % 2, len(toks) - 3, 2):   # 줄 끝까지 이어지는 꼬리 — 가장 긴 것부터
+        nums, anss = toks[s::2], toks[s + 1::2]
+        if not all(_is_num(line[a:b]) for a, b in nums):
+            continue
+        if not all(_is_num(line[a:b]) or line[a:b] in _CIRCLED for a, b in anss):
+            continue
+        if not any(line[a:b] in _CIRCLED for a, b in anss):
+            continue
+        nos = [int("".join(str(_DIGIT_CELLS.index(c)) for c in line[a + 1:b])) for a, b in nums]
+        if any(y != x + 1 for x, y in zip(nos, nos[1:])):
+            continue
+        return {k for (_, e), (a, _) in zip(nums, anss) for k in range(e, a)}
+    return set()
+
+
 def _wrap(line: str, cols: int) -> list[str]:
     """`cols`를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
 
@@ -244,7 +281,8 @@ def _wrap(line: str, cols: int) -> list[str]:
         return [""]
     out: list[str] = []
     while len(line) > cols:
-        cut = line.rfind(SPACE, 0, cols + 1)
+        gaps = _pair_gaps(line)
+        cut = next((k for k in range(cols, -1, -1) if line[k] == SPACE and k not in gaps), -1)
         if cut <= 0 or not line[:cut].strip(SPACE):
             out.append(line[:cols])          # 어절 하나가 폭을 넘는다 — 그 자리에서만 강제 분리
             line = line[cols:]
