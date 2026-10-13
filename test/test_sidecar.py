@@ -289,3 +289,43 @@ def test_force_roman_도_점역_못_한_요소는_드러낸다():
     """force_roman 길도 safe_translate 를 지난다(#52 와 같은 판정)."""
     r = sidecar.translate("😀", "header_footer", force_roman=True)
     assert r["blocked"] is True
+
+
+def _표(*rows):
+    from semojum_braille.encoder.tag_names import build_table_tags
+    return build_table_tags([list(r) for r in rows])
+
+
+@pytest.mark.parametrize("mode", ["unfold", "table_grid", "transposed", "linear", "numbered"])
+def test_table_은_고른_안과_다섯_안을_같이_낸다(mode):
+    """#56. AI 서버 표 체인(`TableBraille` → `flatten_elements`)과 같은 길이다. 서버 응답과의 바이트 대조(표 900개)는 PR 본문."""
+    r = sidecar.table(_표(["구분", "가", "나"], ["값", "1", "2"]), mode)
+    assert r["render_mode"] == mode and not r["blocked"] and r["dropped"] == []       # 태그는 빠진 글자로 안 센다
+    assert [d["render_mode"] for d in r["drafts"]] == ["unfold", "table_grid", "transposed", "linear", "numbered"]
+    chosen = next(d for d in r["drafts"] if d["render_mode"] == mode)
+    assert (r["cells"], r["breaks"]) == (chosen["cells"], chosen["breaks"]) and "⠼⠁" in r["cells"]
+    assert sidecar.handle({"op": "table", "table_source": _표(["구분", "가"], ["값", "1"]),
+                           "render_mode": mode})["render_mode"] == mode
+
+
+def test_table_상자_안_표는_테두리만_바뀐다():
+    src = _표(["구분", "가", "나"], ["값", "1", "2"])
+    a = sidecar.table(src, "table_grid")["cells"].split("\n")
+    b = sidecar.table(src, "table_grid", box_level=1)["cells"].split("\n")
+    assert a[0] != b[0] and a[-1] != b[-1]          # 위아래 테두리
+    assert a[1:-1] == b[1:-1]                        # 칸 줄은 그대로
+
+
+def test_table_에_태그가_없으면_점역자_주_한_안이다():
+    r = sidecar.table("칸이 없는 글", tn_text="<!주>표. 칸 없음<!/주>")
+    assert r["drafts"] == [] and r["render_mode"] == "" and r["cells"].lstrip("⠀").startswith("⠠⠄")
+
+
+def test_table_도_엔진_예외는_그_표만_점역_못_함으로_온다(monkeypatch):
+    from semojum_braille.encoder.table_braille import TableBraille
+
+    def boom(self, opt):
+        raise RuntimeError("엔진 예외")
+    monkeypatch.setattr(TableBraille, "_translate_one", boom)
+    r = sidecar.table(_표(["가", "나"]), "table_grid")
+    assert r["blocked"] and r["drafts"] == []
