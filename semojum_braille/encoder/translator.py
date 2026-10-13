@@ -816,13 +816,19 @@ def _emit_mixed(text: str, result: list[str], ctx: "_RomanCtx | None" = None) ->
         #   붙임표다(제32항, 제36항 예문 `v-x쪽` = ⠴⠧⠤⠰⠭⠲…). 제33항 [다만]의 "‘-’ 앞 종료표" 는 로마자와
         #   **한글** 사이 자리다(`U-도서관`). 붙임표가 먼저 점자가 돼 세그가 끊기면 앞에서 ⠲ 를 적고 뒤에서
         #   ⠴ 를 다시 열었다(⠴⠧⠲⠤⠴⠭⠲). 앞 종료표를 떼고 다음 세그에 이어짐을 알린다.
-        if (follow and ctx is not None and follow.startswith("⠤") and follow[1:2].isascii()
-                and follow[1:2].isalpha() and seg[-1:].isascii() and seg[-1:].isalpha()):
+        #   물결도 같다(#1329): `A~F에` 를 ⠴⠠⠁⠲⠈⠔⠴⠠⠋⠲ 로 닫고 다시 열었다. 제29항(재추출 1496~1498행)은 로마자가
+        #   이어 나오면 구간 하나, 제32항(1650행)은 그 사이를 통일영어점자로. gold dev · val 한 구간 274 · 닫고 다시 엶 0.
+        #   물결은 앞에 종료표를 적은 자리(로마자표를 쓰는 줄)에서만 잇는다 — 한글 없는 줄의 표 없는 로마자 글은 그대로다.
+        link_sym = next((x for x in ("⠤", "⠈⠔") if follow and follow.startswith(x)), "")
+        nxt = follow[len(link_sym):len(link_sym) + 1] if link_sym else ""
+        if (link_sym and ctx is not None and nxt.isascii() and nxt.isalpha()
+                and seg[-1:].isascii() and seg[-1:].isalpha()
+                and (link_sym == "⠤" or (ctx.tail_term and out.endswith("⠲")))):
             if ctx.tail_term and out.endswith("⠲"):
                 out = out[:-1]
             ctx.opened = True
             ctx.tail_term = False
-            ctx.hyphen_link = True
+            ctx.hyphen_link = link_sym
             return out
         # 종료표를 적어야 하는데 세그가 끊겨 못 적은 자리(#944). 문자표가 `[`·`/`·`-` 를 먼저 점자로 바꿔
         #   로마자 세그가 거기서 끊기고, 줄 문맥 경로(`_split_english` 의 ctx 가지)는 제34항(묶인 로마자)으로 보고
@@ -1883,8 +1889,8 @@ def _border_line(name: str, title_braille: str, level: int = 1) -> str:
         return cap + fill * inner + end
     # 케이스②: 캡1 + 채움4 + 빈칸1 + 제목 + 빈칸1 + 채움R + 캡1 = 32
     max_title = inner - _BORDER_LEFT_FILL - 2          # = 24
-    # 초과분은 여기서 자른다. 케이스①(제목을 윗줄 5칸에 적고 테두리는 제목 없이 두기)은
-    # 조판 단계가 맡는다 — `layout_braille.BrailleLayout._render_box_top`.
+    # 초과분은 여기서 자른다. 케이스①(제목을 윗줄 5칸에 적고 테두리는 제목 없이 두기)은 아직 없다 —
+    # 쪽 조판(result.txt)에만 있던 렌더러를 #1341 에서 지웠다(제품에 간 적 없음, dev · val 24칸 넘는 제목 0건).
     t = title_braille[:max_title]
     right_fill = inner - _BORDER_LEFT_FILL - 2 - len(t)
     return (cap + fill * _BORDER_LEFT_FILL + _BORDER_BLANK
@@ -1972,8 +1978,8 @@ def isolate_border_tags(text: str) -> str:
 def box_borders_from_source(source_text: str) -> list[tuple[str, int, str]]:
     """원본의 글상자 테두리 태그를 문서 순서대로 (kind, level, 제목점자)로 수집(NLD-1.2.5).
 
-    layout이 이 목록으로 위계별 테두리·제목 배치(중간7칸/윗줄5칸/케이스①)를 재렌더한다.
-    translator 는 인라인 32칸 테두리를 이미 위계 꼴로 그린다(_border_line). layout 은 제목 배치 · 빈 줄을 더한다.
+    테두리 꼴 · 제목(중간 7칸)은 translator 가 그린다(_border_line). layout 은 이 목록이 있는 요소에만
+    글상자 위아래 빈 줄을 정한다(`layout_braille._box_blanks`, #1341).
     위계: 태그 이름 뒤 단계 숫자(<!상자2>=2단계, 없으면 1단계). ※§3-5 태그 규약 확장(태민 검토).
     """
     out: list[tuple[str, int, str]] = []
@@ -2660,11 +2666,17 @@ _FILLED_TRI_RUN_RE = re.compile(r"▲{2,}")
 # ★ 연속 ♡♡ 도 이름 가림이다(T30). gold 화법과 작문 vl-005 p0201 `♡♡ 고등학교` = ⠸⠔⠔⠇ —
 #   제57항 [붙임] 제1 점역자 정의 숨김표(`_9l`), 우리 ☆ 와 같은 점형이다.
 _HEART_RUN_RE = re.compile(r"♡{2,}")
+# 홀로 쓴 자음자는 온표 + 받침꼴이다(제8항, 재추출 474행 `삼각형 ㄱㄴㄷ` = ⠿⠁⠿⠒⠿⠔, #1326). 한컴 글자층은 그 자음도
+#   첫가끝 초성(U+1100~)으로 싣는데(`‘ᄂ’ 첨가`), 그러면 옛한글 경로가 초성 셀 ⠉(= 약자 '나')로 낸다. 뒤에 중성이
+#   안 오는 현대 초성만 호환 자모로 바꿔 braillify 의 단독 자모 경로에 태운다. 중성이 이어지는 옛한글(ᄂᆞ)은 그대로다.
+_LONE_CHO_RE = re.compile(r"[\u1100-\u1112](?![\u1160-\u11A7\uD7B0-\uD7C6])")
+_CHO_COMPAT = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
 
 
 def _normalize_special(s: str) -> str:
     s = _FILLED_TRI_RUN_RE.sub(lambda m: "△" * len(m.group()), s)
     s = _HEART_RUN_RE.sub(lambda m: "☆" * len(m.group()), s)
+    s = _LONE_CHO_RE.sub(lambda m: _CHO_COMPAT[ord(m.group()) - 0x1100], s)
     out = []
     for ch in s:
         o = ord(ch)
@@ -3146,9 +3158,11 @@ def _split_english(seg: str, ctx: "_RomanCtx | None" = None) -> str | None:
         #   ★ 여는 괄호 등이 먼저 점자가 돼 세그가 끊긴 자리(`[C] [D]`)는 켜지 않는다 — gold 는 거기서
         #   로마자표를 새로 연다(`⠦⠆⠴⠠⠙`, 001 ans p0033). ⠰ 를 붙이면 빠진 ⠴ 자리에 엉뚱한 셀이 선다.
         #   한글 없는 순수 로마자 줄도 켜지 않는다(실측 전).
-        link = ctx.hyphen_link and start == 0     # 붙임표로 이어진 구간 — ⠴ 를 다시 열지 않는다
+        link = ctx.hyphen_link if start == 0 else ""   # 붙임표 · 물결로 이어진 구간 — ⠴ 를 다시 열지 않는다
         ctx.hyphen_link = False
-        g1 = "cont" if link else ("lead" if (has_hangul or ctx.wants_roman()) else "")
+        # 통일영어점자는 붙임표 뒤 낱자를 홀로 선 글자로 보아 ⠰ 를 적는다(제36항 예문 `v-x` = ⠴⠧⠤⠰⠭⠲). 물결 뒤는
+        #   홀로 선 글자가 아니다(gold dev · val `A~F` 꼴 235곳 모두 ⠰ 없음, #1329).
+        g1 = ("cont" if link == "⠤" else "") if link else ("lead" if (has_hangul or ctx.wants_roman()) else "")
         if eng_g1:
             g1 = ""                               # 약자가 없으니 1종 지시자도 없다
         # ★ 원소 기호 나열(`Li, Na, K`)에는 1종 지시자를 안 적는다(T36, eval T32 결함 4). 과학 점자 제1항
@@ -3406,6 +3420,14 @@ def _normalize_inline_math(text: str) -> str:
 # (사회문화 p101 '①2000년' → #1 #bjjj — listitem_diff.md 실측, ①선지 실패 56건의 주범).
 # 문중 참조("㉠과")는 붙어야 하므로 줄머리만 잡는다.
 _CHOICE_HEAD_RE = re.compile(r"(?m)^([①-⑳])\s*")
+# 줄머리 괄호 번호 머리(`(1)` · `(i)` · `(가)` · `⑴`) 뒤 띄움도 한 칸이다(#1338, 원장 C-169). 묵자 탭 · 여러 칸은 항목 구분
+#   두 칸(`_MULTI_SPACE_RE`)이 아니라 머리 뒤 띄움이다 — 「점자 도서 제작 지침」 [예 2-32](재추출 1449행) `(가) 제1조` =
+#   `8'$,0`.n#a.u`. 머리 뒤가 바로 글이면(`(가)는 …`, 줄머리 주어) 그대로 둔다.
+_LINE_HEAD = r"\(\s*(?:\d{1,2}|i{1,3}|iv|vi{0,3}|ix|x|[가-하])\s*\)|[⑴-⒇]"
+_PAREN_HEAD_RE = re.compile(rf"^(\s*(?:<!\d+칸>)?\s*(?:{_LINE_HEAD}))[ \t]+")
+# ⚠ 머리 바로 뒤가 수식이면 두 칸 그대로다. 「한국 점자 규정」 수학 제11항(재추출 3234행) "수식과 수학적 표기는 앞뒤를
+#   두 칸씩 띄어 쓴다" 에 번호 머리 예외가 없다(#1083 도 `① $x+1$` 을 두 칸으로 정했다). gold 는 머리 뒤 한 칸이라
+#   (수학Ⅰ `(1)` 123 · `(i)` 108 · `(가)` 94 · `①` 582 줄, 두 칸 0줄) 원장 C-169 로 자문에 올렸다.
 
 # ── 레거시 폰트 오디코딩 복원 (w1, 2026-07-21) ──────────────────────────────
 # 교재 PDF의 사설 인코딩 폰트(딩뱃)가 매핑 없는 코드포인트로 추출돼 braillify가 요소
@@ -3529,6 +3551,7 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     text = _restore_circled_black(text)     # 검은 원문자 ❶-❻ (선지머리 정규화보다 먼저)
     text = _normalize_araea_middot(text)    # 아래아 ㆍ → 가운뎃점 ·(제50항, 수표 혼입 차단)
     text = _CHOICE_HEAD_RE.sub(r"\1 ", text)
+    text = _PAREN_HEAD_RE.sub(r"\1 ", text)
     # 단위 앞 좁은 공백 백틱 제거는 수식 라우팅보다 **먼저** — 뒤에 두면 이미 수식으로
     # 먹힌 뒤라 제69항 로마자표 경로가 실행되지 않는다.
     # 반복 ×는 곱셈이 아니라 숨김표다(제57항) — **수식 라우팅보다 먼저** 바꾼다.
