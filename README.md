@@ -1,6 +1,7 @@
 # semojum-braille
 
 [![시험](https://github.com/Semojum/braille/actions/workflows/test.yml/badge.svg)](https://github.com/Semojum/braille/actions/workflows/test.yml)
+[![윈도우](https://github.com/Semojum/braille/actions/workflows/windows.yml/badge.svg)](https://github.com/Semojum/braille/actions/workflows/windows.yml)
 ![파이썬](https://img.shields.io/badge/python-3.10%20%7C%203.12%20%7C%203.13-blue)
 ![판](https://img.shields.io/badge/version-3.4.13-blue)
 ![라이선스](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
@@ -88,6 +89,7 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 | [docs/encoder.md](docs/encoder.md) | 점역 API, 태그 문법, 데이터 타입, 설정, 모듈 구성 |
 | [docs/decoder.md](docs/decoder.md) | 역점역 API, 설정 |
 | [docs/sidecar.md](docs/sidecar.md) | 표준입출력 프로토콜, 32칸 접기 |
+| [examples/csharp-sidecar](examples/csharp-sidecar/Program.cs) | C# 에서 사이드카 부르기(윈도우 CI 가 돌린다) |
 | [docs/regulations.md](docs/regulations.md) | 어느 조항을 어느 모듈이 지키나 |
 
 ## 규정 근거
@@ -104,7 +106,8 @@ pip install "semojum-braille[kiwi] @ git+https://github.com/Semojum/braille"
 - 기호표에 없는 기호는 경고 없이 빠집니다
 - 역점역은 검수용 근사입니다. 원문을 되살리지 않고, 점자가 규정대로인지 판정하지도 않습니다
 - 기본 설치의 역점역은 낱말 목록에 없는 한국어 낱말을 영어로 읽을 수 있습니다. `[kiwi]` 를 깔면 줄어듭니다
-- 스레드 안전, Windows, 파이썬 3.11 · 3.14 는 시험하지 않았습니다
+- 스레드 안전, 파이썬 3.11 · 3.14 는 시험하지 않았습니다
+- Windows 는 CI 러너(영어 로캘)에서 설치 · 시험 · C# 에서 사이드카 부르기를 돌립니다. 한국어 로캘 PC 에서는 아직 재지 않았습니다
 
 ## 기여
 
