@@ -19,6 +19,7 @@ from semojum_braille.encoder import inline_math
 from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
 from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
+from semojum_braille.encoder.table_braille import TableBraille
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
 from semojum_braille.schemas import LLMOutput
@@ -66,23 +67,70 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     점자가 0셀이거나 엔진이 예외를 던진 요소는 점역자 주 '점역 못 함'이 되고 `blocked` 가 참이다. 종전에는
     `_translate_one` 을 바로 불러 그런 요소가 빈 점자로 조용히 사라졌다(`dropped` 도 비어 표시가 없었다).
     """
+    opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
+    bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
+                  korean_grade1, english_grade1, math_page)
+    out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines)}   # AI 서버 검토 표시(C2 · R1)와 같은 판정
+    if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
+        return {"cells": "", "breaks": [], **out}
+    return {**_body(fe, fe.text, fe.breaks), **out}
+
+
+def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int = 0,
+          korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False) -> dict:
+    """표 요소 하나 → 고른 안 + 다섯 안(풀어쓰기 · 격자 · 행열 바꿈 · 테두리만 · 번호 체계)의 요소 본문 (#56).
+
+    `source` 는 표 태그 글(`<!표><!행><!칸>…`)이다. AI 응답 `TextElement.table_source` 가 이 값이다. 앱이 칸 글을
+    고친 뒤 이 op 로 다시 점역하면 서버가 낸 표 점자와 같은 길(`TableBraille.translate` → `flatten_elements`)을
+    지난다. `translate` 에 태그 글을 넣으면 글 모듈이라 표 조판이 안 나온다.
+
+    `render_mode` 는 고를 안(`unfold` · `table_grid` · `transposed` · `linear` · `numbered`)이다. 없거나 모르는
+    값이면 풀어쓰기다(엔진 기본). `tn_text` 는 태그가 표로 안 풀리는 글일 때 대신 점역할 점역자 주 글이다.
+    `box_level` 은 그 표를 감싼 글상자 위계다(서버 `_mark_table_box_levels`). 상자 안 표는 테두리를 한 단계
+    아래 꼴로 그린다. 옵션 셋은 `translate` 와 같다.
+
+    `cells` · `breaks` 는 고른 안이고 `drafts` 는 다섯 안 전부다(`render_mode` · `label` · `cells` · `breaks`).
+    태그가 표로 안 풀리면 점역자 주 한 안이라 `drafts` 가 비고 `render_mode` 가 빈 문자열이다.
+    """
+    opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=source, routing_tier="ZERO", render_mode=render_mode,
+                    tn_text=tn_text or None)
+    tb = TableBraille({opt.element_id: box_level} if box_level else None)
+    bo, fe = _run(opt, tb._translate_one, "table", 0, korean_grade1, english_grade1, math_page)
+    out = {"render_mode": bo.drafts[bo.selected_idx].render_mode if bo.drafts else "",
+           "dropped": _dropped(source), "blocked": is_blocked_braille(bo.braille_lines)}
+    if fe is None:
+        return {"cells": "", "breaks": [], "drafts": [], **out}
+    drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b)}
+              for d, t, b in zip(bo.drafts, fe.draft_texts, fe.draft_breaks)]
+    return {**_body(fe, fe.text, fe.breaks), "drafts": drafts, **out}
+
+
+def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
+         korean_grade1: bool, english_grade1: bool, math_page: bool):
+    """요소 하나를 AI 서버 체인처럼 점역하고(`safe_translate`, #52) `flatten_elements` 로 편다 → (BrailleOutput, FlatElement).
+
+    엔진 문맥 값(한글 정자 · 영어 1급 · 수식 쪽)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
+    다음 요청으로 새면 안 된다(#34). 내용이 없는 요소는 `flatten_elements` 가 담지 않아 FlatElement 가 None 이다.
+    """
     tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1), inline_math.MATH_PAGE.set(math_page)
     try:
-        opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
-        bo = safe_translate([opt], _roman_one if force_roman else _TB._translate_one)[0]   # = _TB.translate([opt])[0]
-        blocked = is_blocked_braille(bo.braille_lines)      # AI 서버 검토 표시(C2 · R1)와 같은 판정
+        bo = safe_translate([opt], translate_one)[0]
         el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
-        fe = flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
+        return bo, flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
     finally:
         KOREAN_GRADE1.reset(tokens[0])
         ENGLISH_GRADE1.reset(tokens[1])
         inline_math.MATH_PAGE.reset(tokens[2])
-    dropped = [{"text": t, "count": n, "flag": flag} for flag, count in _DROPPED for t, n in count(text).most_common()]
-    if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
-        return {"cells": "", "breaks": [], "dropped": dropped, "blocked": blocked}
+
+
+def _body(fe, text: str, breaks) -> dict:
+    """요소 통 문자열에서 앞뒤 빈 줄(`prefix` · `suffix`)을 떼고, 끊을 자리를 `prefix` 길이만큼 당긴다."""
     n = len(fe.prefix)
-    return {"cells": fe.text[n:len(fe.text) - len(fe.suffix)], "breaks": [b - n for b in fe.breaks], "dropped": dropped,
-            "blocked": blocked}
+    return {"cells": text[n:len(text) - len(fe.suffix)], "breaks": [b - n for b in breaks]}
+
+
+def _dropped(text: str) -> list[dict]:
+    return [{"text": t, "count": n, "flag": flag} for flag, count in _DROPPED for t, n in count(text).most_common()]
 
 
 def _flag(req: dict, key: str) -> bool:
@@ -114,6 +162,10 @@ def handle(req: dict) -> dict:
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
                          _flag(req, "korean_grade1"), _flag(req, "english_grade1"), _flag(req, "math_page"),
                          _flag(req, "force_roman"))
+    if op == "table":
+        return table(req.get("table_source") or "", req.get("render_mode") or "", req.get("tn_text") or "",
+                     int(req.get("box_level") or 0), _flag(req, "korean_grade1"), _flag(req, "english_grade1"),
+                     _flag(req, "math_page"))
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=bool(req.get("english")),
                                korean_grade1=_flag(req, "korean_grade1"))}
