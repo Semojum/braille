@@ -126,7 +126,7 @@ python -m semojum_braille.sidecar
 | op | 필드 | 타입 | 기본값 | 뜻 | 예 |
 |---|---|---|---|---|---|
 | 모두 | `id` | 아무 JSON 값 | 없음 | 응답에 그대로 돌아온다. 요청과 응답을 짝짓는 데 쓴다 | `2` |
-| 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `brf` · `read_brf` · `grade` · `ping` | `"translate"` |
+| 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `brf` · `read_brf` · `grade` · `symbols` · `ping` | `"translate"` |
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` · `header_footer` · `table` 중 하나. 들여쓰기가 이것에 따라 달라진다. `table` 이면 표 길로 간다(아래 '표도 `translate` 로'). `header_footer` 면 로마자 강제(`force_roman`)가 저절로 켜진다(#60) | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
@@ -151,6 +151,7 @@ python -m semojum_braille.sidecar
 | grade | `type` | 문자열 | `"text"` | 요소 종류. `table` · `formula` 는 늘 `low` 다 | `"table"` |
 | grade | `ocr_confidence` | 수 | 없음 | 추출 신뢰도(0~1). 0.7 미만이면 `low`. 모르면 넣지 않는다 | `0.95` |
 | grade | `korean_grade` | 정수 | `2` | `braille` 이 점역된 급수. `1` 이면 왕복 일치도를 잴 때 정자로 역점역한다. **정자 문서는 꼭 넣는다** — 안 넣으면 요소 대부분이 `low` 가 된다(AI #1276) | `1` |
+| symbols | `group` | 문자열 | `""` | 묶음 이름으로 거른다(`문장부호` · `기타부호` · `단위기호` · `화폐기호` · `화살표` · `그리스문자` · `수학…` 등 기호표 묶음). 비우면 전부 | `"화살표"` |
 
 **응답**
 
@@ -172,6 +173,7 @@ python -m semojum_braille.sidecar
 | read_brf | `pages` | 문자열 배열의 배열 | 쪽마다 유니코드 점자 줄 목록. 빈칸은 `⠀`, 탭은 4칸 자리로 펼친다. 역점역하려면 줄(또는 `\n` 으로 이은 쪽)을 `decode` 에 넘긴다. BRF ASCII 가 아닌 글자가 있으면 `error` |
 | grade | `grade` | 문자열 | 검수 순서 등급. `low` · `medium` · `high`. **아래 '검수 등급의 뜻'을 반드시 읽을 것** |
 | grade | `round_trip` | 수 또는 `null` | 왕복 일치도(0~1). 점역 결과를 역점역해 원문과 대조한 값. 잴 수 없거나(원문이 짧음 · 표 · 수식 · 영문) 등급을 규칙으로 정했으면 `null` |
+| symbols | `symbols` | 객체 배열 | 삽입할 수 있는 기호. `[{"char", "cells", "group"}]`. `cells` 는 **문맥 없는 기호표 값**이다(엔진 `symbol_table.json`, 302개). 실제 점자는 글에 넣은 뒤 `translate` 가 문맥으로 정한다 — 예 `×` 는 표 값이 곱셈 `⠡` 인데 OX 문항의 `×` 는 `⠴⠠⠭` 로, 참고표 `※`(`⠐⠔`)는 앞뒤 한 칸을 띄워 적는다(「한국 점자 규정」 제60항) |
 | ping | `ok` | 참거짓 | 늘 `true` |
 | ping | `version` | 문자열 | 엔진 판(`semojum_braille.__version__`). 예 `"3.4.11"` |
 | ping | `protocol` | 정수 | 프로토콜 판. 요청 · 응답 꼴이 앞 판과 **호환되지 않게** 바뀔 때만 올린다. 필드나 op 를 더하는 것은 올리지 않는다. 지금 `1` |

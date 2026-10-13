@@ -219,6 +219,32 @@ def _grade_arg(req: dict, key: str) -> int:
     raise SidecarError("BAD_FIELD", f"{key} 는 1 · 2 여야 한다: {v!r}")
 
 
+def symbols(group: str = "") -> dict:
+    """삽입할 수 있는 기호 목록(V4 가이드 `symbols`). 기호표(`encoder/symbol_table.json`)의 묶음 이름 그대로
+    `group` 이고, `cells` 는 엔진이 그 기호에 쓰는 점형이다(`symbol_rules._load_flat_table`, 그리스 소문자 ⠨ 등 보정 뒤 값).
+    앞뒤 띄어쓰기처럼 문맥이 정하는 것은 `translate` 가 넣는다(예 참고표 ※ 제60항 앞뒤 한 칸). `group` 으로 거른다."""
+    out = []
+    for g, entries in _symbol_groups().items():
+        if group and g != group:
+            continue
+        out += [{"char": c, "cells": cells, "group": g} for c, cells in entries]
+    return {"symbols": out}
+
+
+def _symbol_groups() -> dict:
+    global _SYMBOLS
+    if _SYMBOLS is None:
+        from semojum_braille.encoder import symbol_rules
+        flat = symbol_rules._load_flat_table()
+        raw = json.loads(symbol_rules._TABLE_PATH.read_text(encoding="utf-8"))
+        _SYMBOLS = {g: [(c, flat[c]) for c in v if not c.startswith("_") and c in flat]
+                    for g, v in raw.items() if not g.startswith("_") and isinstance(v, dict)}
+    return _SYMBOLS
+
+
+_SYMBOLS = None
+
+
 def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None,
           korean_grade: int = 2) -> dict:
     """요소 하나의 검수 등급과 왕복 일치도. AI 서버가 응답에 붙이는 `review_grade` · `round_trip` 과 같은 길이다
@@ -258,6 +284,8 @@ def handle(req: dict) -> dict:
     if op == "grade":
         return grade(req.get("braille", ""), req.get("source", ""), req.get("type") or "text",
                      req.get("ocr_confidence"), _grade_arg(req, "korean_grade"))
+    if op == "symbols":
+        return symbols(req.get("group") or "")
     if op == "ping":
         return {"ok": True, "version": __version__, "protocol": PROTOCOL}
     raise SidecarError("BAD_FIELD", f"모르는 op: {op!r}")

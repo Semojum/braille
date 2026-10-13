@@ -408,3 +408,14 @@ def test_table_도_엔진_예외는_그_표만_점역_못_함으로_온다(monke
     monkeypatch.setattr(TableBraille, "_translate_one", boom)
     r = sidecar.table(_표(["가", "나"]), "table_grid")
     assert r["blocked"] and r["drafts"] == []
+
+
+def test_symbols_는_기호표_묶음과_점형을_낸다():
+    """V4 가이드 `symbols`. `cells` 는 문맥 없는 기호표 값이다. 참고표 ※ 는 「한국 점자 규정」 제60항(재추출 2533행)
+    `"9` = ⠐⠔(앞뒤 한 칸은 넣은 뒤 translate 가 문맥으로 정한다)."""
+    allsym = sidecar.handle({"op": "symbols"})["symbols"]
+    assert {"char": "※", "cells": "⠐⠔", "group": "기타부호"} in allsym
+    assert all(set(x) == {"char", "cells", "group"} and x["cells"] for x in allsym)
+    arrows = sidecar.handle({"op": "symbols", "group": "화살표"})["symbols"]
+    assert arrows and {x["group"] for x in arrows} == {"화살표"} and len(arrows) < len(allsym)
+    assert sidecar.handle({"op": "symbols", "group": "없는 묶음"})["symbols"] == []
