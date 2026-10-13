@@ -268,3 +268,24 @@ def test_엔진_예외도_그_요소만_점역_못_함으로_온다(monkeypatch)
     monkeypatch.setattr(sidecar._TB, "_translate_one", boom)
     r = sidecar.handle({"op": "translate", "text": "가"})
     assert "error" not in r and r["blocked"] is True
+
+
+def test_force_roman_은_꼬리말처럼_로마자표를_붙인다():
+    """#54. 「한국 점자 규정」 제29항(규정 1496행): 국어 문장 안의 로마자 앞에 로마자표 ⠴. [다만] 문단 전체가 로마자면
+    생략할 수 있어 본문 길은 `Ⅳ` 하나짜리 요소에 ⠴ 를 안 붙인다. 꼬리말은 한국어 책의 한 조각이라 붙인다
+    (translator.translate_plain 주석: gold 페이지행 4,776 : 542). BE 가 꼬리말에 쓰는 translate_plain 과 같아야
+    앱이 사이드카로 갈아타도 꼬리말이 안 바뀐다."""
+    from semojum_braille.encoder.translator import translate_plain
+    for t in ("Ⅳ", "Ⅱ. 물질대사", "Ⅳ 생명의 연속성", "머리말", "01 지수와 로그"):
+        r = sidecar.translate(t, "header_footer", force_roman=True)
+        assert r["cells"] == translate_plain(t) and r["blocked"] is False, t
+    assert sidecar.translate("Ⅳ", "header_footer", force_roman=True)["cells"].startswith("⠴")
+    assert not sidecar.translate("Ⅳ", "header_footer")["cells"].startswith("⠴")      # 끈 값은 종전 그대로
+    r = sidecar.handle({"op": "translate", "text": "Ⅳ", "type": "header_footer", "force_roman": True})
+    assert r["cells"] == translate_plain("Ⅳ")
+
+
+def test_force_roman_도_점역_못_한_요소는_드러낸다():
+    """force_roman 길도 safe_translate 를 지난다(#52 와 같은 판정)."""
+    r = sidecar.translate("😀", "header_footer", force_roman=True)
+    assert r["blocked"] is True
