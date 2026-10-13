@@ -17,6 +17,7 @@ from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
 from semojum_braille.encoder import inline_math
 from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
+from semojum_braille.encoder.isolation import is_blocked_braille
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols
@@ -36,7 +37,7 @@ _BOM = b"\xef\xbb\xbf"
 def translate(text: str, etype: str = "text", hlevel: int = 0,
               korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False) -> dict:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
-    + 점자에서 빠진 글자.
+    + 점자에서 빠진 글자 + 점역 못 한 요소인가.
 
     `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
@@ -48,10 +49,15 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     `math_page` 는 그 요소가 든 쪽이 수식 쪽이라는 뜻이다(`inline_math.MATH_PAGE`, #38). AI 서버는 쪽 PDF 의 한컴
     수식 글꼴 비율로 정하고, 수식 쪽이면 평문 속 `(1, 0)` · `p-q` 를 수식으로 적는다. 앱에서 수식 쪽 글을 다시
     점역할 때 넘겨야 서버가 낸 점자와 같다.
+
+    점역은 AI 서버 체인과 같이 `TextBraille.translate`(= `isolation.safe_translate`)를 지난다(#52). 원문은 있는데
+    점자가 0셀이거나 엔진이 예외를 던진 요소는 점역자 주 '점역 못 함'이 되고 `blocked` 가 참이다. 종전에는
+    `_translate_one` 을 바로 불러 그런 요소가 빈 점자로 조용히 사라졌다(`dropped` 도 비어 표시가 없었다).
     """
     tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1), inline_math.MATH_PAGE.set(math_page)
     try:
-        bo = _TB._translate_one(LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO"))
+        bo = _TB.translate([LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")])[0]
+        blocked = is_blocked_braille(bo.braille_lines)      # AI 서버 검토 표시(C2 · R1)와 같은 판정
         el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
         fe = flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
     finally:
@@ -60,9 +66,10 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
         inline_math.MATH_PAGE.reset(tokens[2])
     dropped = [{"text": t, "count": n, "flag": flag} for flag, count in _DROPPED for t, n in count(text).most_common()]
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
-        return {"cells": "", "breaks": [], "dropped": dropped}
+        return {"cells": "", "breaks": [], "dropped": dropped, "blocked": blocked}
     n = len(fe.prefix)
-    return {"cells": fe.text[n:len(fe.text) - len(fe.suffix)], "breaks": [b - n for b in fe.breaks], "dropped": dropped}
+    return {"cells": fe.text[n:len(fe.text) - len(fe.suffix)], "breaks": [b - n for b in fe.breaks], "dropped": dropped,
+            "blocked": blocked}
 
 
 def _flag(req: dict, key: str) -> bool:
