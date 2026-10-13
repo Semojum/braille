@@ -241,3 +241,30 @@ def test_판_번호는_한_곳에서_읽는다():
     assert re.search(r'^dynamic = \["version"\]', toml, re.M) and not re.search(r'^version = "', toml, re.M)
     assert 'version = {attr = "semojum_braille.__version__"}' in toml
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
+
+
+@pytest.mark.parametrize("text", ["😀", "١٢٣", "ང"])
+def test_점자로_옮길_글자가_없는_요소는_점역_못_함으로_온다(text):
+    """#52. 종전 사이드카는 `_translate_one` 을 바로 불러 이런 요소가 빈 cells 로 조용히 사라졌다(dropped 도 비었다).
+    AI 서버 체인(`safe_translate`)처럼 점역자 주 '점역 못 함'으로 바꾸고 blocked 를 참으로 낸다."""
+    from semojum_braille.encoder.isolation import blocked_braille
+    r = sidecar.translate(text)
+    assert r["blocked"] is True
+    assert r["cells"].lstrip("⠀") == blocked_braille()
+
+
+def test_한자만_있는_요소와_보통_글은_blocked_가_아니다():
+    """한자만 있는 요소는 빈 출력이 정답이다(도서 관행, isolation._CJK_RE). 보통 글은 종전과 같은 점자다."""
+    han = sidecar.translate("大韓民國")
+    assert han["blocked"] is False and han["cells"] == ""
+    ok = sidecar.translate("대한민국")
+    assert ok["blocked"] is False and ok["cells"] == "⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁"
+
+
+def test_엔진_예외도_그_요소만_점역_못_함으로_온다(monkeypatch):
+    """종전에는 엔진 예외가 요청째 error 였다. AI 서버처럼 그 요소만 '점역 못 함'으로 바꾼다."""
+    def boom(opt):
+        raise RuntimeError("시험용 예외")
+    monkeypatch.setattr(sidecar._TB, "_translate_one", boom)
+    r = sidecar.handle({"op": "translate", "text": "가"})
+    assert "error" not in r and r["blocked"] is True
