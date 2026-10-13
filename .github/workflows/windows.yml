@@ -1,0 +1,30 @@
+name: 윈도우
+
+# 앱은 윈도우 C# 이다. 엔진이 윈도우에서 깔리고 시험을 통과하는지, docs/sidecar.md 8절 설정으로
+# C# 에서 부르면 실제로 도는지를 본다(examples/csharp-sidecar). 러너는 영어 로캘이라 한국어 윈도우의
+# 콘솔 기본(cp949)은 그 예제가 인코딩을 직접 지정해 재현한다.
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]      # 하한 · 앱 권고
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: pip install ".[test]"      # 앱에는 [kiwi] 를 안 싣는다
+      - run: pytest -q
+      - name: C# 에서 사이드카 부르기
+        run: dotnet run --project examples/csharp-sidecar -c Release -- "${{ steps.py.outputs.python-path }}"
