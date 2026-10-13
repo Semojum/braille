@@ -262,6 +262,56 @@ public final class BrailleAssist {
     /** cols를 넘으면 <b>빈칸(어절) 자리에서</b> 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
      *  종전의 무조건 자르기는 한글 한 음절의 점형을 두 줄로 갈랐다 — 지침 §2.1.1(2)의
      *  음절 원칙도 어절 예외도 아니다(2026-09-08 대표 지적 ③). 근거는 python core._wrap. */
+    /** 해설 정답 목록(`01 ①  02 ③`)은 쌍 안(번호와 답 사이)에서 접지 않는다(#48). 근거와 판정은 python assist._pair_gaps. */
+    private static final java.util.List<String> CIRCLED = java.util.List.of("⠼⠂", "⠼⠆", "⠼⠒", "⠼⠲", "⠼⠢");   // ①~⑤
+
+    private static boolean isNum(String t) {
+        if (t.length() < 2 || t.charAt(0) != '⠼') return false;
+        for (int k = 1; k < t.length(); k++) if (DIGIT_CELLS.indexOf(t.charAt(k)) < 0) return false;
+        return true;
+    }
+
+    private static java.util.Set<Integer> pairGaps(String line) {
+        char sp = SPACE;
+        java.util.List<int[]> toks = new java.util.ArrayList<>();
+        int i = 0;
+        while (i < line.length()) {
+            if (line.charAt(i) == sp) { i++; continue; }
+            int j = i;
+            while (j < line.length() && line.charAt(j) != sp) j++;
+            toks.add(new int[]{i, j});
+            i = j;
+        }
+        for (int s = toks.size() % 2; s < toks.size() - 3; s += 2) {
+            java.util.List<int[]> nums = new java.util.ArrayList<>(), anss = new java.util.ArrayList<>();
+            for (int k = s; k < toks.size(); k++) (((k - s) % 2 == 0) ? nums : anss).add(toks.get(k));
+            boolean ok = true, circled = false;
+            for (int[] t : nums) ok &= isNum(line.substring(t[0], t[1]));
+            for (int[] t : anss) {
+                String w = line.substring(t[0], t[1]);
+                boolean c = CIRCLED.contains(w);
+                circled |= c;
+                ok &= c || isNum(w);
+            }
+            if (!ok || !circled) continue;
+            int prev = -1;
+            boolean seq = true;
+            for (int[] t : nums) {
+                StringBuilder d = new StringBuilder();
+                for (int k = t[0] + 1; k < t[1]; k++) d.append(DIGIT_CELLS.indexOf(line.charAt(k)));
+                int n = Integer.parseInt(d.toString());
+                if (prev >= 0 && n != prev + 1) seq = false;
+                prev = n;
+            }
+            if (!seq) continue;
+            java.util.Set<Integer> gaps = new java.util.HashSet<>();
+            for (int k = 0; k < nums.size(); k++)
+                for (int p = nums.get(k)[1]; p < anss.get(k)[0]; p++) gaps.add(p);
+            return gaps;
+        }
+        return java.util.Collections.emptySet();
+    }
+
     private static java.util.List<String> wordWrap(String line, int cols) {
         java.util.List<String> out = new java.util.ArrayList<>();
         if (line.isEmpty()) {
@@ -269,7 +319,10 @@ public final class BrailleAssist {
             return out;
         }
         while (line.length() > cols) {
-            int cut = line.lastIndexOf(SPACE, cols);
+            java.util.Set<Integer> gaps = pairGaps(line);
+            int cut = -1;
+            for (int k = cols; k >= 0; k--)
+                if (line.charAt(k) == SPACE && !gaps.contains(k)) { cut = k; break; }
             if (cut <= 0 || trimCells(line.substring(0, cut)).isEmpty()) {
                 out.add(line.substring(0, cols));
                 line = line.substring(cols);

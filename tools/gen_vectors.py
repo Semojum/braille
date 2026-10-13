@@ -220,6 +220,10 @@ _B2 = [5, 7, 9, 10, 11, 14, 15, 17, 19, 21, 22, 24, 26, 27, 29, 31, 33, 35, 38, 
 _T2 = _S2[2:]                                    # 들여쓰기 없는 같은 줄 — 1단계 제목 자리
 _TB2 = [b - 2 for b in _B2 if b > 2]
 _TN = "⠁" * 31 + "⠠⠄" + "⠃" * 7                 # 32칸째 강제 자리에 점역자 주 표가 걸린 줄
+# 해설 정답 목록(#48 · AI#1353). AI develop a39c13f2 `translate_body` 로 뽑아 값으로 굳혔다.
+_A1 = "⠀⠀" + "⠼⠁⠀⠼⠆⠀⠀⠼⠃⠀⠼⠢⠀⠀⠼⠉⠀⠼⠢⠀⠀⠼⠙⠀⠼⠲⠀⠀⠼⠑⠀⠼⠒⠀⠀⠼⠋⠀⠼⠆"   # "  1 ②  2 ⑤  3 ⑤  4 ④  5 ③  6 ②" 42칸
+_A2 = "⠠⠍⠉⠪⠶⠀⠈⠕⠘⠷⠀⠑⠛⠨⠝⠀⠀⠼⠚⠁⠀⠼⠆⠀⠼⠚⠃⠀⠼⠒⠀⠼⠚⠉⠀⠼⠒⠀⠼⠚⠙⠀⠼⠂⠀⠼⠚⠑⠀⠼⠲"   # "수능 기본 문제  01 ② 02 ③ 03 ③ 04 ① 05 ④" 51칸(쌍 사이 한 칸)
+_C1 = "⠼⠂⠀⠼⠁⠀⠀⠼⠆⠀⠼⠃⠀⠀⠼⠒⠀⠼⠉⠀⠀⠼⠲⠀⠼⠙⠀⠀⠼⠢⠀⠼⠑"   # "① 1  ② 2  ③ 3  ④ 4  ⑤ 5" 33칸 — 선택지(정답 목록 아님)
 
 WRAP = [
     ("음절: 32칸 안에서 가장 먼 끊을 자리에서", dict(line=_S1, cols=32, mode="syllable", breaks=_B1),
@@ -235,6 +239,12 @@ WRAP = [
      "docs/sidecar.md §5 규칙 4"),
     ("어절 · 1단계 제목: 접힌 조각을 가운데에", dict(line=_T2, cols=32, mode="word", center=True), ""),
     ("음절: 32칸 안의 줄은 그대로", dict(line=_S2[:30], cols=32, mode="syllable", breaks=[5, 7], center=True), ""),
+    ("어절: 정답 목록은 번호와 답 사이에서 안 접는다", dict(line=_A1, cols=32, mode="word"),
+     "#48 · gold 수능 교재 정답 상자는 쌍 사이에서 접는다"),
+    ("음절인데 끊을 자리가 없으면 어절 — 정답 목록도 쌍째로", dict(line=_A1, cols=32, mode="syllable", breaks=[]),
+     "#48 · BE 다운로드(breaks 안 넘김) 길"),
+    ("어절: 상자 제목이 앞에 붙고 쌍 사이가 한 칸인 정답 목록", dict(line=_A2, cols=32, mode="word"), "#48"),
+    ("어절: 선택지(원문자가 번호 자리)는 종전대로", dict(line=_C1, cols=32, mode="word"), "#48 음성 사례"),
 ]
 
 # 블록 여럿: 블록마다 `breaks` 가 그 블록 `text` 기준이다. 이은 문자열 기준으로 옮겨 줄마다 시작 오프셋을 뺀다.
@@ -307,7 +317,7 @@ BRF_JOB = [
 
 
 def build() -> dict:
-    out = {"version": "0.5.1", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.5.2", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
                                          "build_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:

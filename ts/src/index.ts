@@ -193,13 +193,39 @@ export interface Source { orig_page: number; blocks: Block[] }
 /** cols를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
  *  종전의 무조건 자르기는 한글 한 음절의 점형을 두 줄로 갈랐다 — 지침 §2.1.1(2)의
  *  음절 원칙도 어절 예외도 아니다(2026-09-08 대표 지적 ③). 자세한 근거는 python core._wrap. */
+// 해설 정답 목록(`01 ①  02 ③`)은 쌍 안(번호와 답 사이)에서 접지 않는다(#48). 근거와 판정은 python assist._pair_gaps.
+const CIRCLED = ['⠼⠂', '⠼⠆', '⠼⠒', '⠼⠲', '⠼⠢'];        // ①~⑤
+const isNum = (t: string) => t.length > 1 && t[0] === '⠼' && [...t.slice(1)].every(c => DIGIT_CELLS.includes(c));
+
+function pairGaps(line: string): Set<number> {
+  const toks: [number, number][] = [];
+  for (const m of line.matchAll(/[^⠀]+/g)) toks.push([m.index!, m.index! + m[0].length]);
+  const tok = ([a, b]: [number, number]) => line.slice(a, b);
+  for (let s = toks.length % 2; s < toks.length - 3; s += 2) {
+    const tail = toks.slice(s);
+    const nums = tail.filter((_, k) => k % 2 === 0);
+    const anss = tail.filter((_, k) => k % 2 === 1);
+    if (!nums.every(t => isNum(tok(t)))) continue;
+    if (!anss.every(t => isNum(tok(t)) || CIRCLED.includes(tok(t)))) continue;
+    if (!anss.some(t => CIRCLED.includes(tok(t)))) continue;
+    const nos = nums.map(t => parseInt([...tok(t).slice(1)].map(c => DIGIT_CELLS.indexOf(c)).join(''), 10));
+    if (nos.some((n, k) => k > 0 && n !== nos[k - 1] + 1)) continue;
+    const gaps = new Set<number>();
+    nums.forEach(([, e], k) => { for (let p = e; p < anss[k][0]; p++) gaps.add(p); });
+    return gaps;
+  }
+  return new Set();
+}
+
 function wordWrap(line: string, cols: number): string[] {
   if (!line) return [''];
   const out: string[] = [];
   const trimEnd = (s: string) => s.replace(/⠀+$/, '');
   const trimStart = (s: string) => s.replace(/^⠀+/, '');
   while (line.length > cols) {
-    const cut = line.lastIndexOf(SPACE, cols);
+    const gaps = pairGaps(line);
+    let cut = -1;
+    for (let k = cols; k >= 0; k--) if (line[k] === SPACE && !gaps.has(k)) { cut = k; break; }
     if (cut <= 0 || trimEnd(trimStart(line.slice(0, cut))) === '') {
       out.push(line.slice(0, cols));
       line = line.slice(cols);
