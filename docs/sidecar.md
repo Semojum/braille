@@ -128,12 +128,13 @@ python -m semojum_braille.sidecar
 | 모두 | `id` | 아무 JSON 값 | 없음 | 응답에 그대로 돌아온다. 요청과 응답을 짝짓는 데 쓴다 | `2` |
 | 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `brf` · `read_brf` · `grade` · `ping` | `"translate"` |
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
-| translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` 중 하나. 들여쓰기가 이것에 따라 달라진다 | `"title"` |
+| translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` · `header_footer` · `table` 중 하나. 들여쓰기가 이것에 따라 달라진다. `table` 이면 표 길로 간다(아래 '표도 `translate` 로'). `header_footer` 면 로마자 강제(`force_roman`)가 저절로 켜진다(#60) | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
 | translate | `korean_grade1` | 참거짓 | `false` | 한글 정자(1급). `true` 면 약자 · 약어(「한국 점자 규정」 제13~18항)를 쓰지 않는다. 받침 ㅆ `⠌` 는 자모 규정(제4항)이라 그대로다. AI proto 의 같은 이름 필드다 | `true` |
 | translate | `english_grade1` | 참거짓 | `false` | 영어 1급. `true` 면 약자 없이 글자대로 적고, 문단 전체가 영어여도 로마자표 `⠴` · 종료표 `⠲` 를 생략하지 않는다. AI proto 의 같은 이름 필드다 | `true` |
 | translate | `math_page` | 참거짓 | `false` | 그 요소가 든 쪽이 **수식 쪽**이면 `true`. 평문 속 `(1, 0)` · `p-q` 를 수식으로 적는다(수식 소괄호 `⠦…⠴`). AI 서버는 쪽 PDF 의 한컴 수식 글꼴 비율로 정한다. 서버가 낸 점자와 같게 다시 점역하려면 그 쪽의 값을 넘긴다(아래 '수식 쪽 값') | `true` |
-| translate | `force_roman` | 참거짓 | `false` | 꼬리말처럼 점역한다. 한글이 없는 로마자 조각에도 로마자표 `⠴` 를 붙인다(「한국 점자 규정」 제29항). 본문은 그 항의 [다만](문단 전체가 로마자면 생략할 수 있다)을 따라 `Ⅳ` 하나를 `⠠⠠⠊⠧` 로 적지만, 점자책 꼬리말은 `⠴⠠⠠⠊⠧` 다. BE 가 꼬리말을 점역하는 `TranslateText`(엔진 `translate_plain`)와 같은 점자다. **꼬리말 글을 `brf` 의 `footer_braille` 로 넣을 때 쓴다.** 이때 `type` 은 `header_footer` 로 둬야 들여쓰기 칸이 안 붙는다 | `true` |
+| translate | `force_roman` | 참거짓 | `false` | 꼬리말처럼 점역한다. 한글이 없는 로마자 조각에도 로마자표 `⠴` 를 붙인다(「한국 점자 규정」 제29항). 본문은 그 항의 [다만](문단 전체가 로마자면 생략할 수 있다)을 따라 `Ⅳ` 하나를 `⠠⠠⠊⠧` 로 적지만, 점자책 꼬리말은 `⠴⠠⠠⠊⠧` 다. BE 가 꼬리말을 점역하는 `TranslateText`(엔진 `translate_plain`)와 같은 점자다. **`type: "header_footer"` 면 저절로 켜지므로 따로 줄 일이 없다**(#60). 쓰는 자리가 꼬리말뿐이다. 옛 호출을 위해 받기는 한다 | `true` |
+| translate | `render_mode` · `tn_text` · `box_level` | 문자열 · 문자열 · 정수 | `""` · `""` · `0` | 표일 때만 쓴다. 뜻은 아래 `table` 의 같은 이름 필드와 같다. 표가 아니면 무시한다 | `"table_grid"` |
 | table | `table_source` | 문자열 | `""` | 표 요소 하나의 태그 글(`<!표><!행><!칸>…`, [encoder.md](encoder.md) 1.6). AI 응답 `text_list` 표 요소의 `table_source` 가 이 값이다. 점역사가 칸 글을 고쳤으면 고친 태그 글을 넣는다. 사람이 읽는 테두리 글(`contents`)은 표 구조를 잃어 넣으면 안 된다 | `"<!표>\n<!행><!칸>구분<!칸>가<!/행>\n<!/표>"` |
 | table | `render_mode` | 문자열 | `""` | 고를 안. `unfold`(테두리 없음) · `table_grid`(테두리+구분선) · `transposed`(행열 바꿈) · `linear`(테두리만, 정답 상자) · `numbered`(번호 체계). AI 응답 표 요소의 같은 이름 필드다. 없거나 모르는 값이면 `unfold` | `"table_grid"` |
 | table | `tn_text` | 문자열 | `""` | 태그가 표로 안 풀리는 글일 때 대신 점역할 점역자 주 글. AI 응답 표 요소의 같은 이름 필드를 그대로 넘긴다 | `"<!주>표. …<!/주>"` |
@@ -163,6 +164,7 @@ python -m semojum_braille.sidecar
 | table | `render_mode` | 문자열 | 고른 안. 태그가 표로 안 풀려 점역자 주 한 안이면 `""` |
 | table | `drafts` | 객체 배열 | 다섯 안 전부. `[{"render_mode", "label", "cells", "breaks"}]` 이고 순서는 `unfold` · `table_grid` · `transposed` · `linear` · `numbered` 다. 안을 바꾸기만 할 때는 다시 부를 필요 없이 이 배열에서 고른다. 점역자 주 한 안이면 `[]` |
 | table | `dropped` · `blocked` | 객체 배열 · 참거짓 | `translate` 와 같다. `dropped` 는 `table_source` 의 글자로 센다(태그는 세지 않는다) |
+| translate | `render_mode` · `drafts` | 문자열 · 객체 배열 | **표일 때만 붙는다**(#60). 뜻은 `table` 의 같은 이름 필드와 같다. 표가 아니면 응답은 `cells` · `breaks` · `dropped` · `blocked` 넷뿐이다 |
 | decode | `text` | 문자열 | 역점역한 글. 원문 복원이 아니라 **검수용 근사**다. 줄바꿈은 그대로 둔다 |
 | brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
 | read_brf | `pages` | 문자열 배열의 배열 | 쪽마다 유니코드 점자 줄 목록. 빈칸은 `⠀`, 탭은 4칸 자리로 펼친다. 역점역하려면 줄(또는 `\n` 으로 이은 쪽)을 `decode` 에 넘긴다. BRF ASCII 가 아닌 글자가 있으면 `error` |
@@ -175,13 +177,14 @@ python -m semojum_braille.sidecar
 
 - **수식 쪽 값**(`math_page`): AI 응답에는 아직 쪽 표지가 없다(proto 묶음 대기). 그동안은 그 쪽에 수식(`formula`) 요소가 하나라도 있으면 `true` 로 넘긴다. 2027 dev · val 1,746쪽에서 이 근사는 쪽 판정이 서버와 1,718쪽 같고(28쪽 다름), 글 요소로는 39,564 중 39,558이 서버 점자와 같다(6 다름). 서버 판정을 그대로 넘기면 39,564 전부 같다(하네스 ⑥, #38).
 - **표 왕복**(`table`): AI 2027 dev · val 1,746쪽 응답의 표 900개를 `table_source` · `render_mode` · `tn_text` 로 이 op 에 넣으면 828(92.0%)이 서버 점자와 바이트로 같다(고른 안 · 다섯 안 · 끊을 자리). 정답 상자 89/89 · 번호 체계 61/62 · 격자 678/749 다. 응답의 `table_box_level` 을 `box_level` 로 같이 넘기면 899(99.9%), 수식 쪽 값(`math_page`)까지 넘기면 900 이다. 묵자 테두리 글을 표로 되돌려 넣는 길은 70%(정답 상자 1/88 · 번호 체계 0/61)라 쓰지 않는다(#56).
+- **표도 `translate` 로**(#60): `type` 이 `table` 이거나 `text` 가 표 태그(`<!표>`)로 읽히면 `table` op 와 같은 함수로 가서 같은 응답(`render_mode` · `drafts` 포함)을 낸다. 표 900개 전부 `table` op 와 바이트로 같다. 앱은 창구 하나만 써도 된다. `table` op 는 한동안 같이 둔다. ★ 갈림은 **엔진과 요소 type 을 둘 다** 표로 바꾼다. 엔진만 표로 바꾸고 `flatten_elements` 의 요소 type 을 `text` 로 두면 표 줄마다 문단 들여쓰기 2칸이 더 붙어(`⠀⠀⠿⠿` → `⠀⠀⠀⠀⠿⠿`) 900/900 다르다(`list_item` 도 900/900). 2027 dev · val 에서 `<!표>` 가 든 요소는 표 요소 900개와 정확히 같았다(표 아닌 요소 43,772개 중 0).
 - 정자로 점역한 문서는 `translate` · `decode` · `grade` 세 op 모두에 `korean_grade1: true` 를 넣는다. 한 op 에만 넣으면 점역과 되읽기가 어긋난다.
 - `korean_grade1` · `english_grade1` 은 그 요청 하나에만 걸린다. 다음 요청으로 이어지지 않는다. `true` · `false` · `null`(= `false`)만 받고, 문자열 `"true"` 같은 값은 `error` 로 돌려준다(조용히 켜거나 끄지 않는다).
 - `decode` 는 `math` 를 받지 않는다. 수식 요소를 수식으로 되돌리려면 파이썬에서 `decode(…, math=True)` 를 부른다([decoder.md](decoder.md) 2.1).
 
-`brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `footer_braille` 은 이미 점역된 점자다. 꼬리말 글은 `translate` 에 `force_roman: true` · `type: "header_footer"` 로 넣어 받은 `cells` 를 넘긴다(로마숫자 단원명 `Ⅳ` 에 로마자표가 붙는다). `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
+`brf` 의 `job`: `{"pages": [{"orig_page_no": 정수, "elements": [{"text": 통 문자열}, …]}, …], "options": {…}, "footer_braille": 점자, "start_braille_page": 정수}`. `footer_braille` 은 이미 점역된 점자다. 꼬리말 글은 `translate` 에 `type: "header_footer"` 로 넣어 받은 `cells` 를 넘긴다(로마자 강제가 저절로 켜져 로마숫자 단원명 `Ⅳ` 에 로마자표가 붙는다, #60). `elements` 배열 순서가 읽기 순서다. `options` 는 `cols` · `rows` · `include_page_number` · `page_row_on`(`odd`·`every`·`even`·`none`) · `show_orig_page` · `show_braille_page` · `cover_pages` · `orig_page_start` · `show_change_line` · `footer_align` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`).
 
-**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False, math_page=False, force_roman=False) -> dict`(`{"cells", "breaks", "dropped", "blocked"}` 를 낸다) · `table(source, render_mode="", tn_text="", box_level=0, korean_grade1=False, english_grade1=False, math_page=False) -> dict`(`{"cells", "breaks", "render_mode", "drafts", "dropped", "blocked"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). 판 번호는 `semojum_braille.__version__` · `semojum_braille.sidecar.PROTOCOL` 이다. `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
+**파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade1=False, english_grade1=False, math_page=False, force_roman=False, render_mode="", tn_text="", box_level=0) -> dict`(`{"cells", "breaks", "dropped", "blocked"}` 를 내고, 표면 `table` 과 같은 것을 낸다) · `table(source, render_mode="", tn_text="", box_level=0, korean_grade1=False, english_grade1=False, math_page=False) -> dict`(`{"cells", "breaks", "render_mode", "drafts", "dropped", "blocked"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). 판 번호는 `semojum_braille.__version__` · `semojum_braille.sidecar.PROTOCOL` 이다. `brf` 는 `semojum_braille.assist.build_brf_file(job) -> bytes`, `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
 ## 5. 32칸 접기 (부르는 쪽이 할 일)
 
