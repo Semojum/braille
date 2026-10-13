@@ -49,7 +49,9 @@ PING = {"ok": True, "version": __version__, "protocol": sidecar.PROTOCOL}
 
 def test_handle_answers_ping_and_reports_unknown_op():
     assert sidecar.handle({"op": "ping"}) == PING
-    assert "error" in sidecar.handle({"op": "fold"})
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.handle({"op": "fold"})
+    assert e.value.code == "BAD_FIELD"
 
 
 def test_brf_gives_field_form_file():
@@ -67,7 +69,7 @@ def test_stdio_keeps_id_and_survives_bad_line():
                        capture_output=True, text=True, timeout=120)
     a, b, c = (json.loads(x) for x in p.stdout.splitlines())
     assert a == {**PING, "id": 7}
-    assert b["id"] is None and "error" in b
+    assert b["id"] is None and "error" in b and b["code"] == "BAD_JSON"      # V4 가이드 오류 표
     assert c == {**PING, "id": 8}
 
 
@@ -112,15 +114,16 @@ def test_문서에_적은_translate_줄이_지금도_그대로_오간다():
     assert len(pairs) >= 3
     for q, a in pairs:
         assert {**sidecar.handle(q), "id": q["id"]} == a
-        if not {"korean_grade1", "english_grade1"} & q.keys():
-            assert sidecar.handle({**q, "korean_grade1": False, "english_grade1": False})["cells"] == a["cells"]
+        if not {"korean_grade", "english_grade"} & q.keys():
+            assert sidecar.handle({**q, "korean_grade": 2, "english_grade": 2})["cells"] == a["cells"]
 
 
 def test_한글_정자는_약자를_쓰지_않는다():
     """#34. 「한국 점자 규정」(재추출): 제13항 573행 '가' 약자 $(585행, ⠫). 정자는 제1항 133행 첫소리 ㄱ @(148행, ⠈)
     + 제6항 364행 ㅏ <(375행, ⠣)."""
     assert _cells("가") == "⠫"
-    assert _cells("가", korean_grade1=True) == "⠈⠣"
+    assert _cells("가", korean_grade=1) == "⠈⠣"
+    assert _cells("가", korean_grade=2) == _cells("가", korean_grade=0) == "⠫"      # 0 은 안 보냄 = 2(V4 가이드)
     assert _cells("가") == "⠫"                       # 켠 값이 다음 호출로 새지 않는다
 
 
@@ -128,7 +131,7 @@ def test_영어_1급은_약자_없이_적고_로마자표를_생략하지_않는
     """#34. 「한국 점자 규정」(재추출) 제28항 1329행 t(1429행, ⠞) · h(1369행, ⠓) · e(1354행, ⠑), 제29항 1496~1497행
     로마자표 0(⠴) · 종료표 4(⠲). 문단 전체가 로마자면 표를 생략할 수 있으나(제29항 [다만] 1507행) 1급(초급자 자료)은
     생략하지 않는다(「점자 도서 제작 지침」 제2장 제4절 1.1)(1), 재추출 1494~1499행)."""
-    assert _cells("the", english_grade1=True) == "⠴⠞⠓⠑⠲"
+    assert _cells("the", english_grade=1) == "⠴⠞⠓⠑⠲"
     assert "⠞⠓⠑" not in _cells("the")               # 기본(2급)은 약자로 적는다
 
 
@@ -143,17 +146,19 @@ def test_빠진_글자를_AI_쪽_플래그와_같은_갈래로_알린다():
     assert sidecar.translate("가나")["dropped"] == []
 
 
-def test_옵션은_참거짓만_받는다():
-    """문자열 "true" 를 조용히 켜거나 끄면 정자 · 약자가 바뀐 채로 나간다. 오류로 돌려준다."""
+def test_옵션은_정해진_꼴만_받는다():
+    """문자열 "1" · "true" 를 조용히 켜거나 끄면 정자 · 약자가 바뀐 채로 나간다. `BAD_FIELD` 로 돌려준다(V4 가이드 오류 표)."""
     p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
-                       input='{"id": 1, "op": "translate", "text": "\\uac00", "korean_grade1": true}\n'
-                             '{"id": 2, "op": "translate", "text": "\\uac00", "korean_grade1": "true"}\n'
-                             '{"id": 3, "op": "translate", "text": "\\uac00", "english_grade1": null}\n',
+                       input='{"id": 1, "op": "translate", "text": "\\uac00", "korean_grade": 1}\n'
+                             '{"id": 2, "op": "translate", "text": "\\uac00", "korean_grade": "1"}\n'
+                             '{"id": 3, "op": "translate", "text": "\\uac00", "english_grade": null}\n'
+                             '{"id": 4, "op": "translate", "text": "\\uac00", "split_choices": "true"}\n',
                        capture_output=True, text=True, timeout=120)
-    a, b, c = (json.loads(x) for x in p.stdout.splitlines())
+    a, b, c, d = (json.loads(x) for x in p.stdout.splitlines())
     assert a["cells"].lstrip("⠀") == "⠈⠣" and a["id"] == 1
-    assert "korean_grade1" in b["error"] and b["id"] == 2
+    assert "korean_grade" in b["error"] and b["code"] == "BAD_FIELD" and b["id"] == 2
     assert c["cells"].lstrip("⠀") == "⠫"
+    assert d["code"] == "BAD_FIELD" and d["id"] == 4
 
 
 def test_정자로_점역하고_역점역_등급까지_한_바퀴_돈다():
@@ -161,12 +166,12 @@ def test_정자로_점역하고_역점역_등급까지_한_바퀴_돈다():
     옵션이 translate 에만 가고 decode · grade 에 안 가면 앱에서 같은 일이 난다. 문장은 「한국 점자 규정」 제18항 예(909행)."""
     src = "비가 왔다. 그래서 소풍 계획은 취소되었다."
     p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
-                       input=json.dumps({"id": 1, "op": "translate", "text": src, "korean_grade1": True}) + "\n",
+                       input=json.dumps({"id": 1, "op": "translate", "text": src, "korean_grade": 1}) + "\n",
                        capture_output=True, text=True, timeout=120)
     cells = json.loads(p.stdout)["cells"]
     assert "⠁⠎" not in cells                                      # 약어 '그래서'(901행)를 안 썼다
-    reqs = [{"id": 2, "op": "decode", "braille": cells, "korean_grade1": True},
-            {"id": 3, "op": "grade", "braille": cells, "source": src, "korean_grade1": True},
+    reqs = [{"id": 2, "op": "decode", "braille": cells, "korean_grade": 1},
+            {"id": 3, "op": "grade", "braille": cells, "source": src, "korean_grade": 1},
             {"id": 4, "op": "grade", "braille": cells, "source": src}]       # 옵션 없이: 2급으로 읽는다
     p = subprocess.run([sys.executable, "-m", "semojum_braille.sidecar"],
                        input="".join(json.dumps(r) + "\n" for r in reqs), capture_output=True, text=True, timeout=120)
@@ -180,7 +185,7 @@ def test_decode_grade_는_옵션이_없으면_그대로다():
     src = "대한민국의 모든 국민은 법 앞에 평등하다."
     from semojum_braille.encoder.translator import translate_tagged_text
     br = translate_tagged_text(src)
-    assert sidecar.handle({"op": "decode", "braille": br}) == sidecar.handle({"op": "decode", "braille": br, "korean_grade1": False})
+    assert sidecar.handle({"op": "decode", "braille": br}) == sidecar.handle({"op": "decode", "braille": br, "korean_grade": 2})
     assert sidecar.handle({"op": "grade", "braille": br, "source": src}) == {"grade": "high", "round_trip": 1.0}
 
 
@@ -344,9 +349,55 @@ def test_translate_에_표를_넣으면_table_과_같다(mode):
     assert sidecar.handle({"op": "translate", "text": src, "type": "table", "render_mode": mode, "box_level": 1}) == want
 
 
-def test_표가_아니면_translate_응답은_종전_꼴이다():
+def test_표가_아니면_translate_응답에_표_칸이_없다():
     r = sidecar.translate("가나다")
-    assert set(r) == {"cells", "breaks", "dropped", "blocked"}
+    assert set(r) == {"cells", "breaks", "dropped", "blocked", "unknown_tags"}
+
+
+def test_묵자_1000자를_넘으면_TOO_LONG_이고_태그는_세지_않는다():
+    """V4 가이드 translate `text` · 오류 표. 태그째 세면 2027 dev · val 표 2개가 걸리는데 표는 문장으로 못 쪼갠다."""
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.translate("가" * 1001)
+    assert e.value.code == "TOO_LONG"
+    sidecar._check("가" * 1000)                                 # 상한 판정만(1,000자 점역은 수 초 걸린다)
+    sidecar._check("<!강조>가<!/강조>" * 500)                  # 묵자 500자 · 태그째 7,000자
+    r = sidecar._answer(json.dumps({"id": 9, "op": "translate", "text": "가" * 1001}).encode())
+    assert r["code"] == "TOO_LONG" and r["id"] == 9 and "cells" not in r
+
+
+def test_수식이_10중첩_또는_1000자를_넘으면_BAD_LATEX():
+    deep = "<!수식>" + "{" * 11 + "x" + "}" * 11 + "<!/수식>"
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.translate(deep)
+    assert e.value.code == "BAD_LATEX"
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.translate("<!수식>" + "x+" * 501 + "<!/수식>")
+    assert e.value.code == "BAD_LATEX"
+    assert sidecar.translate("<!수식>" + "{" * 10 + "x" + "}" * 10 + "<!/수식>")["cells"]
+    assert sidecar.translate("<!수식>\\{ x \\}" + "<!/수식>")["cells"]   # 글자로 쓴 중괄호는 세지 않는다
+
+
+def test_모르는_태그는_unknown_tags_로_알린다():
+    """엔진은 모르는 태그를 지우고 점역한다. 앱이 알 수 있게 이름을 낸다(V4 가이드 translate 응답)."""
+    r = sidecar.translate("가<!색강조>나<!/색강조><!강조>다<!/강조><!주>라<!/주><!2칸>마<!색강조>바<!/색강조>")
+    assert r["unknown_tags"] == ["색강조"]
+    assert sidecar.translate(_표(["가", "나"]))["unknown_tags"] == []
+    assert sidecar.translate("<!상자>제목<!/상자>\n가\n<!상자끝><!/상자끝>")["unknown_tags"] == []
+
+
+def test_split_choices_는_선택지를_한_줄에_하나씩_적는다():
+    """proto 정본 `split_choices = 12`(안 보내면 짧은 선택지를 합친다 = 종전 동작). 엔진 문맥 `CHOICES_ONE_PER_LINE`."""
+    src = "① 가\n② 나\n③ 다\n④ 라\n⑤ 마"
+    merged, split = sidecar.translate(src)["cells"], sidecar.translate(src, split_choices=True)["cells"]
+    assert merged.count("\n") < 4 and split.count("\n") == 4
+    assert sidecar.translate(src)["cells"] == merged                 # 켠 값이 다음 호출로 새지 않는다
+    assert sidecar.handle({"op": "translate", "text": src, "split_choices": True})["cells"] == split
+
+
+def test_read_brf_는_BRF_가_아니면_BAD_BRF():
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.handle({"op": "read_brf", "brf": "가나다"})
+    assert e.value.code == "BAD_BRF"
 
 
 def test_table_도_엔진_예외는_그_표만_점역_못_함으로_온다(monkeypatch):

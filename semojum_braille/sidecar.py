@@ -6,6 +6,7 @@
 표준입력이 닫히면 끝난다. 프로토콜은 docs/sidecar.md.
 """
 import json
+import re
 import sys
 import threading
 import uuid
@@ -16,13 +17,14 @@ from semojum_braille.assist import build_brf_file
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
 from semojum_braille.encoder import inline_math
-from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1
+from semojum_braille.encoder.constants import CHOICES_ONE_PER_LINE, ENGLISH_GRADE1, KOREAN_GRADE1
 from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.table_braille import TableBraille
 from semojum_braille.encoder.tag_names import parse_table_tags
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
+from semojum_braille.encoder.translator import _BORDER_KIND, _TAG_INLINE_MARKER, _TAG_PAIR_MARKER
 from semojum_braille.schemas import LLMOutput
 
 _TB = TextBraille()
@@ -34,6 +36,26 @@ _DROPPED = (("R15", dropped_pua), ("R17", dropped_symbols), ("R18", dropped_old_
 # 프로토콜 판. 요청 · 응답 꼴이 앞 판과 호환되지 않게 바뀔 때만 올린다. 필드 · op 를 더하는 것은 올리지 않는다(docs/sidecar.md 4절).
 PROTOCOL = 1
 _BOM = b"\xef\xbb\xbf"
+# V4 엔진 가이드(docs/spec_v4/점역엔진_함수가이드.md) 상한. 묵자는 **태그를 뺀** 글자 수로 센다 — 태그째 세면 2027 dev · val
+#   표 2개가 걸리는데(태그 빼면 최장 806자) 표는 문장 경계로 쪼갤 수 없다. 수식은 `<!수식>…<!/수식>` 안 LaTeX 의
+#   중괄호 중첩과 글자 수로 본다(가이드 오류 표 `BAD_LATEX`).
+MAX_CHARS = 1000
+MAX_LATEX_DEPTH = 10
+MAX_LATEX_CHARS = 1000
+_TAG_RE = re.compile(r"<!/?([^>]+)>")
+_LATEX_RE = re.compile(r"<!수식>(.*?)<!/수식>", re.DOTALL)
+# 엔진이 아는 태그 = 번역기가 점형으로 바꾸는 표 셋(`substitute_tags`) + 다른 길이 맡는 구조 태그. 그 밖은 `unknown_tags`.
+_STRUCT_TAGS = frozenset({"표", "행", "칸", "수식", "기울임", "쪽바꿈"})
+_INDENT_TAG_RE = re.compile(r"\d+칸")
+
+
+class SidecarError(Exception):
+    """가이드 오류 코드가 붙는 실패. 응답은 `{"error": 문구, "code": 코드}` 다(코드 다섯: BAD_JSON · BAD_FIELD ·
+    TOO_LONG · BAD_LATEX · BAD_BRF)."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 def _roman_one(opt: LLMOutput):
@@ -48,8 +70,8 @@ def _roman_one(opt: LLMOutput):
 
 
 def translate(text: str, etype: str = "text", hlevel: int = 0,
-              korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False,
-              force_roman: bool = False, render_mode: str = "", tn_text: str = "", box_level: int = 0) -> dict:
+              korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False,
+              render_mode: str = "", tn_text: str = "", box_level: int = 0, force_roman: bool = False) -> dict:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자 + 점역 못 한 요소인가.
 
@@ -67,8 +89,12 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
     뒤로 끊을 자리가 하나씩 밀렸다(#30). AI 응답 `TextElement.breaks` 와 같은 함수(`_flat_breaks`)다.
 
-    `korean_grade1` · `english_grade1` 은 한글 정자 · 영어 1급이다(AI proto 의 같은 이름 필드). 엔진 문맥 값을
+    `korean_grade` · `english_grade` 는 급수다(1 정자 · 2 약자, 0 은 2 로 읽는다. V4 가이드 · proto 10 · 11).
+    `split_choices` 는 선택지를 한 줄에 하나씩 적는다(proto 12, 안 보내면 짧은 선택지를 합친다). 엔진 문맥 값을
     이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이 다음 요청으로 새면 안 된다(#34).
+
+    묵자(태그 뺀 글자)가 1,000자를 넘으면 `TOO_LONG`, `<!수식>` 이 10중첩 또는 1,000자를 넘으면 `BAD_LATEX`
+    (`SidecarError`). 응답 `unknown_tags` 는 엔진이 모르는 태그 이름이다(점역에서는 지운다).
 
     `math_page` 는 그 요소가 든 쪽이 수식 쪽이라는 뜻이다(`inline_math.MATH_PAGE`, #38). AI 서버는 쪽 PDF 의 한컴
     수식 글꼴 비율로 정하고, 수식 쪽이면 평문 속 `(1, 0)` · `p-q` 를 수식으로 적는다. 앱에서 수식 쪽 글을 다시
@@ -78,20 +104,22 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     점자가 0셀이거나 엔진이 예외를 던진 요소는 점역자 주 '점역 못 함'이 되고 `blocked` 가 참이다. 종전에는
     `_translate_one` 을 바로 불러 그런 요소가 빈 점자로 조용히 사라졌다(`dropped` 도 비어 표시가 없었다).
     """
+    _check(text)
     if etype == "table" or parse_table_tags(text) is not None:
-        return table(text, render_mode, tn_text, box_level, korean_grade1, english_grade1, math_page)
+        return table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page)
     force_roman = force_roman or etype == "header_footer"
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
     bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
-                  korean_grade1, english_grade1, math_page)
-    out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines)}   # AI 서버 검토 표시(C2 · R1)와 같은 판정
+                  korean_grade, english_grade, math_page, split_choices)
+    out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines),   # AI 서버 검토 표시(C2 · R1)와 같은 판정
+           "unknown_tags": _unknown_tags(text)}
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
         return {"cells": "", "breaks": [], **out}
     return {**_body(fe, fe.text, fe.breaks), **out}
 
 
 def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int = 0,
-          korean_grade1: bool = False, english_grade1: bool = False, math_page: bool = False) -> dict:
+          korean_grade: int = 2, english_grade: int = 2, math_page: bool = False) -> dict:
     """표 요소 하나 → 고른 안 + 다섯 안(풀어쓰기 · 격자 · 행열 바꿈 · 테두리만 · 번호 체계)의 요소 본문 (#56).
 
     `source` 는 표 태그 글(`<!표><!행><!칸>…`)이다. AI 응답 `TextElement.table_source` 가 이 값이다. 앱이 칸 글을
@@ -106,12 +134,14 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
     `cells` · `breaks` 는 고른 안이고 `drafts` 는 다섯 안 전부다(`render_mode` · `label` · `cells` · `breaks`).
     태그가 표로 안 풀리면 점역자 주 한 안이라 `drafts` 가 비고 `render_mode` 가 빈 문자열이다.
     """
+    _check(source)
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=source, routing_tier="ZERO", render_mode=render_mode,
                     tn_text=tn_text or None)
     tb = TableBraille({opt.element_id: box_level} if box_level else None)
-    bo, fe = _run(opt, tb._translate_one, "table", 0, korean_grade1, english_grade1, math_page)
+    bo, fe = _run(opt, tb._translate_one, "table", 0, korean_grade, english_grade, math_page)
     out = {"render_mode": bo.drafts[bo.selected_idx].render_mode if bo.drafts else "",
-           "dropped": _dropped(source), "blocked": is_blocked_braille(bo.braille_lines)}
+           "dropped": _dropped(source), "blocked": is_blocked_braille(bo.braille_lines),
+           "unknown_tags": _unknown_tags(source)}
     if fe is None:
         return {"cells": "", "breaks": [], "drafts": [], **out}
     drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b)}
@@ -120,21 +150,21 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
 
 
 def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
-         korean_grade1: bool, english_grade1: bool, math_page: bool):
+         korean_grade: int, english_grade: int, math_page: bool, split_choices: bool = False):
     """요소 하나를 AI 서버 체인처럼 점역하고(`safe_translate`, #52) `flatten_elements` 로 편다 → (BrailleOutput, FlatElement).
 
-    엔진 문맥 값(한글 정자 · 영어 1급 · 수식 쪽)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
+    엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
     다음 요청으로 새면 안 된다(#34). 내용이 없는 요소는 `flatten_elements` 가 담지 않아 FlatElement 가 None 이다.
     """
-    tokens = KOREAN_GRADE1.set(korean_grade1), ENGLISH_GRADE1.set(english_grade1), inline_math.MATH_PAGE.set(math_page)
+    tokens = [(v, v.set(x)) for v, x in ((KOREAN_GRADE1, korean_grade == 1), (ENGLISH_GRADE1, english_grade == 1),
+                                         (inline_math.MATH_PAGE, math_page), (CHOICES_ONE_PER_LINE, split_choices))]
     try:
         bo = safe_translate([opt], translate_one)[0]
         el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
         return bo, flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
     finally:
-        KOREAN_GRADE1.reset(tokens[0])
-        ENGLISH_GRADE1.reset(tokens[1])
-        inline_math.MATH_PAGE.reset(tokens[2])
+        for v, tok in reversed(tokens):
+            v.reset(tok)
 
 
 def _body(fe, text: str, breaks) -> dict:
@@ -147,26 +177,60 @@ def _dropped(text: str) -> list[dict]:
     return [{"text": t, "count": n, "flag": flag} for flag, count in _DROPPED for t, n in count(text).most_common()]
 
 
+def _check(text: str) -> None:
+    """가이드 상한 — 수식 10중첩 · 1,000자(`BAD_LATEX`) · 묵자 1,000자(`TOO_LONG`). 수식을 먼저 본다 — 1,000자 넘는
+    수식은 묵자 상한에도 걸리는데, 문장 경계로 쪼개도 풀리지 않으니 '수식 변환 불가'가 맞는 처리다."""
+    for m in _LATEX_RE.finditer(text):
+        latex, depth, deepest = m.group(1), 0, 0
+        for ch in re.sub(r"\\[{}]", "", latex):       # `\{` · `\}` 는 글자다
+            depth += (ch == "{") - (ch == "}")
+            deepest = max(deepest, depth)
+        if len(latex) > MAX_LATEX_CHARS or deepest > MAX_LATEX_DEPTH:
+            raise SidecarError("BAD_LATEX", f"수식을 읽지 못합니다({len(latex):,}자 · {deepest}중첩).")
+    n = len(_TAG_RE.sub("", text))
+    if n > MAX_CHARS:
+        raise SidecarError("TOO_LONG", f"묵자 {MAX_CHARS:,}자를 넘었습니다({n:,}자).")
+
+
+def _unknown_tags(text: str) -> list[str]:
+    """엔진이 모르는 태그 이름(나온 차례, 겹침 없이). 번역기는 이 태그를 지우고 점역한다."""
+    out: list[str] = []
+    for name in _TAG_RE.findall(text):
+        if (name in _TAG_INLINE_MARKER or name in _TAG_PAIR_MARKER or name.rstrip("23") in _BORDER_KIND
+                or name in _STRUCT_TAGS or _INDENT_TAG_RE.fullmatch(name) or name in out):
+            continue
+        out.append(name)
+    return out
+
+
 def _flag(req: dict, key: str) -> bool:
     """참거짓 옵션. 없거나 null 이면 false. 문자열 "true" 같은 값은 조용히 켜거나 끄지 않고 오류로 돌려준다."""
     v = req.get(key)
     if v is None or isinstance(v, bool):
         return bool(v)
-    raise ValueError(f"{key} 는 true · false 여야 한다: {v!r}")
+    raise SidecarError("BAD_FIELD", f"{key} 는 true · false 여야 한다: {v!r}")
+
+
+def _grade_arg(req: dict, key: str) -> int:
+    """급수. 1 정자 · 2 약자, 없거나 0 이면 2(V4 가이드 · proto 10 · 11). 그 밖은 `BAD_FIELD`."""
+    v = req.get(key)
+    if v is None or (isinstance(v, int) and not isinstance(v, bool) and v in (0, 1, 2)):
+        return int(v or 2)
+    raise SidecarError("BAD_FIELD", f"{key} 는 1 · 2 여야 한다: {v!r}")
 
 
 def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float | None = None,
-          korean_grade1: bool = False) -> dict:
+          korean_grade: int = 2) -> dict:
     """요소 하나의 검수 등급과 왕복 일치도. AI 서버가 응답에 붙이는 `review_grade` · `round_trip` 과 같은 길이다
     (`confidence.annotate` 를 그대로 부른다 — 등급 기준이 그 길로 잰 실측에서 나왔다).
 
-    `korean_grade1` 은 `braille` 이 한글 정자로 점역된 것이라는 뜻이다. 왕복 일치도를 잴 때 역점역이 정자로 읽는다.
+    `korean_grade` 는 `braille` 이 점역된 급수다(1 정자). 정자면 왕복 일치도를 잴 때 역점역이 정자로 읽는다.
     2급 역맵으로 읽으면 정자 문서의 등급이 거의 다 low 가 된다(AI #1276).
 
     ⚠ 등급은 **검수 순서**다. high 도 실측 정확도 89%라 '확인 불필요'가 아니라 '나중에 봐도 되는 것'이다.
     """
     el = {"id": 0, "type": etype, "contents": [braille], "ocr_confidence": ocr_confidence}
-    confidence.annotate([el], {0: {"contents": [source]}}, lambda b: decode(b, korean_grade1=korean_grade1))
+    confidence.annotate([el], {0: {"contents": [source]}}, lambda b: decode(b, korean_grade1=korean_grade == 1))
     return {"grade": el["review_grade"], "round_trip": el.get("round_trip")}
 
 
@@ -174,26 +238,29 @@ def handle(req: dict) -> dict:
     op = req.get("op")
     if op == "translate":
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
-                         _flag(req, "korean_grade1"), _flag(req, "english_grade1"), _flag(req, "math_page"),
-                         _flag(req, "force_roman"), req.get("render_mode") or "", req.get("tn_text") or "",
-                         int(req.get("box_level") or 0))
+                         _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"), _flag(req, "math_page"),
+                         _flag(req, "split_choices"), req.get("render_mode") or "", req.get("tn_text") or "",
+                         int(req.get("box_level") or 0), _flag(req, "force_roman"))
     if op == "table":
         return table(req.get("table_source") or "", req.get("render_mode") or "", req.get("tn_text") or "",
-                     int(req.get("box_level") or 0), _flag(req, "korean_grade1"), _flag(req, "english_grade1"),
+                     int(req.get("box_level") or 0), _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"),
                      _flag(req, "math_page"))
     if op == "decode":
-        return {"text": decode(req.get("braille", ""), english=bool(req.get("english")),
-                               korean_grade1=_flag(req, "korean_grade1"))}
+        return {"text": decode(req.get("braille", ""), english=_flag(req, "english"),
+                               korean_grade1=_grade_arg(req, "korean_grade") == 1)}
     if op == "brf":
         return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
     if op == "read_brf":
-        return {"pages": parse_brf(req.get("brf", ""))}
+        try:
+            return {"pages": parse_brf(req.get("brf", ""))}
+        except ValueError as exc:
+            raise SidecarError("BAD_BRF", str(exc)) from exc
     if op == "grade":
         return grade(req.get("braille", ""), req.get("source", ""), req.get("type") or "text",
-                     req.get("ocr_confidence"), _flag(req, "korean_grade1"))
+                     req.get("ocr_confidence"), _grade_arg(req, "korean_grade"))
     if op == "ping":
         return {"ok": True, "version": __version__, "protocol": PROTOCOL}
-    return {"error": f"모르는 op: {op!r}"}
+    raise SidecarError("BAD_FIELD", f"모르는 op: {op!r}")
 
 
 def _answer(raw: bytes) -> dict | None:
@@ -215,13 +282,22 @@ def _answer(raw: bytes) -> dict | None:
             req = json.loads(raw.decode("utf-8", "replace"))
         except ValueError:
             pass
-        res = {"error": f"UnicodeDecodeError: 표준입력은 UTF-8 이어야 한다({exc.start}번째 바이트 0x{raw[exc.start]:02x})"}
+        res = {"error": f"UnicodeDecodeError: 표준입력은 UTF-8 이어야 한다({exc.start}번째 바이트 0x{raw[exc.start]:02x})",
+               "code": "BAD_JSON"}
     else:
         try:
             req = json.loads(line)
-            res = handle(req)
-        except Exception as exc:          # 한 요청이 실패해도 사이드카는 산다
-            res = {"error": f"{type(exc).__name__}: {exc}"}
+        except ValueError as exc:
+            res = {"error": f"JSON 이 아닌 줄이다: {exc}", "code": "BAD_JSON"}
+        else:
+            try:
+                if not isinstance(req, dict):
+                    raise SidecarError("BAD_JSON", "요청은 JSON 객체여야 한다")
+                res = handle(req)
+            except SidecarError as exc:
+                res = {"error": str(exc), "code": exc.code}
+            except Exception as exc:          # 한 요청이 실패해도 사이드카는 산다. 가이드 밖 예외는 요청 값 탓으로 본다
+                res = {"error": f"{type(exc).__name__}: {exc}", "code": "BAD_FIELD"}
     res["id"] = req.get("id") if isinstance(req, dict) else None
     return res
 
