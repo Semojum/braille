@@ -380,8 +380,11 @@ def test_수식이_10중첩_또는_1000자를_넘으면_BAD_LATEX():
 
 def test_모르는_태그는_unknown_tags_로_알린다():
     """엔진은 모르는 태그를 지우고 점역한다. 앱이 알 수 있게 이름을 낸다(V4 가이드 translate 응답)."""
-    r = sidecar.translate("가<!색강조>나<!/색강조><!강조>다<!/강조><!주>라<!/주><!2칸>마<!색강조>바<!/색강조>")
-    assert r["unknown_tags"] == ["색강조"]
+    r = sidecar.translate("가<!없는태그>나<!/없는태그><!강조>다<!/강조><!주>라<!/주><!2칸>마<!없는태그>바<!/없는태그>")
+    assert r["unknown_tags"] == ["없는태그"]
+    # 목록표 글자 태그 넷은 아는 태그다(AI #1382). 빈칸 둘은 번역기 입구에서 엔진 이름으로 풀리는 별칭이다.
+    r = sidecar.translate("<!색강조>가<!/색강조> <!취소선>나<!/취소선> <!밑줄빈칸> <!네모빈칸>")
+    assert r["unknown_tags"] == [] and "⠸⠤" in r["cells"] and "⠸⠦⠀⠴⠇" in r["cells"]
     assert sidecar.translate(_표(["가", "나"]))["unknown_tags"] == []
     assert sidecar.translate("<!상자>제목<!/상자>\n가\n<!상자끝><!/상자끝>")["unknown_tags"] == []
 
