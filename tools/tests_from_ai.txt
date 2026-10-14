@@ -35,6 +35,7 @@ test/unit_test/braille/test_fold_full_lines.py
 test/unit_test/braille/test_font_slot_subscripts_t25.py
 test/unit_test/braille/test_footer_roman.py
 test/unit_test/braille/test_footnote_star_regulation.py
+test/unit_test/braille/test_formula_breaks_1392.py
 test/unit_test/braille/test_frac_monomial_wrap.py
 test/unit_test/braille/test_greek_unit_955.py
 test/unit_test/braille/test_hangul_operand_not_math.py
