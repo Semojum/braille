@@ -22,7 +22,7 @@ from semojum_braille.encoder.constants import CHOICES_ONE_PER_LINE, ENGLISH_GRAD
 from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.table_braille import TableBraille
-from semojum_braille.encoder.tag_names import parse_table_tags
+from semojum_braille.encoder.tag_names import ALIASES, parse_table_tags
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
 from semojum_braille.encoder.translator import _BORDER_KIND, _TAG_INLINE_MARKER, _TAG_PAIR_MARKER
@@ -231,7 +231,8 @@ def _unknown_tags(text: str) -> list[str]:
     """엔진이 모르는 태그 이름(나온 차례, 겹침 없이). 번역기는 이 태그를 지우고 점역한다."""
     out: list[str] = []
     for name in _TAG_RE.findall(text):
-        if (name in _TAG_INLINE_MARKER or name in _TAG_PAIR_MARKER or name.rstrip("23") in _BORDER_KIND
+        # ALIASES: 목록표 빈칸 이름(밑줄빈칸 · 네모빈칸)은 번역기 입구에서 엔진 이름으로 풀린다(AI #1382).
+        if (name in _TAG_INLINE_MARKER or name in _TAG_PAIR_MARKER or name in ALIASES or name.rstrip("23") in _BORDER_KIND
                 or name in _STRUCT_TAGS or name in _LAYOUT_TAGS or _INDENT_TAG_RE.fullmatch(name) or name in out):
             continue
         out.append(name)

@@ -61,6 +61,7 @@ test/unit_test/braille/test_pua_icons_b09.py
 test/unit_test/braille/test_pua_sanitize.py
 test/unit_test/braille/test_qnum_and_wrap_hyphen.py
 test/unit_test/braille/test_qnum_quantity_c41.py
+test/unit_test/braille/test_refmark_spacing_1378.py
 test/unit_test/braille/test_regulation_symbols_945.py
 test/unit_test/braille/test_roman_hyphen_span.py
 test/unit_test/braille/test_roman_indicator_context.py
@@ -79,6 +80,7 @@ test/unit_test/braille/test_symbol_path_consistency.py
 test/unit_test/braille/test_table_numbered_hierarchy.py
 test/unit_test/braille/test_table_tn_not_in_braille.py
 test/unit_test/braille/test_tag_parser.py
+test/unit_test/braille/test_text_style_tags_1382.py
 test/unit_test/braille/test_token_space.py
 test/unit_test/braille/test_ueb_caps_passage.py
 test/unit_test/braille/test_ueb_grade1_indicator.py
