@@ -26,7 +26,8 @@ from semojum_braille.encoder.translator import (translate_tagged_text, translate
 from semojum_braille.schemas import LLMOutput, Draft
 from semojum_braille.encoder.text_braille import TextBraille, content_rules
 from semojum_braille.encoder.formula_braille import FormulaBraille
-from semojum_braille.encoder.table_braille import TableBraille, build_table_tags, parse_table_tags, print_layout
+from semojum_braille.encoder.table_braille import TableBraille, print_layout
+from semojum_braille.encoder.tag_names import build_table_tags, parse_table_tags
 from semojum_braille.encoder.visual_braille import VisualBraille, DiagramBraille
 from semojum_braille.encoder.layout_braille import LayoutBraille, flatten_elements, render_page_text, wordwrap_by_word
 from semojum_braille.encoder.regulations import make_rule, make_rule_at, rule_meta, section_text, all_rule_ids
@@ -334,7 +335,7 @@ Klass().translate(optimized: list[LLMOutput]) -> list[BrailleOutput]
 | `optimized` | `list[LLMOutput]` | 없음 | 요소 입력 목록. `LLMOutput` 필드는 2.3 | 요소마다 규정 근거(`rule_trail`)와 줄바꿈 자리를 함께 받고 싶을 때, 또 1.7 조판에 넣을 때 |
 
 - **반환**: 입력과 같은 차례, 같은 길이의 `BrailleOutput` 목록(2.3).
-- **예외**: 한 요소가 실패하면 그 요소의 `braille_lines` 가 `[처리 불가: …]` 자리표시가 되고 나머지 요소는 계속 옮긴다. 이때 표준오류에 경고가 한 줄 찍힌다. `LLMOutput` 을 만들 때 필수 필드가 빠지면 pydantic `ValidationError` 가 난다.
+- **예외**: 한 요소가 실패하면 그 요소의 `braille_lines` 가 점역자 주 꼴 '점역 못 함' 점자 한 줄(`isolation.blocked_braille()`)이 되고 나머지 요소는 계속 옮긴다. 까닭(`[처리 불가: …]`)은 점자 칸에 싣지 않는다. 한글이 섞이면 BRF 로 못 옮기기 때문이다(AI#1278). 그 요소는 `isolation.is_blocked_braille(lines)` 로 알아본다. 이때 표준오류에 경고가 한 줄 찍힌다. `LLMOutput` 을 만들 때 필수 필드가 빠지면 pydantic `ValidationError` 가 난다.
 
 | 클래스 | 모듈 | 읽는 `LLMOutput` 필드 | 하는 일 |
 |---|---|---|---|
@@ -429,7 +430,9 @@ Klass().translate(optimized: list[LLMOutput]) -> list[BrailleOutput]
 []
 ```
 
-### 1.6 표 도우미 · `semojum_braille.encoder.table_braille`
+### 1.6 표 도우미 · `semojum_braille.encoder.tag_names` · `table_braille`
+
+`build_table_tags` · `parse_table_tags` 는 `tag_names` 에, `print_layout` 은 `table_braille` 에 있다.
 
 #### `build_table_tags(rows) -> str`
 
@@ -507,13 +510,13 @@ lr = SimpleNamespace(elements=[
 | `braille_outputs` | `list[BrailleOutput]` | 없음 | 1.5 의 출력 | 늘 |
 | `layout_result` | 위 설명 | `None` | 요소 종류·제목 단계 | 제목·목록이 섞여 있을 때는 꼭 넘긴다 |
 
-- **반환**: 요소 id → `FlatElement`. `FlatElement` 는 `text` · `trail` · `prefix` · `suffix` · `draft_texts` 다섯 필드를 가진 튜플이다. `text` 는 `prefix + 본문 + suffix` 이고, `prefix`·`suffix` 는 앞뒤 빈 줄이다. 요소들의 `text` 를 그냥 이어 붙이면 지침대로 빈 줄이 들어간 문서가 된다. `trail` 은 이 통 문자열 좌표로 옮긴 `rule_trail`, `draft_texts` 는 초안별 통 문자열이다.
+- **반환**: 요소 id → `FlatElement`. `FlatElement` 는 `text` · `trail` · `prefix` · `suffix` · `draft_texts` · `breaks` · `draft_breaks` 일곱 필드를 가진 튜플이다. `text` 는 `prefix + 본문 + suffix` 이고, `prefix`·`suffix` 는 앞뒤 빈 줄이다. 요소들의 `text` 를 그냥 이어 붙이면 지침대로 빈 줄이 들어간 문서가 된다. `trail` 은 이 통 문자열 좌표로 옮긴 `rule_trail`, `draft_texts` 는 초안별 통 문자열이다. `breaks` 는 `text` 안에서 줄을 바꿔도 되는 자리(값 `b` 는 `text[b]` 앞)이고 줄 사이 구분자를 실제 길이로 센다(AI #1241). `draft_breaks` 는 초안별 같은 값이다. 사이드카 `translate` 의 `breaks` 는 이 값에서 `prefix` 길이만큼 뺀 것이다.
 - **예외**: 없다. 빈 목록은 `{}`.
 
 ```
 >>> flat = flatten_elements(make_bos(), lr)
 >>> flat[uuid.UUID(int=11)]
-FlatElement(text='\n⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶\n\n', trail=[], prefix='\n', suffix='\n\n', draft_texts=())
+FlatElement(text='\n⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶\n\n', trail=[], prefix='\n', suffix='\n\n', draft_texts=(), breaks=(10, 11, 14, 15, 16, 17, 19, 21, 22, 23, 26), draft_breaks=())
 >>> flat[uuid.UUID(int=12)].text
 '⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝⠀⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲\n'
 >>> flatten_elements(make_bos())[uuid.UUID(int=11)].text   # layout_result 없이
@@ -581,27 +584,6 @@ FlatElement(text='\n⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍
 ['storage/jobs/demo/temp/page_001/result/001_result.brf', 'storage/jobs/demo/temp/page_001/result/001_result.txt']
 >>> pathlib.Path('storage/jobs/demo/temp/page_001/result/001_result.txt').read_text(encoding='utf-8').split('\n') == [ln for p in pages for ln in p]
 True
-```
-
-#### `LayoutBraille().finalize(blocks, page_no=1) -> list[list[str]]`
-
-이미 32칸 줄로 된 블록(점역사가 고친 결과 등)을 쪽으로 조립한다. 점역은 다시 하지 않는다.
-
-| 인자 | 타입 | 기본값 | 뜻 | 언제 쓰나 |
-|---|---|---|---|---|
-| `blocks` | `list[dict]` | 없음 | 블록마다 `{"type", "heading_level", "order", "lines"}`. `lines` 는 32칸 이하 점자 줄 목록, `order` 는 차례 | 사람이 고친 점자를 다시 쪽으로 묶을 때 |
-| `page_no` | `int` | `1` | 쪽 번호 | 같다 |
-
-- **반환**: 쪽마다 줄 목록. 제목 뒤 빈 줄과 쪽 번호 줄을 넣는다.
-
-```
->>> blocks = [{"type": "title", "heading_level": 2, "order": 0, "lines": ["⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶"]},
-...           {"type": "text", "heading_level": 0, "order": 1, "lines": ["⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝", "⠙⠻⠊⠪⠶⠚⠊⠲"]}]
->>> fin = LayoutBraille().finalize(blocks, page_no=1)
->>> len(fin), fin[0][:5]
-(1, ['⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶', '', '⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝', '⠙⠻⠊⠪⠶⠚⠊⠲', ''])
->>> fin[0][-1]
-'⠀⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶⠀⠀⠼⠁'
 ```
 
 #### `render_page_text(braille_outputs, page_no, *, layout_result=None) -> list[list[str]]`
@@ -817,7 +799,7 @@ $ BRAILLE_STYLE=regulation python -c "from semojum_braille.encoder.kor_math_rule
 | `eng_braille` | 영어 Grade 2 | `translate` · `translate_word` · `iter_words` | |
 | `symbol_rules` | 특수 기호표와 판단이 갈리는 기호 | `substitute_symbols` · `symbol_rule_spans` | `preprocess` · `postprocess` |
 | `number_sign` | `⠼` 가 수표인지 영어 약자인지 가른다(제40항) | | `number_sign_indices` · `contraction_lookalikes` · `has_number_sign` |
-| `text_braille` · `formula_braille` · `table_braille` · `visual_braille` | 요소 점역 클래스 | 1.5 · 1.6 | `table_braille.parse_print_frames` · `record_rows_enabled` |
+| `text_braille` · `formula_braille` · `table_braille` · `visual_braille` | 요소 점역 클래스 | 1.5 · 1.6 | `table_braille.record_rows_enabled` |
 | `layout_braille` | 조판과 통 문자열 | 1.7 | `format_underline_blank` · `format_citation` · `format_paragraph_start` · `format_bullet_item` · `format_page_change_line` · `format_box_top` · `format_box_bottom` · `format_overflow_page_number` |
 | `regulations` | 규정 조항표 | 1.8 | |
 | `semojum_braille.schemas` | 데이터 타입(역점역과 함께 쓴다) | 2.3 | |
@@ -825,7 +807,6 @@ $ BRAILLE_STYLE=regulation python -c "from semojum_braille.encoder.kor_math_rule
 | `nested_block` | 시각 자료 안의 시각 자료를 글상자로 묶는다 | | `box_narrative` · `append_nested` |
 | `isolation` | 요소별 격리 점역(한 요소 실패를 자리표시로) | | `safe_translate` · `dedupe_trail` |
 | `tag_names` | 인라인 태그 이름 정본(2.1) | | `tn` · `box` · `indent_tag` · `split_indent` · `apply_indent_tags` · `strip_indent_tags` · `normalize_tn_spans` · `tn_spans_ok` |
-| `tn_notices` | 점역자 주 문구 정본 | | `table_split` · `indent_hierarchy` · `omitted` · `reading_order` · `layout_scan` · `scene` |
 | `gates` | 걸러 낸 자리를 쪽마다 센다 | | `gate_reset` · `gate_hit` · `gate_counts` · `gate_flags` · `strip_format_tokens` 등. `guard_on`(`LLM_TEXT_GUARD`)은 이 패키지 안에서는 부르는 곳이 없다 |
 | `constants` | 조판 상수(`COLS = 32` · `ROWS = 26`) | | |
 

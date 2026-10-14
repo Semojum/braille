@@ -26,7 +26,7 @@ import re
 from contextvars import ContextVar
 
 from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
-from semojum_braille.encoder.kor_math_rules import UNI_SUB, UNI_SUP, unicode_scripts_to_latex
+from semojum_braille.encoder.kor_math_rules import _ELEMENTS, UNI_SUB, UNI_SUP, unicode_scripts_to_latex
 
 # 캡셔닝 LLM이 쓰는 유니코드 수학 표기(QA 10번, 2026-08-08). 아래 _ATOM·_STRONG에
 # 넣어야 `Ca²⁺`·`aₙ₊₁`·`f′(x)`·`2ˣ`가 **한 구간**으로 잡힌다. 안 넣으면 구간이 그
@@ -107,9 +107,18 @@ MATH_PAGE: ContextVar[bool] = ContextVar("inline_math_page", default=False)
 _OPND = r"(?:[A-Za-z]|\d+(?:\.\d+)?)"                  # 홑 로마자 또는 수
 _EXPR = rf"{_OPND}(?:\s*[-+−]\s*{_OPND})*"
 _ELEM = rf"[-+−]?\s*{_EXPR}"
+# 부등식(xfail 해제). `<` · `>` 는 `_STRONG` 에 없어 `a>1일 때` 가 글로 새고 줄에 한글이 있으니 로마자표가 열렸다
+#   (`⠴⠁⠢⠢⠼⠁⠕⠂`). 「수학 점자」 1호(재추출 3308행) "수식에 사용하는 로마자는 로마자표를 적지 않고 수식의 앞뒤를 두 칸씩
+#   띄어 쓴다". 009 gold `즉, 3<t<4이므로` = ⠨⠪⠁⠐⠀⠀⠼⠉⠔⠔⠞⠔⠔⠼⠙⠀⠀⠕⠑⠪⠐⠥ · `(t>0)` = ⠦⠞⠢⠢⠼⠚⠴. 부등호 둘레 로마자는
+#   009 gold 수식 꼴 561 : 로마자표 꼴 8(셀 꼴 어림셈)이고 수학 밖은 드물고 엇갈린다(016 `C>B>A` 로마자표 꼴 4) → 수식 지면에서만.
+_IOPND = r"(?:\d+(?:\.\d+)?[A-Za-z]?|[A-Za-z](?:\([A-Za-z0-9]\))?)"   # 수 · 계수 붙은 문자 `2x` · 문자 · `f(x)`
+_IEXPR = rf"[-−]?{_IOPND}(?:\s*[-+−]\s*{_IOPND})*"
+_INEQ = rf"{_IEXPR}(?:\s*[<>]\s*{_IEXPR})+"
 _WEAK_MATH_RE = re.compile(
     rf"(?=.*[A-Za-z]){_OPND}\s*[-+−]\s*{_EXPR}"            # 홑 로마자가 든 덧셈·뺄셈 `p-q` · `n-1`(수 범위 `3-4쪽` 제외)
     rf"|\(\s*{_ELEM}(?:\s*,\s*{_ELEM})+\s*\)"           # 괄호 순서쌍 `(x, y)` · `(m, n-1)` · `(4, 3)` · `(8, -1)`
+    rf"|{_INEQ}(?:\s*,\s*{_INEQ})*"                       # 부등식 `a>1` · `3<t<4` · `a>0, b>0`
+    rf"|(?:{_IOPND}\s*)?\(\s*{_INEQ}\s*\)"               # 괄호 조건 `(t>0)` · `d(d>0)`
 )                                                            #   009 gold 수 순서쌍 수식 꼴 50 · 글 꼴 0
 
 
@@ -145,7 +154,8 @@ def normalize(span: str) -> str:
 # 구간 앞에 붙은 문항·선택지 번호는 수식이 아니다 — 떼어내고 원문에 남긴다.
 # 홑따옴표 없는 `.`·`,`도 뗀다: 자모 문항표 "ㄱ. |f(x)|"의 마침표는 표지의 일부라
 # 수식에 딸려 들어가면 자모 표지 규칙(ㄱ.→⠿⠁)의 뒤보기가 깨져 `.`가 그대로 남는다.
-_ENUM_HEAD_RE = re.compile(r"^(\(\s*\d+\s*\)|\d+\s*[.)]|[①-⑳]|[.,])\s*")
+# 로마 숫자 머리 `(i)` · `(ii)` 도 뗀다 — 009 gold `(i) a>1일 때` = ⠦⠄⠴⠊⠠⠴⠀⠁⠢⠢⠼⠁⠀⠀⠕⠂ (머리는 글, 식만 수식).
+_ENUM_HEAD_RE = re.compile(r"^(\(\s*\d+\s*\)|\((?:i{1,3}|iv|vi{0,3})\)|\d+\s*[.)]|[①-⑳]|[.,])\s*")
 
 
 # ★ `\text{한글}` 이 든 LaTeX 은 **통째로 한 구간**이다(2026-09-03).
@@ -296,8 +306,99 @@ def wrap(text: str) -> str:
     out: list[str] = []
     last = 0
     for m in _TAGGED_RE.finditer(text):
-        out.append(_wrap_segment(text[last:m.start()]))
+        out.append(_wrap_untagged(text[last:m.start()]))
         out.append(m.group())
         last = m.end()
-    out.append(_wrap_segment(text[last:]))
+    out.append(_wrap_untagged(text[last:]))
     return "".join(out)
+
+
+# 기계 태그(`<!밑줄>` · `<!상자2>` …)는 수식 구간에 못 들게 따로 둔다. `<` · `>` 가 수식 원자라 종전에는 `<!밑줄>x=1<!/밑줄>` 이
+# `<!밑줄<!수식>>x=1<<!/수식>!/밑줄>` 로 태그를 찢어 태그 글자가 점자로 찍혔다(⠔⠔⠖⠑⠕⠦⠨⠯…).
+_ANY_TAG_RE = re.compile(r"<!/?[^<>]*>")
+
+
+def _wrap_untagged(seg: str) -> str:
+    out: list[str] = []
+    last = 0
+    for m in _ANY_TAG_RE.finditer(seg):
+        out.append(_wrap_segment(seg[last:m.start()]))
+        out.append(m.group())
+        last = m.end()
+    out.append(_wrap_segment(seg[last:]))
+    return "".join(out)
+
+
+# ── 화학 반응식의 식 경계(T36 · 원장 C-132) ─────────────────────────────────────────────
+# 반응식 한 줄을 수식 라우팅 **앞에서** 두 꼴로 가른다. 화살표 `→` 는 흐름 표기와 겹쳐 _ATOM 에서
+# 뺐으므로(위 주석), 그대로 두면 글 경로의 `C + O₂ → CO₂이다` 가 화살표에서 두 식으로 끊긴다.
+# · 피연산자가 전부 화학식 = 순수 반응식 → **식 하나**로 감싼다. 과학 점자 제6항(재추출 4423행)
+#   예문 `C + O₂ → CO₂이다` = ``,,,C`5`O;#b`3o`CO;#b,'``oi4`(4428행) — 구절표(제4항)·기호 앞뒤 한 칸
+#   (제18항 1호)·로마자표 없음이 식 전체에 걸린다.
+# · 피연산자에 한글 낱말이 있다 = 반응 도식(`포도당 + O₂ → CO₂ + H₂O`) → 규정이 안 다루는 자리라
+#   관행대로 **화학식마다** 따로 감싼다. 2027 생명 gold 화살표 둘레 ⠴ 113 : 36(원장 C-132).
+# MinerU 가 도식을 `포도당$+O_{2}$ → $CO_{2}+H_{2}O$` 처럼 쪼개 내므로, 화학식만 든 `$…$` 는
+# 먼저 유니코드로 풀어 같은 잣대에 올린다(화살표가 있는 줄만).
+_CHEM_TOK = r"\d*(?:[A-Z][a-z]?[₀-₉]*)+(?:[ \t]?[⁰-⁹]*[⁺⁻])?(?:\((?:aq|s|l|g)\))?(?:[ \t]*[↑↓])?"
+_CHEM_OPS = "+→⇌⇄←"
+# \x02…\x03 = 유니코드로 푼 `$…$`(사슬에 안 들면 원래 LaTeX 로 되돌린다). 사슬 안에서는 빈칸처럼 본다.
+_CHEM_CHAIN_RE = re.compile(
+    rf"(?<![A-Za-z0-9가-힣₀-₉])\x02?(?:{_CHEM_TOK}|[가-힣]+)"
+    rf"(?:[ \t\x02\x03]*[{_CHEM_OPS}][ \t\x02\x03]*(?:{_CHEM_TOK}|[가-힣]+))+\x03?(?![A-Za-z0-9₀-₉⁰-⁹⁺⁻])")
+_CHEM_SPLIT_RE = re.compile(rf"[ \t]*([{_CHEM_OPS}])[ \t]*")
+_CHEM_ARROW_LATEX = {"→": r"\rightarrow", "⇌": r"\rightleftharpoons", "⇄": r"\rightleftarrows",
+                     "←": r"\leftarrow"}
+_SUB_DIGIT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+_SUP_DIGIT = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
+_DOLLAR_CHEM_RE = re.compile(r"\$([^$\n]+)\$")
+
+
+def _is_chem_tok(tok: str) -> bool:
+    body = re.sub(r"^\d+|[₀-₉⁰-⁹⁺⁻↑↓ \t]|\((?:aq|s|l|g)\)", "", tok)
+    return bool(body) and all(e in _ELEMENTS for e in re.findall(r"[A-Z][a-z]?", body)) \
+        and "".join(re.findall(r"[A-Z][a-z]?", body)) == body
+
+
+def _dollar_to_unicode(m: re.Match) -> str:
+    """화학식·`+` 만 든 `$…$` → 유니코드(`$CO_{2}+H_{2}O$` → `CO₂+H₂O`). 그 밖은 그대로."""
+    t = re.sub(r"\\(?:mathrm|rm|text)\s*\{([^{}]*)\}", r"\1", m.group(1))
+    t = re.sub(r"_\s*\{?\s*(\d+)\s*\}?", lambda k: k.group(1).translate(_SUB_DIGIT), t)
+    t = re.sub(r"\^\s*\{?\s*(\d*[+-])\s*\}?", lambda k: k.group(1).translate(_SUP_DIGIT), t)
+    t = t.replace(" ", "")
+    toks = [x for x in re.split(r"\+", t) if x]
+    return t if toks and all(_is_chem_tok(x) for x in toks) else m.group()
+
+
+def chem_chains(text: str) -> str:
+    if not re.search(r"[→⇌⇄←]", text):
+        return text
+    orig: dict[str, str] = {}
+    if "$" in text:
+        def _mark(m: re.Match) -> str:
+            u = _dollar_to_unicode(m)
+            if u == m.group():
+                return u
+            orig.setdefault(u, m.group())
+            return f"\x02{u}\x03"
+        text = _DOLLAR_CHEM_RE.sub(_mark, text)
+
+    def repl(m: re.Match) -> str:
+        parts = _CHEM_SPLIT_RE.split(m.group().replace("\x02", "").replace("\x03", ""))
+        opds, ops = parts[0::2], parts[1::2]
+        chem = [o for o in opds if not re.match(r"[가-힣]", o)]
+        if (not any(o in "→⇌⇄←" for o in ops) or not all(_is_chem_tok(o) for o in chem)
+                or not any(re.search(r"[₀-₉⁺⁻]", o) for o in chem)):
+            return m.group()
+        if len(chem) < len(opds):              # 한글 낱말이 섞인 도식 — 화학식마다(관행 C-132)
+            return "".join((f"<!수식>{normalize(o)}<!/수식>" if o in chem else o)
+                           + (f" {ops[i]} " if i < len(ops) else "") for i, o in enumerate(opds))
+        # 원소 기호는 \mathrm 으로 — MinerU 꼴과 같게 해야 화학식 판정(_looks_chemical)을 탄다(`Ag⁺ + Cl⁻`)
+        latex = " ".join(re.sub(r"[A-Z][A-Za-z]*", lambda k: "\\mathrm{" + k.group() + "}", normalize(o))
+                         if i % 2 == 0 else _CHEM_ARROW_LATEX.get(o, o) for i, o in enumerate(parts))
+        return f"<!수식>{latex}<!/수식>"        # 순수 반응식 — 식 하나(규정 제6항)
+
+    text = _CHEM_CHAIN_RE.sub(repl, text)
+    # 사슬에 안 든 `$…$` 는 원래대로 — 반응식이 아닌 줄(`세포 호흡 → 산물: ㉠, $H_{2}O$`)의 수식 경로를 안 바꾼다
+    text = re.sub("\x02([^\x02\x03]*)\x03", lambda k: orig.get(k.group(1), k.group(1)), text)
+    return text.replace("\x02", "").replace("\x03", "")   # 사슬이 구간을 반만 먹은 경우의 남은 표지
+

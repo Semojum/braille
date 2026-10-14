@@ -1,8 +1,9 @@
 """점자 조판 공용 함수: 면 나누기 · 줄 자르기 · 페이지행 · 원본 페이지 변경선 · BRF 조립.
 
 braille-assist(`python/braille_assist/core.py`, develop 2c41d8d)에서 옮겨 왔다(2026-10-04). 파이썬 기준 구현은
-이제 여기다. braille-assist 의 ts · java 판은 웹 FE · BE 가 쓰는 동안 남는다. 동작 명세는
-`test/data/assist_vectors.json`(braille-assist `vectors.json` 0.3.0)이고 `test/test_assist_vectors.py` 가 맞춘다.
+이제 여기다. 같은 함수의 ts(`ts/`) · java(`java/`) 판도 braille-assist develop 38e21e2 에서 이 저장소로 옮겨 왔다
+(2026-10-09). 동작 명세는 루트 `vectors.json`(0.5.0, 줄바꿈 두 갈래) 하나다. 파이썬은 `test/test_assist_vectors.py`,
+ts · java 는 `.github/workflows/assist.yml` 이 같은 파일로 맞춘다. 규칙을 바꾸면 세 구현과 벡터를 한 PR 로 고친다.
 
 이 모듈은 한글을 점역하지 않는다. 이미 점역된 점자를 받아 배치만 한다.
 근거: 「점자 도서 제작 지침」 1장 2절 2(페이지 구성) · 1장 3(꼬리말) · 2장 2절 2-3(원본 페이지 변경선).
@@ -13,6 +14,7 @@ braille-assist(`python/braille_assist/core.py`, develop 2c41d8d)에서 옮겨 �
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 
 from .brf import serialize_brf
@@ -20,6 +22,8 @@ from .brf import serialize_brf
 SPACE = "⠀"          # 공백 셀 ⠀
 NUM_SIGN = "⠼"       # 수표 ⠼
 CHANGE_MARK = "⠤"    # 원본 페이지 변경선 채움 ⠤
+WRAP_MODES = ("syllable", "word")   # 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절. 10-09 의 점자 칸 갈래는 뺐다)
+_TN_MARK = "⠠⠄"     # 점역자 주 표(두 칸). 강제로 자를 때 가르지 않는다
 
 # 숫자·알파벳은 같은 점형을 쓴다(1=a=⠁ … 0=j=⠚). 수표가 앞에 오면 숫자로 읽는다.
 _DIGIT_CELLS = "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊"  # 0..9 = j a b c d e f g h i
@@ -66,8 +70,14 @@ class Options:
       ⚠ `show_orig_page`를 끄면 변경선에 적을 번호가 없어 `⠤`만 남은 빈 줄이 된다.
       그래서 `show_orig_page=False`면 변경선도 함께 꺼진다(2026-09-01 결정 D).
 
-    footer_align — 꼬리말 정렬. `center`(지침 1장3-1 기본)와 `right`.
+    footer_align — 꼬리말 정렬. `center`(지침 1장3-1 기본) · `right` · `left`(V4 가이드).
       right는 점자 페이지 번호 왼쪽에 **두 칸을 띄운 자리**가 오른쪽 끝이다(항목 사이 두 칸 이상).
+      left는 원본 페이지 번호 오른쪽에 두 칸을 띄운 자리(번호가 없으면 첫 칸)에서 시작한다.
+
+    pad_to_even — 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드). 더한 면도 다른 면과 같은 페이지행 규칙을 따른다.
+
+    wrap — 32칸을 넘는 줄을 접는 갈래. `syllable`(기본) · `word` 두 갈래다(2026-10-10 대표 확정).
+      뜻은 `wrap()` 에 적었다. 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다.
     """
 
     cols: int = 32
@@ -78,17 +88,21 @@ class Options:
     cover_pages: int = 0             # 앞에서 이만큼의 **원본 페이지**가 표지 (아래 주석)
     orig_page_start: int | None = None   # 본문 첫 원본 페이지에 붙일 번호. None이면 준 값 그대로
     show_change_line: bool = True    # 원본 페이지 변경선을 넣을지
-    footer_align: str = "center"     # center | right
+    footer_align: str = "center"     # center | right | left
+    wrap: str = "syllable"           # syllable | word
+    pad_to_even: bool = False        # 홀수 면에서 끝나면 빈 면 하나를 더한다
 
     def __post_init__(self) -> None:
         if self.cols < 8:
             raise ValueError(f"cols는 8 이상이어야 한다: {self.cols}")
         if self.page_row_on not in ("every", "odd", "even", "none"):
             raise ValueError(f"page_row_on은 odd|every|even|none: {self.page_row_on!r}")
-        if self.footer_align not in ("center", "right"):
-            raise ValueError(f"footer_align은 center|right: {self.footer_align!r}")
+        if self.footer_align not in ("center", "right", "left"):
+            raise ValueError(f"footer_align은 center|right|left: {self.footer_align!r}")
         if self.cover_pages < 0:
             raise ValueError(f"cover_pages는 0 이상이어야 한다: {self.cover_pages}")
+        if self.wrap not in WRAP_MODES:
+            raise ValueError(f"wrap은 syllable|word: {self.wrap!r}")
 
 
 DEFAULT = Options()
@@ -164,6 +178,8 @@ def page_row(
         if f:
             if opts.footer_align == "right":
                 start = hi - len(f)                # 오른쪽 끝(번호와 두 칸 띄운 자리)에 붙인다
+            elif opts.footer_align == "left":
+                start = lo                         # 왼쪽 끝(원본 번호와 두 칸 띄운 자리)에서 시작한다
             else:
                 start = (n - len(f) + 1) // 2      # ★ 올림 — 지침 실물로 확정
             start = min(max(start, lo), hi - len(f))
@@ -217,6 +233,43 @@ def to_brf_ascii(braille: str) -> str:
 # (2026-08-05 사용자 결정으로 함수 3개 → 4개. 초판은 "typeset 엔진 공용화 안 함"이었다.)
 
 
+# 해설 정답 목록(`01 ①  02 ③  03 ④`)은 쌍 안(번호와 답 사이)에서 접지 않는다(#48 · AI#1353). gold(수능 교재 정답 상자)는
+#   쌍 사이에서만 접는데, 어절 접기가 32칸 안 마지막 빈칸을 고르면 `5` / `③  6 ②` 처럼 쌍이 갈렸다. 줄 끝까지 `번호 답`
+#   토막이 번갈아 이어지고 번호가 1씩 늘고 원문자 답(①~⑤)이 하나 이상일 때만 그 쌍 안 빈칸을 자를 자리에서 뺀다.
+#   앞에 붙은 글(상자 제목)은 둔다. 수학 선택지 `① 1  ② 2` 는 원문자가 번호 자리라 안 걸린다. AI 쪽 `breaks` 도 같은 판정이다(AI#1360).
+_CIRCLED = ("⠼⠂", "⠼⠆", "⠼⠒", "⠼⠲", "⠼⠢")      # ①~⑤
+
+
+def _is_num(tok: str) -> bool:
+    return len(tok) > 1 and tok[0] == "⠼" and all(c in _DIGIT_CELLS for c in tok[1:])
+
+
+def _pair_gaps(line: str) -> set:
+    toks, i = [], 0
+    while i < len(line):                      # 빈칸으로 가른 토막의 (시작, 끝)
+        if line[i] == SPACE:
+            i += 1
+            continue
+        j = i
+        while j < len(line) and line[j] != SPACE:
+            j += 1
+        toks.append((i, j))
+        i = j
+    for s in range(len(toks) % 2, len(toks) - 3, 2):   # 줄 끝까지 이어지는 꼬리 — 가장 긴 것부터
+        nums, anss = toks[s::2], toks[s + 1::2]
+        if not all(_is_num(line[a:b]) for a, b in nums):
+            continue
+        if not all(_is_num(line[a:b]) or line[a:b] in _CIRCLED for a, b in anss):
+            continue
+        if not any(line[a:b] in _CIRCLED for a, b in anss):
+            continue
+        nos = [int("".join(str(_DIGIT_CELLS.index(c)) for c in line[a + 1:b])) for a, b in nums]
+        if any(y != x + 1 for x, y in zip(nos, nos[1:])):
+            continue
+        return {k for (_, e), (a, _) in zip(nums, anss) for k in range(e, a)}
+    return set()
+
+
 def _wrap(line: str, cols: int) -> list[str]:
     """`cols`를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
 
@@ -234,7 +287,8 @@ def _wrap(line: str, cols: int) -> list[str]:
         return [""]
     out: list[str] = []
     while len(line) > cols:
-        cut = line.rfind(SPACE, 0, cols + 1)
+        gaps = _pair_gaps(line)
+        cut = next((k for k in range(cols, -1, -1) if line[k] == SPACE and k not in gaps), -1)
         if cut <= 0 or not line[:cut].strip(SPACE):
             out.append(line[:cols])          # 어절 하나가 폭을 넘는다 — 그 자리에서만 강제 분리
             line = line[cols:]
@@ -242,6 +296,81 @@ def _wrap(line: str, cols: int) -> list[str]:
             out.append(line[:cut].rstrip(SPACE))
             line = line[cut:].lstrip(SPACE)  # 자른 자리의 빈칸은 줄머리로 넘기지 않는다
     out.append(line)
+    return out
+
+
+def wrap(line: str, cols: int = 32, mode: str = "syllable",
+         breaks: list | None = None, center: bool = False) -> list:
+    """논리 줄 하나를 `cols` 칸 줄들로 접는다. 줄바꿈 두 갈래(2026-10-10 대표 확정, 기본 음절).
+
+    syllable — `breaks`(그 셀 앞에서 끊어도 되는 자리, **이 줄 기준** 오프셋) 가운데 `cols` 칸 안에서 가장 먼
+      자리에서 끊는다. 그런 자리가 없으면 `cols` 칸째에서 강제로 자르되 점역자 주 표 `⠠⠄` 는 가르지 않는다.
+      이어지는 줄 머리의 빈칸은 버린다. `docs/sidecar.md` §5 `fold` 와 같은 셈이다(엔진 조판과 39,562요소 같음).
+      `breaks` 가 비면(옛 응답 · 점자를 직접 고친 요소 · 끊을 자리가 없는 줄) `word` 로 접는다(설계 §6-1).
+    word — 빈칸(어절) 자리에서 자른다(`_wrap`, #9 · 원장 C-83).
+    center — 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.
+      안 접힌 줄은 AI 가 이미 가운데 여백을 넣어 보낸다.
+    """
+    if mode not in WRAP_MODES:
+        raise ValueError(f"wrap은 syllable|word: {mode!r}")
+    if mode == "word" or not breaks:
+        out = _wrap(line, cols)
+    else:
+        out, start = [], 0
+        while len(line) - start > cols:
+            ok = [b for b in breaks if start < b <= start + cols]
+            cut = max(ok) if ok else start + cols
+            if not ok and line[cut - 1:cut + 1] == _TN_MARK:
+                cut -= 1
+            out.append(line[start:cut])
+            start = cut
+            while start < len(line) and line[start] in (SPACE, " "):
+                start += 1
+        if start < len(line) or not out:
+            out.append(line[start:])
+    if center and len(line) > cols:
+        out = [SPACE * ((cols - len(s)) // 2) + s for s in out]
+    return out
+
+
+def _fold_blocks(blocks: list, opts: Options) -> list:
+    """쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 `opts.wrap` 갈래로 접는다.
+
+    블록 `breaks`(그 블록 `text` 기준, 응답 `contents[0]` 의 값 그대로)는 이은 문자열 기준으로 옮긴 뒤 줄마다
+    그 줄의 시작 오프셋을 뺀다(sidecar.md §5 규칙 5). 줄 끝 · 줄 머리 자리는 안 쓴다(그 셀 앞에서 끊을 일이 없다).
+    가운데 놓기(`heading_level` 1)는 그 줄이 시작하는 블록의 값을 쓴다.
+    반환은 `(줄, 블록 align)` 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다.
+    """
+    # 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
+    # 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
+    # 마지막 블록은 종전과 같다. `breaks` 는 그 블록 글 기준이라 끝에 붙인 개행이 오프셋을 안 흔든다.
+    texts = [t if not t or t.endswith("\n") else t + "\n" for t in (b.get("text", "") for b in blocks)]
+    seg = "".join(texts)
+    if not seg:
+        return []        # 내용이 아예 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
+    starts, centers, aligns, gbreaks, acc = [], [], [], [], 0
+    for b, t in zip(blocks, texts):
+        starts.append(acc)
+        centers.append(int(b.get("heading_level") or 0) == 1)
+        al = b.get("align") or ""
+        if al and al not in ALIGNS:
+            raise ValueError(f"align은 left|center|right: {al!r}")
+        aligns.append(al)
+        gbreaks += [acc + x for x in (b.get("breaks") or [])]
+        acc += len(t)
+    # 통 문자열의 **끝 개행은 마지막 줄을 끝내는 종결자**이지 빈 줄이 아니다.
+    # AI `flatten_elements`가 `suffix = "\n" * (after + 1)`로 내보내는데 그 +1이
+    # 종결자다(docstring: "본문 마지막 줄을 끝내는 개행"). split("\n")은 그걸 빈
+    # 줄로 세어 **원본 쪽마다 유령 빈 줄이 하나씩** 생겼다 — 변경선 바로 위에 늘
+    # 빈 줄이 찍혔고, 쪽마다 한 줄씩 밀렸다. AI `_assemble_pages`는 안 그런다.
+    if seg.endswith("\n"):
+        seg = seg[:-1]
+    out, base = [], 0
+    for logical in seg.split("\n"):
+        k = bisect_right(starts, base) - 1
+        lb = [g - base for g in gbreaks if base < g < base + len(logical)]
+        out += [(w, aligns[k]) for w in wrap(logical, opts.cols, opts.wrap, lb, centers[k])]
+        base += len(logical) + 1
     return out
 
 
@@ -279,6 +408,59 @@ PAGE_BREAK_TAG = "<!쪽바꿈>"
 # flat 안에서 쪽바꿈 자리를 표시하는 내부 값. 점자 텍스트에는 못 나오는 문자를 쓴다.
 _BREAK = "\x00brk"
 
+# ── 조판 태그(V4 점자 태깅 목록표, #66) ─────────────────────────────────────────────
+# 장바꿈: 쪽바꿈처럼 그 자리에서 면을 끊고, 다음 내용은 **홀수 면**에서 시작한다. 앞 내용이 홀수 면에서 끝났으면
+#   다음 짝수 면을 비운다(「점자 도서 제작 지침」 용어 ⑫ 재추출 4534~4537행 · 「점자 자료 제작 지침」 용어 (16) 396행).
+CHAPTER_TAG = "<!장바꿈>"
+_CHAPTER = "\x00chp"
+_MARKS = (_BREAK, _CHAPTER)
+# 줄을 먹는 태그: 그 태그 하나뿐인 블록을 `cols` 폭 한 줄로 펼친다. (머리 셀, 채움 셀, 끝 셀).
+#   목록표의 `×30` 은 32칸일 때의 채움 수다. 칸 수를 바꾸면 채움 수가 따라 바뀐다.
+RULE_TAGS = {
+    "<!상단줄>": ("", "⠉", ""), "<!중단줄>": ("", "⠒", ""), "<!하단줄>": ("", "⠤", ""),
+    "<!상단굵은줄>": ("", "⠛", ""), "<!하단굵은줄>": ("", "⠶", ""),
+    "<!표시작>": ("⠖", "⠒", "⠲"), "<!표중앙>": ("⠗", "⠒", "⠺"), "<!표끝>": ("⠓", "⠒", "⠚"),
+    "<!표구분선>": ("", "⠐", ""),
+    "<!표지시작>": ("⠿", "⠛", "⠿"), "<!표지세로>": ("⠿", SPACE, "⠿"), "<!표지끝>": ("⠿", "⠶", "⠿"),
+}
+# 쪽 번호 자리표시: 블록 글(translate 가 그대로 통과시킨 `cells`) 속에 남아 오고, 여기서 그 줄이 놓인 쪽의
+#   번호(⠼ + 숫자)로 바꾼다. 묵자 쪽 번호는 그 줄의 원본 쪽, 점자 면 번호는 그 줄이 놓인 면(표지 면은 빈칸).
+#   접기는 자리표시 글자 수(8)로 셈한 뒤 바꾸므로 줄이 폭을 넘지 않는다(번호는 8칸보다 짧다).
+ORIG_PAGE_TAG = "<!묵자쪽번호>"
+BRAILLE_PAGE_TAG = "<!점자면번호>"
+# 정렬: 블록 칸 `align`. 그 블록 줄들의 빈칸을 걷고 시작 칸만 바꾼다(줄 수는 안 바뀐다). 없으면 받은 그대로다.
+ALIGNS = ("left", "center", "right")
+
+
+def rule_line(tag: str, cols: int = 32) -> str:
+    """줄을 먹는 태그 → `cols` 폭 한 줄. 예: `<!표시작>` 32칸 = ⠖ + ⠒×30 + ⠲."""
+    a, f, z = RULE_TAGS[tag]
+    return a + f * (cols - len(a) - len(z)) + z
+
+
+def _align(line: str, cols: int, how: str) -> str:
+    if not how:
+        return line
+    s = line.strip(SPACE + " ")
+    if not s or how == "left":
+        return s
+    pad = max(cols - len(s), 0)
+    return SPACE * (pad // 2 if how == "center" else pad) + s
+
+
+def _fill_page_no(line: str, num: str) -> str:
+    """점자 면 번호 자리표시를 채운다. 표지 면(번호 없음)에서 비우면 줄 끝에 남는 빈칸을 걷는다."""
+    if BRAILLE_PAGE_TAG not in line:
+        return line
+    line = line.replace(BRAILLE_PAGE_TAG, num)
+    return line if num else line.rstrip(SPACE)
+
+
+def _header_line(text: str, orig_page: int, num: str, cols: int) -> str:
+    """머리말 한 줄. 자리표시를 채우고 가운데에 놓는다(꼬리말 가운데와 같은 올림 셈). 넘치면 뒤를 자른다."""
+    t = text.replace(BRAILLE_PAGE_TAG, num).replace(ORIG_PAGE_TAG, _number(orig_page)).strip(SPACE + " ")[:cols]
+    return SPACE * ((cols - len(t) + 1) // 2) + t
+
 
 def build_pages(
     sources: list,
@@ -286,17 +468,24 @@ def build_pages(
     start_braille_page: int = 1,
     opts: Options = DEFAULT,
     footers: dict | None = None,
+    header: str = "",
+    headers: dict | None = None,
 ) -> list:
     """원본 쪽별 통 문자열 → **완성된 점자 면 배열**. BRF 변환 직전 상태다.
 
-    sources — `[{"orig_page": int, "blocks": [{"order": int, "text": str}]}]`
+    sources — `[{"orig_page": int, "blocks": [{"order": int, "text": str, "breaks": [int], "heading_level": int}]}]`
       · `text`는 ProcessPage가 낸 통 문자열(조판성 줄바꿈은 `\n`으로 들어 있다)
       · `blocks`는 `order`로 정렬해 이어 붙인다
+      · `breaks`(선택)는 응답 `breaks` 그대로(그 블록 `text` 기준). 없으면 그 블록은 `word` 로 접는다
+      · `heading_level`(선택)이 1이면 32칸을 넘어 접힌 줄을 가운데에 놓는다
     footer — 이미 점역된 꼬리말 점자(없으면 빈 문자열). 이 레포는 점역하지 않는다.
     footers — `{점자 면 번호: 꼬리말 점자}`. 그 면만 이 값을 쓰고, 없는 면은 `footer`를 쓴다.
       "이 면부터 끝까지 / 이 면만"은 **편집 시점의 뜻**이라 여기서 풀지 않는다.
       호출자(FE)가 범위를 해석해 면별 값으로 펼쳐 넘긴다(2026-09-01 결정 E).
     start_braille_page — 첫 면의 점자 면 번호. 표지 다음이 1이다(지침 1장2절2-3(1)).
+    header · headers — 머리말(이미 점역됨). `footer` · `footers` 와 같은 꼴이다. 머리말이 있는 면은 첫 줄이
+      머리말이고 본문이 한 줄 줄어든다. 표지 면과 장바꿈 · 짝수 면 채우기로 더한 빈 면에는 넣지 않는다.
+      머리말이 없으면 면 나눔은 종전과 같다.
 
     반환 — 면 배열. 각 면은 줄 배열이고 길이는 `opts.rows`다. 페이지행이 들어가는 면은
     마지막 줄이 페이지행이고 본문이 `rows-1`줄이다.
@@ -314,47 +503,40 @@ def build_pages(
     """
     # JSON을 거쳐 오면 키가 문자열이다("2"). 세 구현이 같게 굴도록 여기서 정수로 맞춘다.
     fmap = {int(k): v for k, v in (footers or {}).items()}
+    hmap = {int(k): v for k, v in (headers or {}).items()}
     # 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
     sources = _renumber(sources, opts)
     # 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
     with_change = opts.show_change_line and opts.show_orig_page
-    flat: list = []                       # (줄, 원본 쪽, 표지인가)
+    flat: list = []                       # (줄, 원본 쪽, 표지인가, 정렬)
     for i, src in enumerate(sources):
         op = int(src["orig_page"])
         # ★ 표지 판정은 **순번**이다(2026-09-01 결정 C). 종전에는 `쪽 번호 <= cover_pages`로
         #   봤는데, 번호가 1부터 시작하지 않거나 orig_page_start로 다시 매기면 어긋난다.
         cover = i < opts.cover_pages
         if i > 0 and with_change:         # 첫 원본 쪽 앞에는 변경선을 두지 않는다
-            flat.append((page_change_line(op, opts), op, cover))
+            flat.append((page_change_line(op, opts), op, cover, ""))
         blocks = sorted(src.get("blocks") or [], key=lambda b: b.get("order", 0))
-        # 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
+        # 쪽바꿈 · 장바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
         segs: list = []
         cur: list = []
         for b in blocks:
-            t = b.get("text", "")
-            if t.strip() == PAGE_BREAK_TAG:
-                segs.append("".join(cur))
-                segs.append(None)
+            t = b.get("text", "").strip()
+            if t in (PAGE_BREAK_TAG, CHAPTER_TAG):
+                segs.append(cur)
+                segs.append(_BREAK if t == PAGE_BREAK_TAG else _CHAPTER)
                 cur = []
+            elif t in RULE_TAGS:
+                cur.append({"text": rule_line(t, opts.cols)})   # 폭이 꼭 cols 라 안 접힌다
             else:
-                cur.append(t)
-        segs.append("".join(cur))
+                cur.append(b)
+        segs.append(cur)
         for seg in segs:
-            if seg is None:
-                flat.append((_BREAK, op, cover))
+            if isinstance(seg, str):
+                flat.append((seg, op, cover, ""))
                 continue
-            # 통 문자열의 **끝 개행은 마지막 줄을 끝내는 종결자**이지 빈 줄이 아니다.
-            # AI `flatten_elements`가 `suffix = "\n" * (after + 1)`로 내보내는데 그 +1이
-            # 종결자다(docstring: "본문 마지막 줄을 끝내는 개행"). split("\n")은 그걸 빈
-            # 줄로 세어 **원본 쪽마다 유령 빈 줄이 하나씩** 생겼다 — 변경선 바로 위에 늘
-            # 빈 줄이 찍혔고, 쪽마다 한 줄씩 밀렸다. AI `_assemble_pages`는 안 그런다.
-            if not seg:
-                continue      # 내용이 아예 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
-            if seg.endswith("\n"):
-                seg = seg[:-1]
-            for logical in seg.split("\n"):
-                for w in _wrap(logical, opts.cols):
-                    flat.append((w, op, cover))
+            for w, al in _fold_blocks(seg, opts):
+                flat.append((w.replace(ORIG_PAGE_TAG, _number(op)), op, cover, al))
 
     # 2) 면으로 나눈다. 페이지행이 들어가는 면은 본문이 한 줄 줄어든다.
     #
@@ -366,115 +548,142 @@ def build_pages(
     pages: list = []
     first_seen: dict = {}                 # 원본 쪽 → 그 쪽이 처음 나온 면 번호(0-based)
     last = -1                             # 마지막 내용 줄 — 뒤쪽 빈 줄로 빈 면을 만들지 않는다
-    for k, (ln, _o, _c) in enumerate(flat):
-        if ln != _BREAK and ln.strip():
+    for k, (ln, *_r) in enumerate(flat):
+        if ln not in _MARKS and ln.strip():
             last = k
     pos = 0
-    while pos <= last and flat[pos][0] != _BREAK and not flat[pos][0].strip():
+    while pos <= last and flat[pos][0] not in _MARKS and not flat[pos][0].strip():
         pos += 1                          # 문서 맨 앞의 빈 줄만 버린다
+
+    def blank(bp: int, head_page: int, cover: bool) -> list:
+        """빈 면(장바꿈 · 짝수 면 채우기). 페이지행은 다른 면과 같은 규칙이고 원본 번호는 앞 내용의 원본 쪽을 잇는다."""
+        has_row = _has_page_row(bp, opts.page_row_on) and not cover
+        body = [""] * (opts.rows - (1 if has_row else 0))
+        if has_row:
+            idx = len(pages)
+            body.append(page_row(head_page, idx - first_seen.get(head_page, idx), bp, fmap.get(bp, footer), opts))
+        return body
+
     bpn = start_braille_page              # 표지 면은 점자 면 번호를 소비하지 않는다
+    need_odd = False                      # 장바꿈 뒤 — 다음 내용은 홀수 면에서 시작한다
+    prev_op = None                        # 마지막으로 실은 줄의 원본 쪽(장바꿈 빈 면의 페이지행)
     while pos <= last:
-        while pos <= last and flat[pos][0] == _BREAK:
-            pos += 1                      # 이미 이룬 쪽바꿈 표식만 버린다
+        while pos <= last and flat[pos][0] in _MARKS:
+            need_odd = need_odd or flat[pos][0] == _CHAPTER
+            pos += 1                      # 이미 이룬 쪽바꿈 · 장바꿈 표식만 버린다
         if pos > last:
             break
+        # 표지 범위 안이면 페이지행을 생략한다(조판 옵션 §5).
+        on_cover = flat[pos][2]
+        if need_odd and not on_cover and bpn % 2 == 0:
+            pages.append(blank(bpn, flat[pos][1] if prev_op is None else prev_op, False))
+            bpn += 1
+        need_odd = False
         idx = len(pages)
         bp = bpn
         head_page = flat[pos][1]
-        # 표지 범위 안이면 페이지행을 생략한다(조판 옵션 §5).
-        on_cover = flat[pos][2]
         has_row = _has_page_row(bp, opts.page_row_on) and not on_cover
-        cap = opts.rows - (1 if has_row else 0)
+        head = "" if on_cover else hmap.get(bp, header)
+        cap = opts.rows - (1 if has_row else 0) - (1 if head else 0)
+        if cap < 1:
+            raise ValueError(f"rows {opts.rows}줄에서 머리말 · 페이지행을 빼면 본문 줄이 남지 않는다")
         # 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
         end = pos
-        while end < len(flat) and end - pos < cap and flat[end][0] != _BREAK:
+        while end < len(flat) and end - pos < cap and flat[end][0] not in _MARKS:
             end += 1
-        body = [ln for ln, _, _ in flat[pos:end]]
+        num = "" if on_cover else _number(bp)
+        body = [_align(_fill_page_no(ln, num), opts.cols, al) for ln, _o, _c, al in flat[pos:end]]
+        prev_op = flat[end - 1][1]
         pos = end
-        if pos < len(flat) and flat[pos][0] == _BREAK:
+        if pos < len(flat) and flat[pos][0] in _MARKS:
+            need_odd = flat[pos][0] == _CHAPTER
             pos += 1                      # 표식 자체는 본문에 안 싣는다
         first_seen.setdefault(head_page, idx)
         body += [""] * (cap - len(body))
+        if head:
+            body.insert(0, _header_line(head, head_page, num, opts.cols))
         if has_row:
             f = fmap.get(bp, footer)
             body.append(page_row(head_page, idx - first_seen[head_page], bp, f, opts))
         if not on_cover:
             bpn += 1                      # 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
         pages.append(body)
+    if opts.pad_to_even and len(pages) % 2 == 1:
+        pages.append(blank(bpn, flat[last][1], flat[last][2]))
     return pages
 
 
-# ── BE 조립 JSON 진입점 (2026-08-06) ────────────────────────────────────────
-# BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
+# ── 조판 job 진입점 (V4 엔진 가이드 build_brf, 2026-10-14) ─────────────────────────
 #
-#   {"job_id": "...",
-#    "options": {"include_page_number": bool, "page_row_on": "odd|every|even|none",
-#                "cols": 32, "rows": 26,
-#                "show_orig_page": bool, "show_braille_page": bool,
-#                "cover_pages": 0, "orig_page_start": null,
-#                "show_change_line": bool, "footer_align": "center|right"},
-#    "footer_braille": "…",              # 문서 기본 꼬리말(이미 점역됨, 선택)
-#    "footers_braille": {"3": "…"},      # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
-#    "start_braille_page": 1,            # 첫 면 번호(선택, 기본 1)
-#    "pages": [{"orig_page_no": 1,
-#               "elements": [{"id","type","heading_level","text"}, …]}]}
+#   {"sources": [{"orig_page": 1,
+#                 "blocks": [{"order": 0, "braille": "…", "breaks": [int, …]}, …]}, …],
+#    "footer": "…",                 # 문서 기본 꼬리말(이미 점역됨, 선택)
+#    "footers": {"3": "…"},         # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
+#    "opts": {"cols": 32, "rows": 26, "wrap": "syllable|word", "footer_align": "left|center|right",
+#             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
+#             "page_row_pages": "odd|every", "show_orig_page": true, "show_braille_page": true,
+#             "pad_to_even": false}}
 #
-# ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
-# ★ `type`·`heading_level`은 **조판에 쓰지 않는다.** 들여쓰기·가운데 정렬·구조적 빈 줄은
-#   AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`). 여기서 또 넣으면 두 번 들어간다.
-#   두 필드는 오류 지목·나중 확장을 위해 그대로 받아 두기만 한다.
+# ★ `blocks` 는 `order` 로 정렬한다(없으면 배열 순서). `braille` 은 translate 의 `cells` 그대로,
+#   `breaks` 는 translate 의 `breaks` 그대로다. 없으면 그 블록은 빈칸에서 접는다.
+# ★ 들여쓰기 · 가운데 정렬 · 구조적 빈 줄은 이미 `braille` 에 들어 있다. 여기서 또 넣지 않는다.
+#   `heading_level`(가이드 밖, 받기는 한다)이 1이면 32칸을 넘어 접힌 1단계 제목 조각을 가운데에 놓는다.
+# ★ 원본 페이지 변경선은 `show_orig_page` 를 따른다(끄면 같이 꺼진다).
+# ★ 종전 꼴(`pages` · `elements` · `options` · `footer_braille` · `start_braille_page`)은 받지 않는다.
+_PAGE_ROW_PAGES = ("odd", "every")
+
+
 def options_from_job(job: dict) -> Options:
-    """BE 조립 JSON의 `options` → `Options`.
-
-    2026-09-01 개편 전에는 `cols·rows·include_page_number` 셋만 읽었다. Options에 있어도
-    Job에서 안 읽히면 죽은 값이라, 조판 설정 화면이 쓰는 항목을 전부 여기로 연결했다.
-
-    page_row_on — `include_page_number`(켜기·끄기)와 `page_row_on`(어느 면)이 **같은 스위치**다.
-      끄면 `none`, 켜면 `page_row_on`(기본 `odd`). 화면에서도 토글 하나로 합친다(결정 B).
-    """
-    o = job.get("options") or {}
-    on = str(o.get("page_row_on") or "odd")
-    if not bool(o.get("include_page_number", True)):
-        on = "none"
-    start = o.get("orig_page_start")
+    """조판 job 의 `opts` → `Options`(V4 가이드 이름)."""
+    o = job.get("opts") or {}
+    rows_on = str(o.get("page_row_pages") or "odd")
+    if rows_on not in _PAGE_ROW_PAGES:
+        raise ValueError(f"page_row_pages는 odd|every: {rows_on!r}")
+    start = o.get("orig_page_first_no")
     return Options(
         cols=int(o.get("cols") or 32),
         rows=int(o.get("rows") or 26),
         show_orig_page=bool(o.get("show_orig_page", True)),
         show_braille_page=bool(o.get("show_braille_page", True)),
-        page_row_on=on,
-        cover_pages=int(o.get("cover_pages") or 0),
+        page_row_on=rows_on,
+        cover_pages=int(o.get("cover_orig_page_count") or 0),
         orig_page_start=None if start in (None, "") else int(start),
-        show_change_line=bool(o.get("show_change_line", True)),
         footer_align=str(o.get("footer_align") or "center"),
+        wrap=str(o.get("wrap") or "syllable"),
+        pad_to_even=bool(o.get("pad_to_even", False)),
     )
 
 
 def build_pages_from_job(job: dict) -> list:
-    """BE 조립 JSON → 점자 면 배열. `build_pages`의 얇은 어댑터다."""
+    """조판 job → 점자 면 배열. `build_pages`의 얇은 어댑터다."""
     sources = [
         {
-            "orig_page": int(pg.get("orig_page_no", i + 1)),
-            # 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
-            "blocks": [{"order": k, "text": el.get("text", "")}
-                       for k, el in enumerate(pg.get("elements") or [])],
+            "orig_page": int(src.get("orig_page", i + 1)),
+            "blocks": [{"order": b.get("order", k), "text": b.get("braille", ""), "breaks": b.get("breaks") or [],
+                        "heading_level": b.get("heading_level") or 0, "align": b.get("align") or ""}
+                       for k, b in enumerate(src.get("blocks") or [])],
         }
-        for i, pg in enumerate(job.get("pages") or [])
+        for i, src in enumerate(job.get("sources") or [])
     ]
-    # 면별 꼬리말 — 키가 문자열로 올 수 있어(JSON) 정수로 맞춘다.
-    raw = job.get("footers_braille") or {}
+    # 면별 꼬리말 · 머리말 — 키가 문자열로 올 수 있어(JSON) 정수로 맞춘다.
+    raw = job.get("footers") or {}
     footers = {int(k): v for k, v in raw.items()} if raw else None
+    rawh = job.get("headers") or {}
+    headers = {int(k): v for k, v in rawh.items()} if rawh else None
+    o = job.get("opts") or {}
     return build_pages(
         sources,
-        footer=job.get("footer_braille", "") or "",
-        start_braille_page=int(job.get("start_braille_page") or 1),
+        footer=job.get("footer", "") or "",
+        start_braille_page=int(o.get("first_braille_page") or 1),
         opts=options_from_job(job),
         footers=footers,
+        header=job.get("header", "") or "",
+        headers=headers,
     )
 
 
 def build_brf(job: dict) -> str:
-    """BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
+    """조판 job → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
 
     BE는 이 문자열을 그대로 파일로 쓰면 된다. 점역은 하지 않는다 — 이미 점역된
     통 문자열을 조판만 한다.
@@ -485,7 +694,7 @@ def build_brf(job: dict) -> str:
 
 
 def build_brf_file(job: dict, replaced=None) -> bytes:
-    """BE 조립 JSON → **.brf 파일 바이트**(현장 꼴: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII).
+    """조판 job → **.brf 파일 바이트**(현장 꼴: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII).
 
     면 나누기는 `build_pages_from_job` 과 같고, 바이트 꼴만 `semojum_braille.brf.serialize_brf` 를 따른다.
     `replaced`(Counter)를 주면 빈칸으로 바꾼 글자와 횟수를 채운다.

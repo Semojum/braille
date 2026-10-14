@@ -22,8 +22,11 @@ test/unit_test/braille/test_braille_ascii.py
 test/unit_test/braille/test_bullet_reg72.py
 test/unit_test/braille/test_caps_phrase_chem.py
 test/unit_test/braille/test_chain_isolation.py
+test/unit_test/braille/test_circled_simple_num_spacing.py
+test/unit_test/braille/test_coef_fn_join.py
 test/unit_test/braille/test_context_split_c19.py
 test/unit_test/braille/test_dash_roman_colon.py
+test/unit_test/braille/test_dropped_symbols_frame_1280.py
 test/unit_test/braille/test_element_caps_t27.py
 test/unit_test/braille/test_eng_apostrophe_cell.py
 test/unit_test/braille/test_eng_caps_terminator.py
@@ -38,14 +41,19 @@ test/unit_test/braille/test_hangul_operand_not_math.py
 test/unit_test/braille/test_hidden_mark_repeat.py
 test/unit_test/braille/test_hidden_marks_reg57.py
 test/unit_test/braille/test_hotnat_regulation.py
+test/unit_test/braille/test_indent_tag_item_head.py
+test/unit_test/braille/test_inline_simple_num_letter.py
 test/unit_test/braille/test_ion_signs.py
 test/unit_test/braille/test_item_gap_two_cells.py
 test/unit_test/braille/test_latin_unit_958.py
 test/unit_test/braille/test_leader_and_cjk.py
 test/unit_test/braille/test_lenticular_brackets_t26.py
+test/unit_test/braille/test_log_arg_group.py
 test/unit_test/braille/test_markup_fragment_leak.py
 test/unit_test/braille/test_mask_runs_t25.py
+test/unit_test/braille/test_math_comma_space.py
 test/unit_test/braille/test_mineru_token_gap.py
+test/unit_test/braille/test_odd_space_separator.py
 test/unit_test/braille/test_old_hangul.py
 test/unit_test/braille/test_page_line_pad.py
 test/unit_test/braille/test_prefix_scripts.py
@@ -53,6 +61,7 @@ test/unit_test/braille/test_pua_icons_b09.py
 test/unit_test/braille/test_pua_sanitize.py
 test/unit_test/braille/test_qnum_and_wrap_hyphen.py
 test/unit_test/braille/test_qnum_quantity_c41.py
+test/unit_test/braille/test_refmark_spacing_1378.py
 test/unit_test/braille/test_regulation_symbols_945.py
 test/unit_test/braille/test_roman_hyphen_span.py
 test/unit_test/braille/test_roman_indicator_context.py
@@ -71,7 +80,7 @@ test/unit_test/braille/test_symbol_path_consistency.py
 test/unit_test/braille/test_table_numbered_hierarchy.py
 test/unit_test/braille/test_table_tn_not_in_braille.py
 test/unit_test/braille/test_tag_parser.py
-test/unit_test/braille/test_tn_notices.py
+test/unit_test/braille/test_text_style_tags_1382.py
 test/unit_test/braille/test_token_space.py
 test/unit_test/braille/test_ueb_caps_passage.py
 test/unit_test/braille/test_ueb_grade1_indicator.py
@@ -90,6 +99,9 @@ test/unit_test/formula/test_therefore_because_spacing.py
 test/unit_test/pipeline/test_c5_comma_digit.py
 test/unit_test/table/test_grid_row_head_sep.py
 test/unit_test/table/test_record_rows.py
+test/unit_test/table/test_row_continuation.py
+test/unit_test/braille/test_chem_terminator_1269.py
+test/unit_test/braille/test_break_offsets_long_1323.py
 
 # ── 역점역(decoder) ──
 test/unit_test/braille/test_alpha_fallback.py
@@ -100,6 +112,11 @@ test/unit_test/braille/test_bold_typeface.py
 test/unit_test/braille/test_box_char.py
 test/unit_test/braille/test_braille_back.py
 test/unit_test/braille/test_chemical_case.py
+test/unit_test/braille/test_decode_border_lim.py
+test/unit_test/braille/test_decode_gap_math.py
+test/unit_test/braille/test_decode_midword_roman.py
+test/unit_test/braille/test_decode_prime.py
+test/unit_test/braille/test_decode_roman_after_paren.py
 test/unit_test/braille/test_emph_and_table_blank.py
 test/unit_test/braille/test_eng_456_contractions.py
 test/unit_test/braille/test_english_paragraph.py
@@ -127,6 +144,7 @@ test/unit_test/braille/test_paren_linewrap.py
 test/unit_test/braille/test_period_before_closer.py
 test/unit_test/braille/test_perp_and_down_arrow.py
 test/unit_test/braille/test_quoted_roman_j34.py
+test/unit_test/braille/test_reverse_map_collision_guard.py
 test/unit_test/braille/test_roman_paragraph_wordsigns.py
 test/unit_test/braille/test_roman_span_end.py
 test/unit_test/braille/test_roundtrip_dataset.py
@@ -145,3 +163,9 @@ test/unit_test/braille/test_vowel_jamo_decode.py
 test/unit_test/braille/test_ye_syllables.py
 test/unit_test/formula/test_latex_cmd_span_head.py
 test/unit_test/formula/test_latex_text_span.py
+test/unit_test/braille/test_decode_roman_period_number.py
+test/unit_test/braille/test_decode_grade1_1276.py
+test/unit_test/braille/test_kiwi_load_lock_1324.py
+
+# ── 검수 등급(confidence) ──
+test/unit_test/quality/test_page_content_risk.py

@@ -18,6 +18,8 @@ braillify 미설치 시 (폴백):
 
 from __future__ import annotations
 
+import bisect
+import contextvars
 import logging
 import os
 import collections
@@ -25,17 +27,38 @@ import re
 import unicodedata
 from functools import lru_cache
 
-from semojum_braille.encoder.kor_math_rules import (convert_latex, digits_to_braille,
-                                          caps_phrase_run, caps_phrase_cells)
+from semojum_braille.encoder.kor_math_rules import (convert_latex as _convert_latex_raw, digits_to_braille,
+                                          caps_phrase_run, caps_phrase_cells, bond_chain)
 from semojum_braille.encoder import eng_braille, inline_math
-from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
+from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1, WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
 from semojum_braille.encoder.symbol_rules import (
     HIDDEN_TO_BULLET as _HIDDEN_TO_BULLET,
     SYMBOL_TABLE,
+    square_unit_body,
+    square_unit_cells,
     substitute_symbols,
 )
 from semojum_braille.encoder import tag_names as _TAGS
 from semojum_braille.encoder import gates as _gates          # 관문 G3 — 무거운 의존 없음(gates 도크스트링)
+
+# 수식 변환 기억(#1323). `_break_offsets` 가 음절 자리마다 접두를 다시 점역하는 동안만 켠다. 그 안에서는 문맥(요청 깃발 ·
+#   훅 · 환경)이 그대로라 같은 LaTeX 에 늘 같은 점자가 나온다. 접두마다 같은 수식을 다시 바꾸던 몫(수식 든 1,050자 줄
+#   11.6초 중 8.8초)을 없앤다. 밖에서는 None 이라 종전과 같다.
+_LATEX_MEMO: contextvars.ContextVar[dict | None] = contextvars.ContextVar("_LATEX_MEMO", default=None)
+# 끊을 자리를 찾느라 접두를 다시 점역하는 중인가(`_break_offsets`, #1377). 줄 전체를 보고 내리는 판정(선택지 줄)은
+#   접두에 걸지 않는다 — 접두 `①  A` 가 선택지 줄로 읽혀 `⠴⠠⠁` 가 되면 전체 `①  A는…` 의 머리와 맞아 `⠴⠠⠁‖⠲⠉⠵`
+#   (줄머리 종료표) · `③ T‖3` 에 후보가 섰다.
+_BREAK_PROBE: contextvars.ContextVar[bool] = contextvars.ContextVar("_BREAK_PROBE", default=False)
+
+
+def convert_latex(latex: str) -> str:
+    memo = _LATEX_MEMO.get()
+    if memo is None:
+        return _convert_latex_raw(latex)
+    if latex not in memo:
+        memo[latex] = _convert_latex_raw(latex)
+    return memo[latex]
+
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +155,56 @@ _HANGUL_END     = 0xD7A3
 _JONGSEONG_CNT  = 28
 _JUNGSEONG_CNT  = 21
 
+
+# ── 한글 1급(정자 점자, #1191) ─────────────────────────────────────────────────
+# braillify 는 약자를 끄는 옵션이 없다. 한글 음절 구간을 마스크 음절 '괭'(⠈⠧⠗⠶, 약자 없음 · 첫소리 ㄱ 은
+# 제44항 [다만] 대상이 아님)으로 바꿔 braillify 에 넘기고, 돌아온 마스크 자리에 위 자모 표로 적은 음절을 넣는다.
+# 따옴표 짝·숫자·문장 부호는 braillify 가 종전대로 맡는다(한글 자리를 비우지 않아 문맥이 그대로다).
+_KOR_G1_MASK, _KOR_G1_MASK_CELLS = "괭", "⠈⠧⠗⠶"
+_HANGUL_RUN_RE = re.compile(r"[가-힣]+")
+_KOR_G1_DIGIT_SPACE_CHO = frozenset((2, 3, 6, 15, 16, 17, 18))   # ㄴ ㄷ ㅁ ㅋ ㅌ ㅍ ㅎ (_CHOSEONG 차례)
+
+
+def _hangul_grade1(run: str) -> str:
+    """한글 음절 구간 → 약자 없는 자모 점자. 제11항(모음 뒤 '예')·제12항(ㅑ·ㅘ·ㅜ·ㅝ 뒤 '애') 구분표 ⠤ 포함.
+
+    받침 ㅆ 은 `_JONGSEONG` 그대로 ⠌ 다 — 제1장 제4항 자모 규정이라 1급이 끄는 제2장 밖이다(원장 R-90 ❓).
+    """
+    out: list[str] = []
+    prev_v = prev_t = -1
+    for ch in run:
+        code = ord(ch) - _HANGUL_BASE
+        c, v, t = code // (_JUNGSEONG_CNT * _JONGSEONG_CNT), code // _JONGSEONG_CNT % _JUNGSEONG_CNT, code % _JONGSEONG_CNT
+        if c == 11 and prev_t == 0 and (v == 7 or (v == 1 and prev_v in (2, 9, 13, 14))):
+            out.append("⠤")        # 제11항(재추출 538행) 아예 = ⠣⠤⠌ · 제12항(552행) 소화액 = ⠠⠥⠚⠧⠤⠗⠁
+        out.append(_CHOSEONG[c] + _JUNGSEONG[v] + _JONGSEONG[t])
+        prev_v, prev_t = v, t
+    return "".join(out)
+
+
+def _kor_unicode(text: str) -> str:
+    """braillify 한 겹. 한글 1급이 켜지면 한글 음절만 `_hangul_grade1` 로 적는다(꺼지면 braillify 그대로)."""
+    if not KOREAN_GRADE1.get() or not _HANGUL_SYL_RE.search(text):
+        return _braillify_lib.translate_to_unicode(text)
+    runs = [m for m in _HANGUL_RUN_RE.finditer(text)]
+    out = _braillify_lib.translate_to_unicode(_HANGUL_RUN_RE.sub(lambda m: _KOR_G1_MASK * len(m.group()), text))
+    res: list[str] = []
+    pos = 0
+    for m in runs:
+        blk = _KOR_G1_MASK_CELLS * len(m.group())
+        i = out.find(blk, pos)
+        if i < 0:
+            raise ValueError("한글 1급 마스크 자리를 못 찾음")   # 부르는 쪽 폴백(글자 단위)이 받는다
+        cells = _hangul_grade1(m.group())
+        # 제44항 [다만](재추출 2005~2006행) — 숫자와 헷갈리는 첫소리는 숫자 뒤에 붙어 나와도 띄어 쓴다.
+        first_cho = (ord(m.group()[0]) - _HANGUL_BASE) // (_JUNGSEONG_CNT * _JONGSEONG_CNT)
+        if m.start() and text[m.start() - 1].isdigit() and first_cho in _KOR_G1_DIGIT_SPACE_CHO:
+            cells = "⠀" + cells
+        res.append(out[pos:i] + cells)
+        pos = i + len(blk)
+    res.append(out[pos:])
+    return "".join(res)
+
 _ROMAN_START = "⠴"
 _ROMAN_END   = "⠲"
 _CAPITAL_IND = "⠠"
@@ -163,49 +236,45 @@ def _normalize_roman_numerals(text: str) -> str:
     return _ROMAN_NUMERAL_RE.sub(lambda m: _ROMAN_NUMERAL_MAP[m.group()], text)
 
 
-# 섹션번호 로마 숫자(Ⅱ. Ⅲ. …)의 도서 관행: gold는 로마자표(⠴…⠲)·이중 대문자표 없이
-# 대문자표 ⠠ 한 번 + 낱자 점형으로 적는다(Ⅱ→⠠⠊⠊, Ⅴ→⠠⠧ 실측 — 사회문화 p046·154,
-# 세계사 p016). 영어 단어 경로(_english_run/braillify)는 ⠴⠠⠠⠊⠊⠲로 로만표·이중대문자·
-# 종료표를 붙여 gold와 어긋난다(잉여 ⠲·⠴). 낱자 점형을 직접 주입해 관행에 맞춘다.
-# 소문자 로마자(ⅰⅱ 하위항목)는 대문자표 없이 낱자만. <!수식> 안 로마자는 건드리지 않는다.
-_ROMAN_CELL_UPPER = {r: "⠠" + "".join(_ALPHA_MAP[c] for c in ascii_low.lower())
-                     for r, ascii_low in _ROMAN_NUMERAL_MAP.items() if ascii_low[0].isupper()}
-_ROMAN_CELL_LOWER = {r: "".join(_ALPHA_MAP[c] for c in ascii_low)
-                     for r, ascii_low in _ROMAN_NUMERAL_MAP.items() if ascii_low[0].islower()}
-_ROMAN_CELL = {**_ROMAN_CELL_UPPER, **_ROMAN_CELL_LOWER}
-_ROMAN_CELL_RE = re.compile("[" + "".join(_ROMAN_CELL) + "]")
-
-
-# ★ 2026-08-27 — **섹션번호 자리로 좁힌다.** 위 관행 근거는 섹션번호(Ⅱ. Ⅲ. …) 실측
-#   세 쪽뿐인데(frozen 사회문화 p046·154, 세계사 p016) 코드는 수식 밖 로마숫자 **전부**에
-#   먹였다. dev-2027 900쪽 추출 실측: 로마숫자 1,132건 중 **섹션번호는 19건(1.7%)**이고
-#   나머지는 본문 속 참조다("경로 Ⅰ~Ⅲ을", "생쥐 Ⅰ~Ⅲ").
-#   본문 속에서 낱자 점형을 쓰면 **로마자표 ⠴·종료표 ⠲ 가 빠져 그 셀이 한글로 읽힌다**:
-#       우리  ⠈⠻⠐⠥⠀⠠⠊⠈⠔⠠⠊⠊⠊⠮
-#       gold  ⠈⠻⠐⠥⠀⠴⠠⠊⠈⠔⠠⠠⠊⠊⠊⠲⠮      (EBS-E26-001 body p0089 49행)
-#   gold 실측(묵자에 로마숫자가 있는 쪽): 생명과학 **로마자표형 162쪽 : 낱자형 2쪽**.
-#   원인 4분류 = **규칙 충돌**(관행 규칙이 규정형을 밀어냈다).
-#   섹션번호 = **줄머리 + 바로 뒤 마침표**. 공백까지 신호로 치면 안 된다 —
-#   gold p0002 는 'IV 유전'(줄머리+공백)을 **로마자표형** ⠴⠠⠠⠊⠧⠲ 로 적는다.
-_ROMAN_SECTION_RE = re.compile(
-    r"(?m)^([ \t]*)([" + "".join(_ROMAN_CELL) + r"]+)(?=[.．])")
-
-
-def _book_roman_to_cells(text: str) -> str:
-    """도서 관행 로마 숫자 **섹션번호** → 낱자 점형 직접 주입(book 모드). <!수식> 세그는 보존."""
-    def _sec(m):
-        return m.group(1) + "".join(_ROMAN_CELL[c] for c in m.group(2))
-
-    parts = _FORMULA_RE.split(text)
-    for i in range(0, len(parts), 2):   # 짝수 인덱스 = 수식 밖 일반 텍스트
-        parts[i] = _ROMAN_SECTION_RE.sub(_sec, parts[i])
-    # split이 캡처그룹 때문에 [text, formula_inner, text, ...] 형태 → 재조립
-    out = []
-    for i, seg in enumerate(parts):
-        out.append(seg if i % 2 == 0 else f"<!수식>{seg}<!/수식>")
-    return "".join(out)
+# ★ 2026-10-14 — 섹션번호 로마 숫자 낱자 주입(`_book_roman_to_cells`, 08-27)을 지웠다(#1373). 섹션번호도 본문과
+#   같은 로마자 길(제36항 로마자표 ⠴)로 간다. 그 관행의 근거로 적은 동결 val 네 쪽(사회문화 p046 · p116 · p154 ·
+#   세계사 p016)의 gold 가 전부 로마자표형이었다(`0,,ii4` = ⠴⠠⠠⠊⠊⠲ · `0,,iv4` · `0,v4` · `0,,ii4`). 낱자형은 그 쪽들에
+#   없다. 2027 dev · val 섹션번호 13자리도 gold 13/13 로마자표형이다. 규정 근거는 제36항(재추출 1753~1794행)과 본문
+#   예 1787~1788행 "미적분학 II 과목" = `0,,ii4`. 원장 6434행.
 
 _FORMULA_RE      = re.compile(r"<!수식>(.*?)<!/수식>", re.DOTALL)
+# 수학 제11항(재추출 3234~3236행): 두 칸 대상인 수학적 표기에서 "분모와 분자가 수로 이루어진
+#   단순 분수와 소수를 제외"한다. 단순 수(정수 · 소수 · 음수 · 수/수 분수)는 자리를 가리지 않고 두 칸 대상이
+#   아니라 묵자 빈칸대로 한 칸 · 조사는 붙인다 — 제64항 예(2585~2586행) `① ㄱ, ㄴ  ② ㄱ, ㄷ` = `#1`=a"`=3``#2…`
+#   (#1083 선택지 뒤) · 글 속 `값은 $3$이다`(#1095 현장 지적 3). gold 94권 붙임 3,167 : 두 칸 11(원장 C-156).
+_CIRCLED_BR_RE = re.compile(r"⠼[⠂⠆⠒⠲⠢⠖⠶⠦⠔⠴]")    # 동그라미 숫자 ①~⑩ 점형(내려 쓴 수)
+_SIMPLE_NUM_MATH_RE = re.compile(r"\s*-?\s*(?:\\[dt]?frac\s*\{?\s*\d+\s*\}?\s*\{?\s*\d+\s*\}?|\d+(?:\.\d+)?)\s*")
+# 글 속 글자 하나 수식(`$a$`)은 로마자다 — 제32항 예(재추출 1653행) `다음 a, b, c의 값` = `0a1 ;b1 ;c4w`
+#   (#1095 현장 지적 4). gold 94권 로마자꼴 11,692 : 수식꼴 77(원장 C-155).
+#   가드: 앞뒤 글에 로마자 · 수 · 연산 기호 · 괄호가 붙으면 식의 일부라 수식 그대로(`y=sin $x$`, `$f$(x)`).
+_SINGLE_LETTER_MATH_RE = re.compile(r"<!수식>\s*([A-Za-z])\s*<!/수식>([ \t]*)")
+# 로마자 뒤 조사는 붙인다(1653행 `c의` = `;c4w`). 추출이 `$k$ 의` 처럼 띄워 내보내는 빈칸을 지운다
+#   (009 ans 53 `k의 값` 이 `⠴⠅⠲⠀⠺` 로 나갔다, gold `⠴⠅⠲⠺`).
+_LETTER_PARTICLE_RE = re.compile(r"(?:의|이|가|을|를|은|는|와|과|에|에서|에게|로|으로|도|만|까지|부터|보다|처럼|"
+                                 r"이고|이다|이며|이면|이라|이므로|이지|일|인|임|이라고|이라는|이라면|이므로)(?![가-힣])")
+_MATH_NEIGHBOR_RE = re.compile(r"[A-Za-z0-9=+\-−<>≤≥×÷·/^_()\[\]{}|'′]")
+
+
+_PREV_FORMULA_COMMA_RE = re.compile(r"<!수식>((?:(?!<!).)*)<!/수식>\s*,$", re.S)
+_SINGLE_LETTER_RE = re.compile(r"[A-Za-z]")
+
+
+def _single_letter_math_repl(m: re.Match) -> str:
+    before = m.string[:m.start()].rstrip()
+    after = m.string[m.end():].lstrip()
+    if (before and _MATH_NEIGHBOR_RE.match(before[-1])) or (after and _MATH_NEIGHBOR_RE.match(after[0])):
+        return m.group(0)
+    # 수식 나열의 끝(`$\sqrt[3]{2}$ , $b$ 이므로`)이면 수식 그대로 — 앞 수식이 낱자가 아닐 때만.
+    #   낱자끼리의 나열(`다음 a, b, c의 값`, 「한글 점자」 제32항 1653행)은 로마자로 둔다.
+    prev = _PREV_FORMULA_COMMA_RE.search(before)
+    if prev and not _SINGLE_LETTER_RE.fullmatch(prev.group(1).strip()):
+        return m.group(0)
+    return m.group(1) + ("" if _LETTER_PARTICLE_RE.match(after) else m.group(2))
 _TAG_RE          = re.compile(r"<[^>]+>")
 # 잔여 <!…> 정식 태그만 안전 제거(아래 _ANGLE_LABEL_RE가 본문 <…>를 살린 뒤).
 _RESIDUAL_BANG_TAG_RE = re.compile(r"<!/?[^>]*>")
@@ -228,6 +297,9 @@ _INLINE_MATH_RE = re.compile(
 _NUMBER_RE       = re.compile(r"-?\d+(?:[.,]\d+)*")
 _ALPHA_RUN_RE    = re.compile(r"[A-Za-z]+")
 _BRAILLE_RE      = re.compile(r"[⠀-⣿]+")
+_OPEN_BRACKET_RE = re.compile("(?:⠦⠄|⠦⠆)$")      # 여는 소괄호 · 대괄호(문장 부호 표)로 끝나는 점자 조각
+# 그 바로 뒤가 이름표(대문자 낱말 · 두 글자 이상 로마 숫자)이고 곧바로 닫히는가(#1377).
+_BRACKET_LABEL_RE = re.compile("(?:[A-Z]{1,6}|[ivx]{2,6})(?:⠠⠴|⠰⠴)")
 # 두 칸 이상 빈칸 = 항목 구분 부호(지침 3장 3절 4)(3)① 선택지 사이 · 6)(1) 표의 셀 사이).
 # braillify가 한 칸으로 뭉개고(_safe_to_unicode) _collapse_spaces가 또 한 번 뭉갠다.
 # _safe_to_unicode는 이 자리를 _GAP_MARK로 찍어 두고, _collapse_spaces가 모드전환
@@ -322,8 +394,8 @@ _SQ_UNIT_COMPOUND_RE = re.compile(
 #   뒤에 영어 낱말이 이어지면(`Top 10 in Korea`) 영어 문장이라 둔다. 글자는 약자 없이 낱자로 적는다(#958).
 _LATIN_UNIT = r"(?:mm|cm|km|nm|mg|kg|mL|ml|dL|dl|kcal|cal|kPa|kJ|ha|in)"
 _LATIN_UNIT_RE = re.compile(
-    rf"(?<![A-Za-z0-9.,])(\d+(?:[.,]\d+)*[^\S\n]?)({_LATIN_UNIT}(?:/(?:{_LATIN_UNIT}|[a-z]{{1,3}}))*)"
-    r"(?![A-Za-z])(?![^\S\n]*[A-Za-z])")
+    rf"(?<![A-Za-z0-9.,])(\d+(?:[.,]\d+)*[^\S\n]?)({_LATIN_UNIT}(?:/(?:{_LATIN_UNIT}|[a-z]{{1,3}}|[\u3380-\u33df]))*)"
+    r"(?![A-Za-z])(?![^\S\n]*(?:\ufdd2⠸[⠂⠆⠶])?[A-Za-z])")   # 뒤 낱말 앞 영어 밑줄 표지(#1204)는 건너본다
 # `킬로미터/h` 처럼 한글 단위 뒤 빗금의 로마자 단위(예문 `80킬로미터/h` = `…_/0h4`). 줄 끝에서 종료표가 빠졌다.
 _HANGUL_SLASH_UNIT_RE = re.compile(r"(?<=[가-힣])/([a-z]{1,3})(?![A-Za-z])(?![^\S\n]*[A-Za-z])")
 
@@ -339,6 +411,8 @@ def _unit_end(text: str, at: int) -> str:
 
 
 def _unit_cells(unit: str) -> str:
+    if not unit.isascii():             # 빗금 뒤 사각 단위(`kg/㎥`, T36) — 제69항 한 구간
+        return square_unit_body(unicodedata.normalize("NFKC", unit)) or unit
     return "⠸⠌".join("".join(("⠠" + _ALPHA_MAP[c.lower()]) if c.isupper() else _ALPHA_MAP[c] for c in part)
                      for part in unit.split("/"))
 
@@ -346,7 +420,9 @@ def _unit_cells(unit: str) -> str:
 def _wrap_latin_units(text: str) -> str:
     """제69항 — 숫자 뒤 로마자 단위를 ⠴…⠲ 한 구간으로(`_LATIN_UNIT_RE` 주석)."""
     def repl(m: re.Match) -> str:
-        return m.group(1) + "⠴" + _unit_cells(m.group(2)) + _unit_end(text, m.end())
+        cells = _unit_cells(m.group(2))
+        end = "" if re.search(r"⠘⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚]+$", cells) else _unit_end(text, m.end())   # ㎡ 표와 같이
+        return m.group(1) + "⠴" + cells + end
     text = _LATIN_UNIT_RE.sub(repl, text)
     return _HANGUL_SLASH_UNIT_RE.sub(
         lambda m: "/⠴" + _unit_cells(m.group(1)) + _unit_end(text, m.end()), text)
@@ -354,7 +430,15 @@ def _wrap_latin_units(text: str) -> str:
 
 def _wrap_square_unit_compound(text: str) -> str:
     """제69항 — 사각 단위 문자가 든 빗금 복합 단위를 한 로마자 구간으로(`_SQ_UNIT_COMPOUND_RE` 주석)."""
-    return _SQ_UNIT_COMPOUND_RE.sub(lambda m: _braillify_lib.translate_to_unicode(m.group()), text)
+    def repl(m: re.Match) -> str:
+        try:
+            return _braillify_lib.translate_to_unicode(m.group())
+        except ValueError:
+            # braillify 는 ㎥·㎤ 처럼 제 표에 없는 사각 단위를 받으면 **예외를 던진다**(#956 회귀, T36).
+            #   `kg/㎥` 가 든 요소가 통째로 [처리 불가]가 됐다. 같은 제69항 꼴을 직접 조립한다.
+            cells = square_unit_cells(m.group())
+            return cells if cells else m.group()
+    return _SQ_UNIT_COMPOUND_RE.sub(repl, text)
 
 
 _GREEK_RUN_RE = re.compile(r"[α-ωΑ-Ω]+")
@@ -364,11 +448,17 @@ _GREEK_MATH_LEFT = frozenset("-−+±=<>≤≥×÷/^_∠")   # 연산 기호 바
 # 따옴표 안에 줄임표만 있으면 부호 자체를 가리키는 자리다. `…` 하나와 `...` 는 지금도 개수대로
 # 나가고 `……` 만 ⠠⠠⠠ 하나로 합쳐졌다(symbol_table `……`). 그 자리만 여섯 점으로 둔다.
 _QUOTED_ELLIPSIS2_RE = re.compile(r"(?<=[‘“])……(?=[’”])")
-# 「한국 점자 규정」 제72항 [붙임](재추출 2913행) — ○ 와 ◎ 가 함께 나와 구별해야 할 때 ◎ 는 `_00`(⠸⠴⠴).
-# 예문 `◎ 실장급 인사발령 / ○ 승진 인사`. 줄머리 ◎ 는 따로 나오면 `_LINE_BULLET_MAP` 대로 ⠸⠴ 다.
+# 「한국 점자 규정」 제72항 [붙임](재추출 2912~2913행) — ○, □ 가 ◎, ▣ 와 함께 나와 구별해야 할 때
+# ◎ 는 `_00`(⠸⠴⠴), ▣ 는 `_77`(⠸⠶⠶). 예문 `◎ 실장급 인사발령 / ○ 승진 인사`.
+# 따로 나오면 줄머리 ◎ 는 `_LINE_BULLET_MAP` 대로 ⠸⠴, ▣ 는 문자표대로 ⠸⠲ 다(원장 B-10 · #1106).
 _LINE_HEAD_O_RE = re.compile(r"(?m)^[ \t]*○[ \t]")
 _LINE_HEAD_DOUBLE_O_RE = re.compile(r"(?m)^([ \t]*)◎(?=[ \t])")
+_LINE_HEAD_SQ_RE = re.compile(r"(?m)^[ \t]*□[ \t]")
+_LINE_HEAD_FILLED_SQ_RE = re.compile(r"(?m)^([ \t]*)▣(?=[ \t])")
 _HANGUL_SYL_RE   = re.compile(r"[가-힣]")        # 완성형 한글 음절
+# 로마자 구간을 닫는 한글(제29항 후단 '연이어'). 완성형 음절에 더해 호환 자모(ㄱ~ㆎ)도 닫는다(#1374) — 목록 머리
+#   `ㄱ.` 만 사이에 두고 앞 `(O)` 구간이 열린 채로 남아 뒤 `Ⅰ` 에 로마자표가 빠졌다(dev 001 ans 4구간).
+_HANGUL_LETTER_RE = re.compile(r"[가-힣ㄱ-ㆎ]")
 _LATIN_CHAR_RE   = re.compile(r"[A-Za-z]")       # 로마자 낱글자(줄 문맥 비율 계산용)
 
 
@@ -412,10 +502,14 @@ _OLD_CHO = {          # 첫소리 (제19~22항). 옛 글자표 ⠐를 앞세운�
 _OLD_JUNG = {         # 옛 모음자 (제25항). ㆇ~ㆌ는 옛 글자표가 아니라 ⠸를 앞세운다.
     "ᆞ": "⠐⠼",       # ㆍ 아래아
     "ᆡ": "⠐⠼⠗",     # ㆎ 아래애
-    "ᆈ": "⠸⠬⠜",     # ㆇ 요야
-    "ᆉ": "⠸⠬⠕",     # ㆉ 요이
-    "ᆊ": "⠸⠩⠱",     # ㆊ 유여
-    "ᆍ": "⠸⠩⠕",     # ㆌ 유이
+    # ★ 첫가끝 코드값은 유니코드 이름으로 확인한다(#1093). 종전 표는 U+1188 · 1189 · 118A · 118D 에 걸려
+    #   ㆉ 를 ㆇ 로 적고 ㆊ · ㆌ 는 아예 못 받아 글자가 지워졌다(규정 예 `거ᄋᆔ라` → `거라`).
+    "\u1184": "⠸⠬⠜",   # ㆇ 요야 YO-YA
+    "\u1185": "⠸⠬⠜⠗", # ㆈ 요얘 YO-YAE
+    "\u1188": "⠸⠬⠕",   # ㆉ 요이 YO-I
+    "\u1191": "⠸⠩⠱",   # ㆊ 유여 YU-YEO
+    "\u1192": "⠸⠩⠌",   # ㆋ 유예 YU-YE
+    "\u1194": "⠸⠩⠕",   # ㆌ 유이 YU-I
 }
 _OLD_JONG = {         # 받침 (제19·20항)
     "ᇫ": "⠐⠅",       # ㅿ 반치음
@@ -429,26 +523,34 @@ _L0, _L9 = 0x1100, 0x1112
 _V0, _V9 = 0x1161, 0x1175
 _T0, _T9 = 0x11A8, 0x11C2
 _JAMO_RUN_RE = re.compile(r"[\u1100-\u11FF\uA960-\uA97C\uD7B0-\uD7FB]+")
+_OLD_HANGUL_1098 = os.environ.get("OLD_HANGUL_1098", "1") != "0"   # #1098 \uAC19\uC740 \uCEE4\uBC0B A/B \uC2A4\uC704\uCE58(\uB044\uBA74 \uC885\uC804)
 
 
 def _old_hangul_to_braille(text: str) -> str:
-    """첫가끝 자모로만 조합되는 옛한글을 점자 셀로 바꾼다(규정 제19~25항).
-
-    규정에 점형이 없는 자모가 섞이면 그 런은 **손대지 않고** 종전 경로에 넘긴다.
-    """
+    """첫가끝 자모로만 조합되는 옛한글을 점자 셀로 바꾼다(규정 제19~25항)."""
     if not _JAMO_RUN_RE.search(text):
         return text
-    return _JAMO_RUN_RE.sub(lambda m: _old_run_cells(m.group()) or m.group(), text)
+    return _JAMO_RUN_RE.sub(lambda m: _old_run_cells(m.group()), text)
 
 
-def _old_run_cells(run: str) -> str | None:
-    out: list[str] = []
-    for syl in _split_jamo_syllables(run):
-        cells = _old_syllable_cells(syl)
-        if cells is None:
-            return None
-        out.append(cells)
-    return "".join(out)
+def _old_run_cells(run: str) -> str:
+    """음절 단위로 적는다. 규정에 점형이 없는 음절만 자모 그대로 남긴다(#1098).
+
+    종전엔 음절 하나라도 못 적으면 런 전체를 넘겨 braillify 가 거부하고 "변환 불가 글자 제거"가
+    **런을 통째로** 지웠다 — 적을 수 있는 음절까지 흔적 없이 빠졌다(`하ᄀᆞᄋᆉ다` → `⠚⠊`).
+    남긴 자모는 뒤 경로가 지우고, `dropped_old_jamo` 가 세어 쪽 플래그(R18)로 드러낸다.
+    """
+    syls = _split_jamo_syllables(run)
+    cells = [_old_syllable_cells(s) for s in syls]
+    if not _OLD_HANGUL_1098 and None in cells:
+        return run                         # 종전: 런 통째로 뒤 경로에(→ 지워짐)
+    return "".join(c or "".join(s) for c, s in zip(cells, syls))
+
+
+def dropped_old_jamo(text: str) -> collections.Counter:
+    """규정에 점형이 없어 점역에서 빠질 옛한글 음절을 센다. 페이지 플래그(R18)의 근거 수치다."""
+    return collections.Counter("".join(syl) for m in _JAMO_RUN_RE.finditer(text)
+                               for syl in _split_jamo_syllables(m.group()) if _old_syllable_cells(syl) is None)
 
 
 def _split_jamo_syllables(run: str) -> list[list[str]]:
@@ -491,6 +593,17 @@ def _old_syllable_cells(syl: list[str]) -> str | None:
         return cho
     v = jung_l[0]
     t = jong_l[0] if jong_l else ""
+    tail = ""
+    if t and _OLD_HANGUL_1098 and _jong_cell(t) is None:
+        # 제22항 [다만](규정_텍스트.txt 1147행) "현재 쓰이지 않는 겹받침 글자는 각 받침 글자를 어울러
+        # 적는다." 첫 성분까지는 아래 경로로 적어 약자를 살리고 나머지 성분 받침을 잇는다(#1098).
+        # gold(언어와 매체): `부ᇑ` ⠘⠯⠢⠁(울 약자) · `가ᇇ` ⠈⠣⠒⠄(제24항 — ㅏ 를 생략하는 약자 '가' 안 씀) ·
+        # `구ᇚ` ⠈⠍⠢⠁ · `ᄒᆞᇙ` ⠚⠐⠼⠂⠐⠴.
+        parts = _jong_parts(t)
+        rest = [_jong_cell(p) for p in parts[1:]] if parts else [None]
+        if None in rest:
+            return None
+        t, tail = parts[0], "".join(rest)
     # 현대 모음·받침이면 braillify에 맡겨 **약자를 살린다** — gold는 `ᄫᅳᆫ`을
     # ⠐⠘⠶⠵(옛 글자표 ㅸ + 약자 '은')로 적지 옛 ⠪⠒로 풀어 적지 않는다.
     # 옛 자음자 뒤 'ㅏ'는 약자가 없어 그대로 남는다 — 제24항이 요구하는 그대로다.
@@ -498,15 +611,30 @@ def _old_syllable_cells(syl: list[str]) -> str | None:
         code = (_HANGUL_BASE + 11 * _JUNGSEONG_CNT * _JONGSEONG_CNT
                 + (ord(v) - _V0) * _JONGSEONG_CNT + (ord(t) - _T0 + 1 if t else 0))
         try:
-            return cho + _braillify_lib.translate_to_unicode(chr(code))
+            return cho + _kor_unicode(chr(code)) + tail
         except Exception:  # noqa: BLE001 — 폴백은 아래 규정 표로
             pass
     jung = (_JUNGSEONG[ord(v) - _V0] if _V0 <= ord(v) <= _V9 else _OLD_JUNG.get(v))
-    jong = ("" if not t else
-            _JONGSEONG[ord(t) - _T0 + 1] if _T0 <= ord(t) <= _T9 else _OLD_JONG.get(t))
+    jong = _jong_cell(t) if t else ""
     if jung is None or jong is None:
         return None
-    return cho + jung + jong
+    return cho + jung + jong + tail
+
+
+def _jong_cell(t: str) -> str | None:
+    """받침 자모 하나의 점형(현대 받침 · 제19 · 20항 옛 받침). 규정에 없으면 None."""
+    return _JONGSEONG[ord(t) - _T0 + 1] if _T0 <= ord(t) <= _T9 else _OLD_JONG.get(t)
+
+
+def _jong_parts(t: str) -> list[str] | None:
+    """옛 겹받침을 성분 받침 자모로 가른다 — 유니코드 이름이 성분을 적는다(`HANGUL JONGSEONG RIEUL-MIEUM-KIYEOK`)."""
+    pre, name = "HANGUL JONGSEONG ", unicodedata.name(t, "")
+    if not name.startswith(pre) or "-" not in name:
+        return None
+    try:
+        return [unicodedata.lookup(pre + p) for p in name[len(pre):].split("-")]
+    except KeyError:
+        return None
 
 
 def _is_hangul(ch: str) -> bool:
@@ -546,6 +674,10 @@ def _braillify(text: str) -> str:
 #     한글 ≥50%  : gold가 ⠴ 편 dev 42:1 · val 187:26
 #   한글이 거의 없는 줄은 사실상 외국어 지문이라 제29항 [다만]에 가깝다.
 _ROMAN_LINE_HANGUL_MIN = 0.2
+# 선택지 줄(`① A` · `③ A, C`)은 한국어 문항의 한 줄이다(#1377). 줄에 한글이 없어도 제29항 [다만](문단 전체가 로마자)이
+#   아니라 2027 gold 가 로마자표를 적는다(같은 문장 맞대기 5/5, 반례 0). **대문자 이름표만** 든 줄로 좁힌다 —
+#   영어 낱말 선택지(`① apple`)는 영어 지문 갈래라 건드리지 않는다.
+_CHOICE_LABEL_LINE_RE = re.compile(r"^\s*[①-⑳❶-❿]\s*[A-Z]{1,3}(?:\s*,\s*[A-Z]{1,3})*\s*$")
 
 
 class _RomanCtx:
@@ -555,7 +687,7 @@ class _RomanCtx:
     재점역하는 동안 문맥이 덮여 같은 줄이 호출 순서에 따라 다르게 나온다.
     """
 
-    __slots__ = ("has_hangul", "hangul_ratio", "opened", "tail_term", "hyphen_link")
+    __slots__ = ("has_hangul", "hangul_ratio", "opened", "tail_term", "hyphen_link", "follow", "eng_prose")
 
     def __init__(self, text: str, *, force: bool = False) -> None:
         han = len(_HANGUL_SYL_RE.findall(text))
@@ -564,8 +696,9 @@ class _RomanCtx:
         # 그대로 적용되는 자리(translate_plain). 근거는 gold 페이지행 실측이다:
         # '로마숫자 + 숫자' 꼬리말 5,318건 중 로마자표를 붙인 것이 4,776건(89.8%).
         # 본문은 건드리지 않는다 — 거기 문턱값 0.2 는 따로 측정된 값이다(위 주석).
-        self.has_hangul = han > 0 or force
-        self.hangul_ratio = 1.0 if force else (han / (han + lat) if (han + lat) else 0.0)
+        choice = not _BREAK_PROBE.get() and bool(_CHOICE_LABEL_LINE_RE.match(text))
+        self.has_hangul = han > 0 or force or choice
+        self.hangul_ratio = 1.0 if (force or choice) else (han / (han + lat) if (han + lat) else 0.0)
         # 이 줄에서 로마자 구간이 이미 열렸는가(제29항 후단 — 첫 로마자 앞에만 ⠴).
         self.opened = False
         # 직전 `_split_english` 가 **세그 맨 끝에** 종료표 ⠲ 를 적었는가(#917, `_emit_mixed` 가 읽는다).
@@ -573,6 +706,10 @@ class _RomanCtx:
         # 직전 세그가 로마자로 끝나고 붙임표 ⠤ 뒤에 로마자가 바로 이어지는가(`v-x`). 그러면 구간은
         #   붙임표를 넘어 이어진다(제32항 · 제36항 예문 `v-x` = ⠴⠧⠤⠰⠭⠲). `_emit_mixed` 가 세우고 다음 세그가 쓴다.
         self.hyphen_link = False
+        # 지금 세그 **뒤에** 이어지는 줄 글(점자로 먼저 바뀐 부호 포함). 영어 1급에서 구간을 이어 갈지 본다(#1189).
+        self.follow = ""
+        # 한글 없는 영어 산문 줄인가(#1214) — 구간 밖 쉼표도 통일영어점자 ⠂ 로 적는다. `_hold_eng_punct` 와 같은 문턱.
+        self.eng_prose = not self.has_hangul and len(_ENG_PROSE_WORD_RE.findall(text)) >= 2
 
     def wants_roman(self) -> bool:
         """세그에 한글이 없어도 줄 문맥상 ⠴를 새로 열어야 하는가."""
@@ -595,6 +732,7 @@ def _emit_mixed(text: str, result: list[str], ctx: "_RomanCtx | None" = None) ->
     def _seg(seg: str, follow: str = "") -> str:
         if ctx is not None:
             ctx.tail_term = False
+            ctx.follow = follow
         linked = ctx is not None and ctx.hyphen_link
         out = _safe_to_unicode(seg, ctx=ctx)
         if ctx is not None:
@@ -606,13 +744,28 @@ def _emit_mixed(text: str, result: list[str], ctx: "_RomanCtx | None" = None) ->
         #   회귀다(억제 없이 재면 val NET −27, 억제하면 +52. 재현 V2/temp/s2_ab3.py).
         #   #917 — 세그가 빈칸으로 시작하면(`범례 — A:`) `out` 머리가 ⠀ 라 그 확인이 빗나가
         #   `⠤⠤⠴⠀⠴⠠⠁` 로 겹쳤다. 머리 빈칸을 건너 보고, 붙일 때도 빈칸 뒤에 붙인다.
+        #   B-29(#1223) — 한글 없는 줄에서 **띄어 쓴** 줄표 · 빈칸(`- happy` · `___ what`, 빈칸 ⠨⠤ 도 ⠤ 로 끝난다)
+        #   뒤는 붙임표가 아니라 구간이 이어지는 자리다. gold 영어책 빈칸 뒤 ⠴ 0/2,261 · 줄표 뒤 12/385.
         body = out.lstrip("⠀")
+        eng_line = ctx is not None and not ctx.has_hangul
         if (result and result[-1].endswith("⠤")
                 and seg.strip() and all(c.isalpha() and c.isascii() for c in seg.strip())
-                and not body.startswith("⠴") and not linked):
+                and not body.startswith("⠴") and not linked
+                and not (eng_line and seg[:1].isspace())
+                and not (ctx is not None and ctx.opened and ENGLISH_GRADE1.get())):   # 1급 줄 구간이 이미 열림(#1189)
             out = out[:len(out) - len(body)] + "⠴" + body
             if ctx is not None:
                 ctx.opened = True
+        # C-164(#1223) — 한글 없는 줄에서 한글 꼴 화살표 ⠒⠕(제70항, 재추출 2773행) 뒤 영어는 로마자표를 다시 연다.
+        #   조항은 없고 gold 영어책 274/288(95%, 4권)이 그렇다 · 같은 책들이 통일영어점자 화살표 ⠰⠳⠕ 뒤엔 3/780.
+        #   여는 ⠴ 만 적는다(뒤 마침표 ⠲ 가 닫는다, 제33항 [다만]). 영어 산문 줄(소문자 두 글자 이상 낱말 둘 이상)만 —
+        #   원소 기호 반응식 `H, Cl → HCl`(과학 점자 제1항 예 꼴)은 넣지 않는다.
+        #   ponytail: 과학책 `→ C` 도 gold 가 ⠴ 를 적지만(MS-REF-T26-015) 영어책 밖은 안 쟀다 — 재면 넓힌다.
+        elif (eng_line and result and result[-1].rstrip("⠀").endswith("⠒⠕")
+                and len(_ENG_LOWER_WORD_RE.findall(text)) >= 2
+                and _LATIN_CHAR_RE.match(seg.lstrip()) and not body.startswith("⠴")):
+            out = out[:len(out) - len(body)] + "⠴" + body
+            ctx.opened = True
         # 제33항 — 로마자와 한글 사이의 쌍점·쌍반점·줄표는 종료표를 적지 않는다(#917).
         #   `:`·`;`·`—` 는 문자표가 **먼저** 점자로 바꿔 다음 조각으로 가므로, 한글 섞인 세그
         #   끝의 로마자(`이 PD: 먼저` · `학생 A: 많이` · `범례 ― A: 갑`)는 `_eng_terminator` 가
@@ -642,13 +795,19 @@ def _emit_mixed(text: str, result: list[str], ctx: "_RomanCtx | None" = None) ->
         #   붙임표다(제32항, 제36항 예문 `v-x쪽` = ⠴⠧⠤⠰⠭⠲…). 제33항 [다만]의 "‘-’ 앞 종료표" 는 로마자와
         #   **한글** 사이 자리다(`U-도서관`). 붙임표가 먼저 점자가 돼 세그가 끊기면 앞에서 ⠲ 를 적고 뒤에서
         #   ⠴ 를 다시 열었다(⠴⠧⠲⠤⠴⠭⠲). 앞 종료표를 떼고 다음 세그에 이어짐을 알린다.
-        if (follow and ctx is not None and follow.startswith("⠤") and follow[1:2].isascii()
-                and follow[1:2].isalpha() and seg[-1:].isascii() and seg[-1:].isalpha()):
+        #   물결도 같다(#1329): `A~F에` 를 ⠴⠠⠁⠲⠈⠔⠴⠠⠋⠲ 로 닫고 다시 열었다. 제29항(재추출 1496~1498행)은 로마자가
+        #   이어 나오면 구간 하나, 제32항(1650행)은 그 사이를 통일영어점자로. gold dev · val 한 구간 274 · 닫고 다시 엶 0.
+        #   물결은 앞에 종료표를 적은 자리(로마자표를 쓰는 줄)에서만 잇는다 — 한글 없는 줄의 표 없는 로마자 글은 그대로다.
+        link_sym = next((x for x in ("⠤", "⠈⠔") if follow and follow.startswith(x)), "")
+        nxt = follow[len(link_sym):len(link_sym) + 1] if link_sym else ""
+        if (link_sym and ctx is not None and nxt.isascii() and nxt.isalpha()
+                and seg[-1:].isascii() and seg[-1:].isalpha()
+                and (link_sym == "⠤" or (ctx.tail_term and out.endswith("⠲")))):
             if ctx.tail_term and out.endswith("⠲"):
                 out = out[:-1]
             ctx.opened = True
             ctx.tail_term = False
-            ctx.hyphen_link = True
+            ctx.hyphen_link = link_sym
             return out
         # 종료표를 적어야 하는데 세그가 끊겨 못 적은 자리(#944). 문자표가 `[`·`/`·`-` 를 먼저 점자로 바꿔
         #   로마자 세그가 거기서 끊기고, 줄 문맥 경로(`_split_english` 의 ctx 가지)는 제34항(묶인 로마자)으로 보고
@@ -674,13 +833,40 @@ def _emit_mixed(text: str, result: list[str], ctx: "_RomanCtx | None" = None) ->
                     out += "⠲"
         return out
 
+    # 영어 밑줄 표지(#1204)는 깃발을 떼고 자리만 기억해 둔다 — 그 두 셀은 끊지 않고 글 조각에 남긴다.
+    keep: set[int] = set()
+    if _UL_FLAG in text:
+        buf: list[str] = []
+        for ch in text:
+            if ch == _UL_FLAG:
+                keep.add(len(buf))
+            else:
+                buf.append(ch)
+        text = "".join(buf)
     last = 0
     for m in _BRAILLE_RE.finditer(text):
-        pre = text[last:m.start()]
-        if pre:
-            result.append(_seg(pre, text[m.start():]))
-        result.append(m.group())
-        last = m.end()
+        i = m.start()
+        while i < m.end():
+            if i in keep:
+                i += 2
+                continue
+            j = i
+            while j < m.end() and j not in keep:
+                j += 1
+            pre = text[last:i]
+            if pre:
+                result.append(_seg(pre, text[i:]))
+            result.append(text[i:j])
+            if ctx is not None and _OPEN_BRACKET_RE.search(text[i:j]) and _BRACKET_LABEL_RE.match(text, j):
+                # 괄호로 묶인 이름표는 묶음마다 로마자표를 적는다(#1377). 묶인 로마자는 종료표 대신 괄호로 닫히므로(제34항
+                #   재추출 1709행) 새 묶음의 이름표는 로마자표를 새로 적는다. 제29항 후단 '연이어'에 묶음을 넘는 경우는 조항에
+                #   없어 2027 gold 를 따른다: 둘째 괄호 이름표 `[A]~[E]` = …⠦⠆⠴⠠⠑⠰⠴(9/9) · `(i), (ii)` 의 ii 100/100 ·
+                #   `A(DNA)` = ⠴⠠⠁⠦⠄⠴⠠⠠⠙⠝⠁.
+                #   ★ 좁힌 까닭(넓히지 말 것): 닫는 괄호에서도 닫으면 `(i) a+b>1인` 의 a 에 ⠴ 가 붙었다(gold 수학 Ⅰ 해설
+                #   p0021 은 안 적음). 이름표가 아닌 괄호에서도 열면 `(m>0)` 의 m 에 붙었다(gold 0:6) · `g(x)` 의 x 에도.
+                #   본문 속 수식 · 유전 표기 갈래는 #1376 이 맡는다.
+                ctx.opened = False
+            last = i = j
     tail = text[last:]
     if tail:
         result.append(_seg(tail))
@@ -819,13 +1005,19 @@ _CIRCLED.update({chr(0x24B6 + i): "⠶⠴⠠" + _ALPHA_MAP[chr(ord("a") + i)] + 
 _CIRCLED_RE = re.compile("[" + "".join(_CIRCLED) + "]")
 
 
-@lru_cache(maxsize=64)
 def _circled_braille(ch: str) -> str:
-    """동그라미 자모·음절 → 규정 제64항 감쌈형 ⠶…⠶ (㉠ → ⠶⠿⠁⠶, ㉮ → ⠶⠫⠶).
+    """동그라미 자모·음절 → 규정 제64항 감쌈형 ⠶…⠶ (㉠ → ⠶⠿⠁⠶, ㉮ → ⠶⠫⠶, 한글 1급이면 ⠶⠈⠣⠶).
 
     점형은 `_safe_to_unicode`에서 가져온다(정본 하나). 로마자 ⓐ~ⓩ는 `_CIRCLED`에
     이미 완성형이 들어 있어 이 경로를 타지 않는다.
     """
+    return _circled_braille_cached(ch, KOREAN_GRADE1.get())
+
+
+@lru_cache(maxsize=128)
+def _circled_braille_cached(ch: str, grade1: bool) -> str:
+    # ★ `grade1` 은 캐시 열쇠로만 쓴다(#1235). 안의 `_kor_unicode` 가 같은 값을 문맥에서 읽는다.
+    #   글자만 열쇠로 두면 한 서버 프로세스에서 먼저 돈 요청의 꼴(약자 ⠫ · 정자 ⠈⠣)로 굳는다.
     return "⠶" + _safe_to_unicode(_CIRCLED_PLAIN[ch]) + "⠶"
 
 # 괄호 안이 한글·숫자면 붙임표로 감싼다. 영문이 섞이면 규정 소괄호를 유지한다.
@@ -894,6 +1086,32 @@ _ART46_CHAIN_CH = set("0123456789." + _ART46_OPS)
 
 def _is_hangul_syl(ch: str) -> bool:
     return "가" <= ch <= "힣"
+
+
+# 제63항 긴소리표(ː)는 앞뒤를 붙여 쓴다. 묵자 층에는 `[야\u2009ː행썽]` · `눈ː\u2009〔雪〕` 처럼 가는 띄움이 끼어 있어
+# 그대로 옮기면 빈칸 셀이 생긴다(gold 는 붙여 씀, #1222). 줄바꿈은 건드리지 않는다.
+_LENGTH_MARK_GAP_RE = re.compile(r"[^\S\n]*ː[^\S\n]*")
+
+
+def _attach_length_mark(text: str) -> str:
+    """제63항 — 긴소리표 앞뒤 띄움을 걷는다. 끄기 `LAYER_LENGTH_MARK=0`(#1222 관문 고침과 한 묶음)."""
+    if "ː" not in text or os.environ.get("LAYER_LENGTH_MARK", "1") == "0":
+        return text
+    return _LENGTH_MARK_GAP_RE.sub("ː", text)
+
+
+# 제60항(재추출 2533행) — 참고표 ※ 는 앞뒤를 한 칸씩 띄어 쓴다. 묵자가 붙여 써도 띄운다(#1378, gold 화법과 작문
+#   p0126 `※당류:` = ⠸⠔⠀⠊⠶⠐⠩…). 줄머리 · 여는 괄호 · 따옴표 바로 뒤는 붙인다(gold 언어와 매체 p0182 `(※ NASA` =
+#   ⠦⠄⠸⠔⠀…). 별표 `*` 는 건드리지 않는다 — [다만 2](2537행) 주석을 가리키는 별표는 묵자를 따른다(예문 `모티프*를`).
+#   태그 `<!…>` 바로 뒤 · 앞도 그대로 둔다(상자 제목 · 점역자 주 머리).
+_REFMARK_BEFORE_RE = re.compile(r"(?<=[^\s(\[{‘“「『〈《<>])※")
+_REFMARK_AFTER_RE = re.compile(r"※(?=[^\s)\]}’”」』〉》<>.,:;])")
+
+
+def _space_refmark(text: str) -> str:
+    if "※" not in text:
+        return text
+    return _REFMARK_AFTER_RE.sub("※ ", _REFMARK_BEFORE_RE.sub(" ※", text))
 
 
 def _space_hangul_operators(text: str) -> str:
@@ -1332,8 +1550,14 @@ _QNUM_COUNTER = ("개|명|권|번|회|가지|마리|대|자루|송이|그루|상
 #   (`7 mL`·`4 kg`·`2 cm/ms`·`340000 kcal/년`). 한 글자(`m`·`g`·`s`)는 변수와 같은 글자라 넣지 않는다.
 _QNUM_LATIN_UNIT = r"(?:mm|cm|km|nm|mg|kg|mL|ml|dL|dl|kcal|cal|kPa|kJ|ha)(?![A-Za-z])"
 _QNUM_QUANTITY = rf"[^\S\n]+(?:[{_QNUM_UNIT}]|μ[A-Za-z]|{_QNUM_LATIN_UNIT}|(?:{_QNUM_COUNTER})씩?[^\S\n]*(?:\n|$))"
+# ★ 2026-10-07 아홉째 — **비교 기호가 띄어 따라오면** 식이다(원장 C-41 부록4).
+#   `0 < A < π에서` 가 `0.` 으로 나갔다(EBS-E26-009, gold ans p0032 `⠼⠚⠔⠔⠠⠁⠔⠔⠨⠏`).
+#   「한글 점자」 제45항 예 `6<9` = `#f99#i`(재추출 2060행) · gold 전권 `수⠲␣부등호` 0회.
+#   `<`·`>` 는 **뒤가 빈칸일 때만** 뺀다 — 위 여섯째가 일부러 남긴 `5 <보기>`·`6 <!강조>` 는 붙어 온다.
+_QNUM_COMPARE = r"[^\S\n]+(?:[≤≥≦≧≠]|[<>][^\S\n])"
 # 한 자리 번호만 본다(위 M006). 두 자리·영패딩은 정답이 마침표를 안 찍는다.
-_QNUM_RE = re.compile(rf"^(\d)(?!{_QNUM_QUANTITY})(?=\s+(?![{_QNUM_NOT_BODY}])\S)")
+_QNUM_RE = re.compile(
+    rf"^(\d)(?!{_QNUM_QUANTITY})(?!{_QNUM_COMPARE})(?=\s+(?![{_QNUM_NOT_BODY}])\S)")
 # ★ 2026-09-08 일곱째 — **시각 자료 설명·전사는 이 규칙을 아예 안 탄다**(원장 C-41,
 #   `qnum_period=False`). 위 여섯 갈래는 "번호 뒤에 무엇이 오나"로 갈랐지만, 뒤가 한글인
 #   `1 태양을 중심으로 지구가…`(흐름도 개조식 항목)는 본책 단원 번호와 글자로 구분되지
@@ -1484,7 +1708,10 @@ def _collapse_spaces(braille: str) -> str:
 
 def _fix_leading_roman(text_orig: str, braille: str) -> str:
     """대문자 영어로 시작하는 한영 혼합 텍스트에서 ⠴ 누락을 보정."""
-    if not _HANGUL_SYL_RE.search(text_orig):
+    # 태그 이름(`<!밑줄>`·`<!강조>`·`<!수식>`)의 한글은 본문이 아니다 — 세면 한글 없는 영어 줄이
+    #   혼합으로 잡혀 첫 낱말에 ⠴…⠲ 가 붙는다(`I want to ___ you.` → ⠴⠠⠊⠲⠀…). 로마자 줄 문맥(_RomanCtx)도
+    #   태그를 빼고 센다.
+    if not _HANGUL_SYL_RE.search(_RESIDUAL_BANG_TAG_RE.sub("", text_orig)):
         return braille
     if not re.match(r"^[A-Z]", text_orig):
         return braille
@@ -1566,6 +1793,46 @@ _TAG_INLINE_MARKER: dict[str, str] = {
     _TAGS.BLANK_SQUARE: "⠸⠦⠀⠴⠇",
 }
 
+# ── 영어 지문 속 밑줄 빈칸 → 통일영어점자 밑줄 ⠨⠤ (#1170 · 원장 C-05 부록) ─────────────────
+# 「한국 점자 규정」 제7항(99행)·제28항(1329행)이 로마자를 「통일영어점자 규정」에 맡기고, UEB 밑줄은 ⠨⠤ 다.
+#   gold 영어책 11권(holdout 제외) 영어 줄 빈칸: ⠨⠤ 3,436 : ⠸⠤ 394, 빈칸 하나에 늘 ⠨⠤ 한 번.
+# 영어 빈칸으로 보는 자리: 줄에 한글이 없고, 뒤에 영어 낱말이 있거나 · 앞에 영어 낱말이 둘 이상이거나 ·
+#   바로 뒤가 문장 부호다. 단어장의 뜻 칸(뜻을 한글로 적는 칸)은 gold 가 ⠸⠤ 로 적는다(369개) —
+#   `humble ____`(앞 낱말 하나 · 뒤 없음)는 위 셋에 안 걸린다. `07 step forward ____` 처럼 번호로
+#   시작하는 낱말 셋 이하 항목 끝 빈칸도 뜻 칸으로 본다(`05 In my mind, the world is ___` 는 문장이라 영어).
+#   gold 모의: 바뀌는 빈칸 3,115 중 gold 와 어긋나는 것 3(0.10%), `temp/n46/e9/blank_rule_sim.py`.
+# 빈칸 바로 뒤 쉼표·쌍점·쌍반점도 UEB 꼴로 적는다(한글 점자와 점형이 다른 셋, 제33항). gold `___, he` = ⠨⠤⠂.
+#   부호 표는 아래 `_UEB_PUNCT`(제32항 구간 내부 부호) 하나를 같이 쓴다.
+_ENG_BLANK = "⠨⠤"
+_ENG_WORD_RE = re.compile(r"[A-Za-z]+")
+_VOCAB_ITEM_NO_RE = re.compile(r"\s*\d+\.?\s")          # 단어장 항목 번호(`07 `·`3. `)
+def _blank_rule_glyph(m: re.Match) -> str:
+    """`<!밑줄>` 토큰 하나 → ⠸⠤(한글 꼴) 또는 ⠨⠤+UEB 부호(영어 지문 속)."""
+    src = m.string
+    head = src[src.rfind("\n", 0, m.start()) + 1:m.start()]
+    nl = src.find("\n", m.end())
+    tail = src[m.end():nl if nl != -1 else len(src)]
+    head, tail = _TAG_TOKEN_RE.sub(" ", head), _TAG_TOKEN_RE.sub(" ", tail)
+    if _HANGUL_SYL_RE.search(head + tail):
+        return _TAG_INLINE_MARKER[_TAGS.BLANK_RULE]
+    nxt = tail.lstrip(" ")[:1]
+    before = _ENG_WORD_RE.findall(head)
+    if not nxt and _VOCAB_ITEM_NO_RE.match(head) and len(before) <= 3:     # 단어장 뜻 칸
+        return _TAG_INLINE_MARKER[_TAGS.BLANK_RULE]
+    if not (_ENG_WORD_RE.search(tail) or len(before) >= 2
+            or (nxt and nxt in ".?!,;:" and before)):
+        return _TAG_INLINE_MARKER[_TAGS.BLANK_RULE]
+    return _ENG_BLANK
+
+
+_BLANK_RULE_TOKEN_RE = re.compile(r"<!%s>([,;:]?)" % re.escape(_TAGS.BLANK_RULE))
+
+
+def _blank_rule_sub(m: re.Match) -> str:
+    glyph = _blank_rule_glyph(m)
+    return glyph + ((_UEB_PUNCT.get(m.group(1), "") if glyph == _ENG_BLANK else m.group(1)))
+
+
 # 비대칭 인라인 마커: (여는, 닫는)
 _TAG_PAIR_MARKER: dict[str, tuple[str, str]] = {
     # 규정 제56항: 밑줄·드러냄표로 강조된 글자체 = ⠠⠤ … ⠤⠄ (정답 도서 1204회)
@@ -1595,39 +1862,46 @@ _TAG_PAIR_MARKER: dict[str, tuple[str, str]] = {
     # 검출은 `pdf_analyzer.char_box_glyphs`(벡터 사각형) — 묵자의 네모가 글자가 아니라
     # 그림이라 추출 텍스트만 보면 문두 지시 `(가)`와 지문 빈칸 `(가)`가 구분되지 않는다.
     _TAGS.BOX_CHAR: ("⠸⠦", "⠴⠇"),
+    # 제56항 [붙임](재추출 2477~2478행) — 색상 · 모양으로 강조된 글자체는 제1점역자 정의 글자체표 ⠐⠤ … ⠤⠂,
+    #   제2점역자 정의 글자체표는 ⠈⠤ … ⠤⠁. 점자 태깅 목록표(63 · 64행)가 색강조 · 취소선에 하나씩 준다. 규정 예문도
+    #   취소된 금액 `15,000원` 에 제2 글자체표를 쓴다(2488행). 앱 삽입 메뉴로만 들어온다(#1382).
+    _TAGS.COLOR_EMPH: ("⠐⠤", "⠤⠂"),
+    _TAGS.STRIKE: ("⠈⠤", "⠤⠁"),
 }
 
-# 테두리(글상자 = 표, NLD-1.2.5): (캡, 채움) 글리프. 32칸 한 줄로 렌더.
-_BORDER_FILL: dict[str, tuple[str, str]] = {
-    _TAGS.BOX_TOP:    ("⠿", "⠛"),  # 위: 첫/끝 = , 중간 g
-    _TAGS.BOX_BOTTOM: ("⠿", "⠶"),  # 아래: 첫/끝 = , 중간 7
-}
-from semojum_braille.encoder.constants import COLS as _BORDER_COLS  # noqa: E402 (공용 상수)
+# 테두리(글상자 = 표, NLD-1.2.5) 태그 → 종류. 글리프는 위계별 공용 표(`constants.BOX_LEVELS`)에 있다.
+_BORDER_KIND = {_TAGS.BOX_TOP: "top", _TAGS.BOX_BOTTOM: "bottom"}
+from semojum_braille.encoder.constants import COLS as _BORDER_COLS, BOX_LEVELS as _BOX_LEVELS  # noqa: E402 (공용 상수)
 _BORDER_BLANK     = "⠀"   # 점자 빈칸(U+2800)
-_BORDER_LEFT_FILL = 4     # 캡 뒤 채움 칸 → 제목 7칸에서 시작(NLD-1.2.5(4)②: 캡1+채움4+빈칸1)
+from semojum_braille.encoder.constants import BORDER_LEFT_FILL as _BORDER_LEFT_FILL  # noqa: E402 — 캡 뒤 채움 칸 → 제목 7칸에서 시작(NLD-1.2.5(4)②, #1232 한 곳)
 
 # 신형식 <!이름>…<!/이름> + 구형식 <!이름>…<!이름> 모두 수용(닫기 슬래시 옵션).
 # 위계: 이름 뒤 단계 숫자 옵션(<!상자2>=2단계, 없으면 1단계). group(1)=단계, group(2)=제목.
 _BORDER_PAIR_RE = {
     name: re.compile(rf"<!{re.escape(name)}([23]?)>(.*?)<!/?{re.escape(name)}\1>", re.DOTALL)
-    for name in _BORDER_FILL
+    for name in _BORDER_KIND
 }
 
 
-def _border_line(name: str, title_braille: str) -> str:
-    """글상자/표 테두리 32칸 줄. 제목 있으면 NLD-1.2.5(4)② 배치(7칸, 양옆 띔)."""
-    cap, fill = _BORDER_FILL[name]
+def _border_line(name: str, title_braille: str, level: int = 1) -> str:
+    """글상자/표 테두리 32칸 줄. 제목 있으면 NLD-1.2.5(4)② 배치(7칸, 양옆 띔).
+
+    ★ 위계(`<!상자2>` = 2단계)대로 그린다. 응답 `contents` 는 조판(layout) **앞에서** 굳으므로
+      여기서 1단계로 그리면 조판이 위계를 다시 그려도 BE · FE 가 받는 점자는 늘 1단계였다
+      (2027 dev 2단계 태그 70쌍 · val 85쌍이 전부 ⠿ 로 나감, gold 2단계 줄 dev 727 · val 368).
+    """
+    cap, fill, end = _BOX_LEVELS.get(level, _BOX_LEVELS[1])[_BORDER_KIND[name]]
     inner = _BORDER_COLS - 2
     if not title_braille:
-        return cap + fill * inner + cap
+        return cap + fill * inner + end
     # 케이스②: 캡1 + 채움4 + 빈칸1 + 제목 + 빈칸1 + 채움R + 캡1 = 32
     max_title = inner - _BORDER_LEFT_FILL - 2          # = 24
-    # 초과분은 여기서 자른다. 케이스①(제목을 윗줄 5칸에 적고 테두리는 제목 없이 두기)은
-    # 조판 단계가 맡는다 — `layout_braille.BrailleLayout._render_box_top`.
+    # 초과분은 여기서 자른다. 케이스①(제목을 윗줄 5칸에 적고 테두리는 제목 없이 두기)은 아직 없다 —
+    # 쪽 조판(result.txt)에만 있던 렌더러를 #1341 에서 지웠다(제품에 간 적 없음, dev · val 24칸 넘는 제목 0건).
     t = title_braille[:max_title]
     right_fill = inner - _BORDER_LEFT_FILL - 2 - len(t)
     return (cap + fill * _BORDER_LEFT_FILL + _BORDER_BLANK
-            + t + _BORDER_BLANK + fill * right_fill + cap)
+            + t + _BORDER_BLANK + fill * right_fill + end)
 
 
 # 글상자 테두리 태그(위/아래, 위계 옵션) 문서 순서 수집 — box_borders(NLD-1.2.5) layout 재렌더
@@ -1635,7 +1909,6 @@ def _border_line(name: str, title_braille: str) -> str:
 _BORDER_ANY_RE = re.compile(
     rf"<!({re.escape(_TAGS.BOX_TOP)}|{re.escape(_TAGS.BOX_BOTTOM)})([23]?)>(.*?)<!/?\1\2>",
     re.DOTALL)
-_BORDER_KIND = {_TAGS.BOX_TOP: "top", _TAGS.BOX_BOTTOM: "bottom"}
 
 
 def _braillify_box_title(raw: str) -> str:
@@ -1712,8 +1985,8 @@ def isolate_border_tags(text: str) -> str:
 def box_borders_from_source(source_text: str) -> list[tuple[str, int, str]]:
     """원본의 글상자 테두리 태그를 문서 순서대로 (kind, level, 제목점자)로 수집(NLD-1.2.5).
 
-    layout이 이 목록으로 위계별 테두리·제목 배치(중간7칸/윗줄5칸/케이스①)를 재렌더한다.
-    translator는 인라인 32칸 테두리(위치 마커, 항상 1단계 ⠿ 형식)도 그대로 둔다(_border_line).
+    테두리 꼴 · 제목(중간 7칸)은 translator 가 그린다(_border_line). layout 은 이 목록이 있는 요소에만
+    글상자 위아래 빈 줄을 정한다(`layout_braille._box_blanks`, #1341).
     위계: 태그 이름 뒤 단계 숫자(<!상자2>=2단계, 없으면 1단계). ※§3-5 태그 규약 확장(태민 검토).
     """
     out: list[tuple[str, int, str]] = []
@@ -1726,10 +1999,6 @@ def box_borders_from_source(source_text: str) -> list[tuple[str, int, str]]:
         title = _braillify_box_title(title_raw) if (kind == "top" and title_raw) else ""
         out.append((kind, level, title))
     return out
-
-
-# 32칸 테두리 줄의 채움 글리프 → 테두리 종류. `_BORDER_FILL` 의 역방향이다.
-_BORDER_FILL_KIND = {fill: _BORDER_KIND[name] for name, (_cap, fill) in _BORDER_FILL.items()}
 
 
 def border_marker_spans(
@@ -1745,8 +2014,8 @@ def border_marker_spans(
       실측(fresh 실행, 사회문화 p010): 테두리 줄이 든 요소 4개의 `rule_trail` 이 전부 [].
 
     source-gated — 원본의 `<!상자>`·`<!상자끝>` 태그 순서·개수만큼만 짚는다. 표 격자도
-    같은 32칸 테두리를 그리므로(원장 C-01a) 출력 스캔만으로는 못 가른다. 채움 글리프로
-    종류(위 ⠛ / 아래 ⠶)까지 맞춰 어긋난 짝을 건너뛴다.
+    같은 32칸 테두리를 그리므로(원장 C-01a) 출력 스캔만으로는 못 가른다. 다음 태그의 종류 · 위계가
+    그리는 캡 · 채움(`constants.BOX_LEVELS`)과 맞는 줄만 짚고 어긋난 줄은 건너뛴다.
     """
     specs = box_borders_from_source(source_text)
     if not specs:
@@ -1754,9 +2023,9 @@ def border_marker_spans(
     spans: list[tuple[int, int, str]] = []
     si, pos = 0, 0
     for line in braille.split("\n"):
-        if si < len(specs) and len(line) == _BORDER_COLS and line[:1] == line[-1:] == "⠿" \
-                and _BORDER_FILL_KIND.get(line[1:2]) == specs[si][0]:
-            kind, level, title = specs[si]
+        kind, level, title = specs[si] if si < len(specs) else ("", 1, "")
+        cap, fill, end = _BOX_LEVELS.get(level, _BOX_LEVELS[1]).get(kind, ("", "", ""))
+        if kind and len(line) == _BORDER_COLS and line[:2] == cap + fill and line[-1:] == end:
             si += 1
             titled = "·제목있음" if (kind == "top" and title) else ""
             spans.append((pos, pos + len(line), f"box_{kind}·{level}단계{titled}"))
@@ -1818,6 +2087,9 @@ def blank_marker_spans(
         start = 0
         for _ in range(count):
             i = braille.find(glyph, start)
+            if name == _TAGS.BLANK_RULE:          # 영어 지문 속 빈칸은 ⠨⠤(#1170) — 둘 중 앞선 것
+                j = braille.find(_ENG_BLANK, start)
+                i = j if i == -1 or (j != -1 and j < i) else i
             if i == -1:
                 break
             spans.append((i, i + len(glyph), _BLANK_TAG_NAMES[name]))
@@ -1873,16 +2145,25 @@ def _promote_literal_tn(text: str) -> str:
     return out
 
 
+_TAG_ALIAS_RE = re.compile(r"<!(/?)(%s)>" % "|".join(map(re.escape, _TAGS.ALIASES)))
+
+
+def normalize_tag_aliases(text: str) -> str:
+    """목록표 태그 이름(`<!밑줄빈칸>` · `<!네모빈칸>`)을 엔진 이름(`<!밑줄>` · `<!네모>`)으로 푼다(#1382)."""
+    return _TAG_ALIAS_RE.sub(lambda m: f"<!{m.group(1)}{_TAGS.ALIASES[m.group(2)]}>", text)
+
+
 def substitute_tags(text: str) -> str:
     """인라인 태그(<!이름>/<!/이름>)를 점자 마커로 치환. 미지 태그는 안전 제거.
 
     치환 결과는 점자 Unicode이므로 이후 _emit_mixed/braillify가 보존한다(이중 변환 없음).
     """
     text = _promote_literal_tn(text)
-    # 1) 테두리 쌍 (중간 제목 가능) → 32칸 줄(위치 마커). 위계는 box_borders로 layout이 재렌더.
+    # 1) 테두리 쌍 (중간 제목 가능) → 위계대로 32칸 줄. 제목 배치 · 빈 줄은 box_borders 로 layout 이 더한다.
     for name, pat in _BORDER_PAIR_RE.items():
         text = pat.sub(
-            lambda m, n=name: _border_line(n, _braillify_box_title(m.group(2).strip())), text
+            lambda m, n=name: _border_line(n, _braillify_box_title(m.group(2).strip()),
+                                           int(m.group(1) or 1)), text
         )
 
     # 2) 단일·대칭 인라인 마커 + 미지 태그 제거
@@ -1897,7 +2178,7 @@ def substitute_tags(text: str) -> str:
         # `_break_offsets`가 줄바꿈 자리를 찾느라 접두(`src[:sp]`)를 수천 번 재점역하면서
         # 늘 생긴다 — 전체 문자열 변환은 경고 0에 테두리도 정상이다(실측). 운영 로그를
         # 이 잡음으로 채우면 진짜 미지 태그가 묻힌다.
-        if name.rstrip("23") in _BORDER_FILL:
+        if name.rstrip("23") in _BORDER_KIND:
             return ""
         # 같은 이유로 미지 태그도 한 토큰이 수백 줄을 찍는다(실측: `<!표>` 하나에 172줄).
         # 토큰당 한 번만 남긴다 — 이 경고는 "이름이 틀렸다"는 신호라 한 번이면 족하고,
@@ -1907,6 +2188,7 @@ def substitute_tags(text: str) -> str:
             logger.warning("translator: 미지 태그 제거 %s (이름표는 tag_names.py)", tok)
         return ""
 
+    text = _BLANK_RULE_TOKEN_RE.sub(_blank_rule_sub, text)   # 영어 지문 속 빈칸(#1170)
     text = _TAG_TOKEN_RE.sub(_token_sub, text)
     # 3) 잔여 <!…> 정식 태그만 제거. 그 밖의 <보기>류는 본문이므로 삭제 금지 —
     #    홑화살괄호 〈 〉로 바꿔 점역(빈 결과 금지). symbol_table이 〈=⠐⠶·〉=⠶⠂로 치환.
@@ -1948,6 +2230,56 @@ _INLINE_SUB_HYPHEN_RE = re.compile(r"^-(?:[A-Za-z]+_\{?\d+\}?)+[A-Za-z]*-$")
 #   규정 예시도 한 칸이다 — `수소가 전자를 잃으면 H+가 된다` = …0[e*`0,h^5`$`iy3i4
 #   (백틱이 한 칸이고 이온 0,h^5 앞뒤가 각각 한 칸).
 _ION_TOKEN_RE = re.compile(r"^(?:[A-Z][a-z]?(?:_\{\d+\})?)+\^\{\d*[+-]\}$")
+# MinerU 는 이온을 `$\mathrm{Na}^{+}$` · `$Na^{+} - K^{+}$`(Na⁺-K⁺ 펌프) 꼴로도 준다(T36). 로만체 감쌈과
+#   빈칸을 걷고, 이온끼리 붙임표로 이은 이름은 붙임표 ⠤ 로 한 구간에 잇는다 — 2027 gold 생명
+#   `⠴⠠⠝⠁⠘⠢⠤⠠⠅⠘⠢`. 종전에는 수식으로 가 두 칸 + 빼기 ⠔(`⠀⠀⠠⠝⠁⠘⠢⠔⠠⠅⠘⠢⠀⠀`)였다.
+_ROMAN_WRAP_RE = re.compile(r"\\(?:mathrm|rm|text)\s*\{([^{}]*)\}")
+_ION_JOIN_RE = re.compile(r"(?<=\})-(?=[A-Z])")
+
+
+_MATH_SPAN_RE = re.compile(r"<!수식>(.*?)<!/수식>", re.DOTALL)
+_TOKEN_PUNCT_RE = re.compile(r"(\s*,\s*|[()])")
+
+
+def _unwrap_token_punct(text: str) -> str:
+    """수식 조각이 첨자 토큰 · 이온과 `,` `(` `)` 만으로 되어 있으면 부호를 조각 밖으로 꺼낸다(#1377).
+
+    `inline_math.wrap` 이 뒤 쉼표 · 괄호까지 구간에 넣어(`<!수식>O_{2},<!/수식>` · `K^{+}(` · `O_{2}, CO_{2}`) 첨자 토큰
+    판정(`_INLINE_SUB_TOKEN_RE` · `_ion_parts`)에서 빠지고 수식 길(제11항 두 칸, 로마자표 없음)로 갔다. 2027 gold 는
+    `㉠은 O₂,` = ⠴⠠⠕⠰⠼⠃⠐ · `K⁺(㉠)` = ⠴⠠⠅⠘⠢⠦⠄ 로 로마자표를 적는다(과학 점자 제1항 · 제2항). 토큰마다 따로 감싸
+    `O₂를` 과 같은 길로 보낸다. 토큰이 아닌 조각(`f(x)` · `(1, 0)` · `Mg(OH)_{2}`)은 그대로 둔다.
+    ★ 화학식 토큰만 꺼낸다(`_chem_token`). 생물 · 수학 표기(`G₁기` · 넓이 `S₁` · 수열 `a₁`)를 꺼내면 로마자표가 붙는데
+    gold 는 그 자리에 안 적는다(생명과학 Ⅰ 해설 p0027~0029 `㉠(G₁기)` 5곳 · 수학 Ⅰ 해설 p0019 `S₁` 1곳).
+    """
+    def repl(m: "re.Match[str]") -> str:
+        parts = _TOKEN_PUNCT_RE.split(m.group(1))
+        toks = parts[0::2]
+        if len(parts) < 2 or not any(toks) or not all(not t or _chem_token(t) for t in toks):
+            return m.group(0)
+        return "".join((f"<!수식>{p}<!/수식>" if p else "") if k % 2 == 0 else p for k, p in enumerate(parts))
+    return _MATH_SPAN_RE.sub(repl, text)
+
+
+def _chem_token(t: str) -> bool:
+    """화학식 토큰인가(#1377). 원소 기호만으로 되어 있고, 이온이거나 · 원소가 둘 이상이거나 · 첨자가 2 이상이다.
+    `O₂` · `CO₂` · `K⁺` 는 참, `G₁`(원소 아님) · `S₁`(홑 원소 첨자 1, 넓이 변수) · `a₁`(소문자)은 거짓."""
+    plain = _ROMAN_WRAP_RE.sub(r"\1", t).replace(" ", "")
+    els = re.findall(r"[A-Z][a-z]?|[a-z]", plain)
+    if not els or not all(e in _kor_math_rules._ELEMENTS for e in els):
+        return False
+    if _ion_parts(t):
+        return True
+    if len(els) < 2 and inline_math.MATH_PAGE.get():
+        return False       # 수식 쪽의 홑 원소 첨자는 변수다(`S₂` 넓이) — `_latex_chem_to_unicode` 와 같은 기준
+    subs = [int(x) for x in re.findall(r"_\{?(\d+)\}?", plain)]
+    return bool(_INLINE_SUB_TOKEN_RE.match(t)) and bool(subs) and (len(els) >= 2 or max(subs) >= 2)
+
+
+def _ion_parts(core: str) -> list[str] | None:
+    """이온 하나 또는 붙임표로 이은 이온들이면 조각 목록, 아니면 None."""
+    plain = _ROMAN_WRAP_RE.sub(r"\1", core).replace(" ", "")
+    parts = _ION_JOIN_RE.split(plain)
+    return parts if all(_ION_TOKEN_RE.match(p) for p in parts) else None
 # 홑 기호 하나만 든 수식 토막(`$\to$`·`$\cup$`)도 **제11항 두 칸의 예외**다 — 이슈 #715.
 #   제11항(재추출 3235~3237행)이 말하는 '수학적 표기'는 "분수·무한소수·순환소수·첨자·
 #   제곱근·절댓값 등이 포함된 표현"이다. 기호 하나는 거기 안 든다. 그 기호들은 저마다
@@ -1975,21 +2307,50 @@ def _has_hangul_outside_math(parts: list[str]) -> bool:
                for i in range(0, len(parts), 2))
 
 
-def _inline_sub_braille(b: str, src: str = "") -> str:
+def _inline_sub_braille(b: str, src: str = "", follow: str | None = None) -> str:
     """인라인 첨자 토큰 점형: 로마자표 ⠴ 접두 + 대문자 구절표 ⠠⠠ → 홑 대문자표 ⠠.
 
     ★ 2026-09-07 — 「과학 점자」 제4항(원문 4363행). **한 글자 원소 기호가 3개 이상 이어**
       나오는 토막은 낱 대문자표가 아니라 **대문자 구절표** ⠠⠠⠠…⠠⠄ 로 묶고 로마자
       종료표를 적는다(4367-4368행 `0,,,ch;#c"cooh,'4`). 방아쇠 근거와 오발동 실측은
       `kor_math_rules.caps_phrase_run` 주석에 있다(코퍼스 1,361쪽 발동 3회·오발동 0).
+
+    ★ 2026-10-10(#1269) — 토막 끝과 바로 뒤 원문(`follow`)으로 가른다.
+      · 원소 기호로 끝나고 **한글이 바로 붙으면** 종료표를 적는다. 「과학 점자」 제7항 1호 예(재추출
+        4435~4436행) `H₂O와` = `0,h;#b,o4v` · gold `H₂O로` 2곳(MS-REF-T26-015).
+        ⚠ 빈칸 · 줄 끝 앞은 종전대로 안 적는다. gold 가 3 : 4 로 갈리고(gold 전용 왕복 1,062줄) 안 적는 쪽이
+          화살표 · 반응식 줄에 몰린다 — 한글 섞인 도식은 화학식마다 ⠴ 만 적는 관행(원장 C-132)과 겹친다.
+      · 숫자 첨자로 끝나면 안 적는다. 제7항 6호(4463~4464행) "숫자 첨자 뒤에는 … 로마자 종료표를 적지
+        않는다", 예 `O₂이다` = `0,o;#boi4`. 2027 gold `O₂와` = `0,o;#bv` 등 첨자 끝 토막 + 한글 66곳이 이 꼴이다.
+        다만 숫자와 헷갈리는 한글이 붙어 나오면 한 칸 띄운다. 6호 예 `H₂는` = `0,h;#b`cz`(4467~4468행) ·
+        「한글 점자」 제68항 [붙임 1](2656행) · 제44항 [다만](2005~2006행).
+      괄호 · 붙임표 안 토막(`follow=None`)은 종전대로 둔다(제34항, 묶인 로마자에는 종료표를 안 적는다).
     """
+    if "⠠⠠⠠" in b:                     # convert_latex 가 식 전체 구절표를 이미 적었다(T36 ②-b)
+        return _ROMAN_START + b + _ROMAN_END
     if src and caps_phrase_run(src):
         return _ROMAN_START + caps_phrase_cells(b, src) + _ROMAN_END
-    return _ROMAN_START + b.replace(_CAPITAL_IND * 2, _CAPITAL_IND)
+    cells = _ROMAN_START + b.replace(_CAPITAL_IND * 2, _CAPITAL_IND)
+    if not follow:
+        return cells
+    follow = _RESIDUAL_BANG_TAG_RE.sub("", follow)
+    if _ELEMENT_TAIL_RE.search(src):
+        return cells + _ROMAN_END if _HANGUL_SYL_RE.match(follow) else cells
+    nxt = follow[:1]
+    if not src[-1:].isalpha() and "가" <= nxt <= "힣" and (
+            (ord(nxt) - 0xAC00) // 588 in _NUM_GAP_INITIALS or nxt == "운"):
+        return cells + "⠀"
+    return cells
+
+
+# 첨자 뒤에 원소 기호가 붙어 끝나는가(`H_{2}O` · `NH_{4}Cl`). 소문자 끝(`log_{2}x` 류)은 원소가 아니라 뺀다.
+_ELEMENT_TAIL_RE = re.compile(r"(?:\}|\d)(?:[A-Z][a-z]?)+$")
 
 
 def _translate_with_braillify(text: str, *, force_roman: bool = False,
                               qnum_period: bool = True) -> str:
+    if bond_chain(text.strip()):      # 줄 전체가 사슬 화합물 결합선(`H-O-H`, 과학 제10항) — 영어 붙임표로 새지 않게
+        return convert_latex(text.strip())
     parts = _FORMULA_RE.split(text)
     # (종류, 점자, 앞 원문공백, 뒤 원문공백). 종류: "t"=텍스트 "f"=수식 "i"=인라인 첨자 토큰
     chunks: list[tuple[str, str, bool, bool]] = []
@@ -2000,6 +2361,8 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
     roman_ctx = _RomanCtx("".join(_RESIDUAL_BANG_TAG_RE.sub("", parts[i])
                                   for i in range(0, len(parts), 2)),
                           force=force_roman)
+    punct_head: set[int] = set()
+    open_tail: set[int] = set()
 
     for i, part in enumerate(parts):
         if i % 2 == 0:  # 일반 텍스트 세그먼트
@@ -2020,9 +2383,14 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
                 clean = _restore_wrap_hyphen(clean)
                 preprocessed = _wrap_square_unit_compound(_wrap_hangul_greek(_wrap_hangul_amp(_preprocess_units(_wrap_latin_units(_QUOTED_ELLIPSIS2_RE.sub("⠠⠠⠠⠠⠠⠠",
                     _apply_book_style(clean, qnum_period=qnum_period)))))))
-                substituted = _old_hangul_to_braille(substitute_symbols(preprocessed))
+                substituted = _old_hangul_to_braille(_unhold_eng_punct(
+                    substitute_symbols(_hold_eng_punct(preprocessed))))
                 text_result: list[str] = []
                 _emit_mixed(substituted, text_result, roman_ctx)
+                if part[:1] in ",()[]":
+                    punct_head.add(len(chunks))   # 부호로 시작하는 글 조각 — 이온 뒤 한 칸을 안 넣는다(#1377)
+                if part[-1:] in "([":
+                    open_tail.add(len(chunks))    # 여는 괄호로 끝나는 글 조각 — 뒤 이온 앞 한 칸을 안 넣는다(#1377)
                 chunks.append(("t", _collapse_spaces("".join(text_result)),
                                lead_ws, trail_ws))
             else:
@@ -2034,7 +2402,8 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
             part = _restore_wrap_hyphen(part)
             core = part.strip()
             if inline_sub and _INLINE_SUB_TOKEN_RE.match(core):
-                chunks.append(("i", _inline_sub_braille(convert_latex(core), core),
+                follow = parts[i + 1] if i + 1 < len(parts) else ""
+                chunks.append(("i", _inline_sub_braille(convert_latex(core), core, follow),
                                False, False))
             elif inline_sub and (_INLINE_SUB_PAREN_RE.match(core)
                                  or _INLINE_SUB_HYPHEN_RE.match(core)):
@@ -2045,23 +2414,36 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
                 else:
                     chunks.append(("i", _BOOK_HYPHEN + inner + _BOOK_HYPHEN,
                                    False, False))
-            elif _ION_TOKEN_RE.match(core):
-                chunks.append(("n", convert_latex(core), False, False))
+            elif (ions := _ion_parts(core)) and len(ions) == 1 and inline_sub and caps_phrase_run(ions[0]):
+                # ★ 한 글자 원소 3연 이상 이온(HCO₃⁻)은 제4항 구절표로 묶고, 과학 제2항 [붙임] 다만
+                #   "이온 표시 뒤에 대문자 종료표가 올 때에는 로마자 종료표를 적는다" — 빈칸 없이 붙인다.
+                #   예문 `HCO₃⁻는` = `0,,,hco;#c^9,'4cz`(재추출 4350행). 2027 gold 생명 5회 전부 이 꼴(T36).
+                cells = convert_latex(ions[0])
+                if "⠠⠠⠠" not in cells:       # convert_latex 가 식 전체 구절표를 이미 적었으면 두 번 안 입힌다
+                    cells = caps_phrase_cells(cells, ions[0])
+                chunks.append(("i", _ROMAN_START + cells + _ROMAN_END, False, False))
+            elif ions:
+                chunks.append(("n", "⠤".join(convert_latex(x) for x in ions), False, False))
             else:
                 # "s" = 홑 기호(제70항·제60항 5호·제15항 한 칸). 그 밖은 "f"(제11항 두 칸).
-                chunks.append(("s" if _LONE_SPACED_SYM_RE.match(core) else "f",
+                simple = _SIMPLE_NUM_MATH_RE.fullmatch(core)
+                chunks.append(("p" if simple else "s" if _LONE_SPACED_SYM_RE.match(core) else "f",
                                convert_latex(part), False, False))
 
     # 수학 점자 규정 제11항: 수식 앞뒤 두 칸 공백(⠀⠀).
     # 단 인라인 첨자 토큰(O₂·t₁)은 gold가 두 칸을 쓰지 않으므로 원문 띄어쓰기를 그대로 둔다.
     result_parts: list[str] = []
     prev_kind: str | None = None
+    prev_idx = -1
     pending_ws = False
-    for kind, braille, lead_ws, trail_ws in chunks:
+    for idx, (kind, braille, lead_ws, trail_ws) in enumerate(chunks):
         if not braille:
             pending_ws = pending_ws or lead_ws or trail_ws
             continue
-        if kind == "n" and prev_kind == "t":
+        if kind == "n" and (prev_kind == "t" or (prev_kind is None and inline_sub)):
+            # ★ 줄 머리 이온도 문장 속이면 ⠴ 를 앞세운다(T36). 규정은 "문장 속 H+"(0,h^5)와 "홀로 쓴 H+"(,h^5)를
+            #   가른다 — 앞 조각이 글이냐가 아니라 **줄에 한글이 있느냐**다. 종전에는 `Na⁺이 세포 밖으로` 처럼
+            #   이온이 줄 머리에 오면 빠졌다(2027 gold 줄 머리 `⠴⠠⠝⠁⠘⠢`).
             # 제69항 로마자표. 여는 ⠴만 붙이고 종료표는 안 붙인다(제2항 붙임).
             # gold 실측 195자리 중 161(83%)이 ⠴를 앞세우고, 나머지 34는 수식 안에서
             # 이온이 잇따르는 자리다. 규정도 홀로 쓴 H+는 ,h^5(⠴ 없음)이고 문장 속
@@ -2069,15 +2451,26 @@ def _translate_with_braillify(text: str, *, force_roman: bool = False,
             braille = "⠴" + braille
         if prev_kind is not None:
             if kind in ("n", "s") or prev_kind in ("n", "s"):
-                # 이온은 한 칸(과학 제2항 붙임), 홑 기호도 한 칸(제70항·제60항 5호·제15항)
-                result_parts.append("⠀")
+                # 이온은 한 칸(과학 제2항 붙임), 홑 기호도 한 칸(제70항·제60항 5호·제15항). 이온 바로 뒤
+                #   쉼표 · 괄호와 바로 앞 여는 괄호는 붙인다(#1377) — 2027 gold `K⁺(㉠)` = ⠴⠠⠅⠘⠢⠦⠄ · `K⁺,` = ⠴⠠⠅⠘⠢⠐ ·
+                #   `이온(NH₄⁺)` = ⠕⠷⠦⠄⠴⠠⠝⠠⠓⠰⠼⠙⠘⠢⠠⠴.
+                if not ((prev_kind == "n" and idx in punct_head and not lead_ws)
+                        or (kind == "n" and prev_idx in open_tail and not lead_ws)):
+                    result_parts.append("⠀")
+            elif kind == "p" or prev_kind == "p":
+                # 단순 수 앞뒤: 묵자 빈칸 그대로(한 칸), 제11항. 단 다음 선택지 번호 앞은 두 칸 —
+                #   제64항 예(2585~2586행) `① ㄱ, ㄴ  ② ㄱ, ㄷ` 의 선택지 사이(묵자가 한 칸이어도).
+                if prev_kind == "p" and _CIRCLED_BR_RE.match(braille):
+                    result_parts.append("⠀⠀")
+                elif pending_ws or lead_ws:
+                    result_parts.append("⠀")
             elif kind == "i" or prev_kind == "i":
                 if pending_ws or lead_ws:
                     result_parts.append("⠀")
             else:
                 result_parts.append("⠀⠀")
         result_parts.append(braille)
-        prev_kind = kind
+        prev_kind, prev_idx = kind, idx
         pending_ws = trail_ws
 
     braille = "".join(result_parts)
@@ -2106,6 +2499,13 @@ _SPECIAL_MAP = {
     #   2027 gold 는 대괄호 ⠦⠆…⠰⠴ 로 적는다(`【…에 …을】` 등). 리터럴 【점역자주】는
     #   [점역자주]가 되어 _LITERAL_TN_RE 가 그대로 받는다.
     "【": "[", "】": "]",
+    # ★ T30 — 기호표에 없어 **조용히 사라지던** 기호 중 규정 점형이 있거나 gold 가 짚는 것(원장 R-86).
+    #   · 홑 ♡ → 점역자 주 "하트". 「점자 자료 제작 지침」 2.5.3(2): 이모티콘은 그 자리에 점역자 주표로 뜻을
+    #     적는다(한글 점자 제66항). gold 는 갈린다 — 언어와 매체 p0121 소괄호 `(하트)` · p0120 생략(원장 R-86).
+    #     연속 ♡♡ 는 이름 가림이라 아래 _HEART_RUN_RE 가 숨김표로 먼저 바꾼다.
+    #   ⚠ ☞ 는 넣지 않았다 — gold 가 문법 해설에서는 → (⠒⠕, 2곳), 블로그 링크 `☞ 메뉴판(클릭)` 에서는
+    #     생략(3곳)으로 갈려 문자 단계 한 규칙으로 못 가른다(A/B dev 나빠짐 3쪽).
+    "♡": "[점역자주]하트[점역자주]",
     # ★ Q12(원장) — 도형 변종을 규정 기본형으로 정규화한다. 2026-08-22 대표 승인.
     #   규정 제57항 숨김표 표와 제72항 글머리 기호 표는 **테두리형만** 싣는다
     #   (○ U+25CB · △ U+25B3 · □ · ×). 아래 둘은 어느 표에도 없어 조용히 사라졌다.
@@ -2161,6 +2561,10 @@ _LEGACY_GLYPH_MAP = {
 }
 _LEGACY_GLYPH_RE = re.compile("[" + "".join(_LEGACY_GLYPH_MAP) + "]")
 _SPECIAL_MAP.update(_LEGACY_GLYPH_MAP)   # sanitize 경로(다른 호출자)에도 같은 표를 건다
+# ★ T30 — 괄호 한글 ㈀~㈍(자음)·㈎~㈛(음절)은 **그 글자가 곧 `(ㄱ)`·`(가)`** 다. braillify 가 받지 않아 사라졌다.
+#   2027 gold 생명과학 p0032·p0127 `㈀+㈁>6` = ⠦⠄⠿⠁⠠⠴⠢⠦⠄⠿⠒⠠⠴…(소괄호 + 자음 낱자표, 제49항·제8항).
+_SPECIAL_MAP.update({chr(0x3200 + i): f"({c})" for i, c in enumerate("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ")})
+_SPECIAL_MAP.update({chr(0x320E + i): f"({c})" for i, c in enumerate("가나다라마바사아자차카타파하")})
 
 
 def _restore_legacy_glyphs(s: str) -> str:
@@ -2308,21 +2712,35 @@ def _normalize_big_circle(s: str) -> str:
         # ★ 줄머리라도 ◯◯ 뒤에 한글이 바로 붙으면 이름 가림이다(2026-09-29, T25). 사회문화
         #   dv-013 p173 `◯◯국의 계층` 의 gold 는 ⠸⠴⠴⠇(○○ 숨김표)다. 종전에는 줄머리라서
         #   건너뛰었고, ◯ 은 braillify 가 거부해 **통째로 지워졌다**. ◎ 런은 근거를 못 봐 그대로 둔다.
+        # ★ 한 칸 띄고 한글이 와도 같다(#1307). 동아시아사 vl-012 p0137 `◯◯ 씨는` 의 gold 가
+        #   ⠸⠴⠴⠇⠀⠠⠠⠕⠉⠵ 이고, 제57항 예문 `김○○ 씨` 도 그 꼴이다(재추출 L2493~2497). 종전에는
+        #   '뒤가 빈칸이면 표 값 자리'로 남겼으나 dev·val 줄머리 ◯ 런 일곱이 모두 이름·날짜 가림이고
+        #   표 값은 0이었다(표 값은 홑 ◯ 이다, 위 ②).
         if at_line_start and not (set(run) == {"◯"} and _HANGUL_HEAD_RE.match(s, m.end())):
             return run
         return "○" * len(run)
     return _BIG_CIRCLE_RUN_RE.sub(repl, s)
 
 
-_HANGUL_HEAD_RE = re.compile(r"[가-힣]")
+_HANGUL_HEAD_RE = re.compile(r"[ \t]?[가-힣]")
 # ★ 채운 삼각형 **연속**(▲▲)은 이름 가림이다(T25). 대표 Q12 재결재(2026-08-22)가 ▲→△ 를 승인했지만
 #   #239 는 줄머리 홑 ▲(글머리 ⠸⠲)만 넣고 연속은 "근거를 한 건씩 못 짚었다"며 뺐다. 근거:
 #   2027 gold 언어와 매체 dv-004 p177 `▲▲일보` = ⠸⠬⠬⠇(△△ 숨김표, 제57항). 종전에는 통째로 지워졌다.
 _FILLED_TRI_RUN_RE = re.compile(r"▲{2,}")
+# ★ 연속 ♡♡ 도 이름 가림이다(T30). gold 화법과 작문 vl-005 p0201 `♡♡ 고등학교` = ⠸⠔⠔⠇ —
+#   제57항 [붙임] 제1 점역자 정의 숨김표(`_9l`), 우리 ☆ 와 같은 점형이다.
+_HEART_RUN_RE = re.compile(r"♡{2,}")
+# 홀로 쓴 자음자는 온표 + 받침꼴이다(제8항, 재추출 474행 `삼각형 ㄱㄴㄷ` = ⠿⠁⠿⠒⠿⠔, #1326). 한컴 글자층은 그 자음도
+#   첫가끝 초성(U+1100~)으로 싣는데(`‘ᄂ’ 첨가`), 그러면 옛한글 경로가 초성 셀 ⠉(= 약자 '나')로 낸다. 뒤에 중성이
+#   안 오는 현대 초성만 호환 자모로 바꿔 braillify 의 단독 자모 경로에 태운다. 중성이 이어지는 옛한글(ᄂᆞ)은 그대로다.
+_LONE_CHO_RE = re.compile(r"[\u1100-\u1112](?![\u1160-\u11A7\uD7B0-\uD7C6])")
+_CHO_COMPAT = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
 
 
 def _normalize_special(s: str) -> str:
     s = _FILLED_TRI_RUN_RE.sub(lambda m: "△" * len(m.group()), s)
+    s = _HEART_RUN_RE.sub(lambda m: "☆" * len(m.group()), s)
+    s = _LONE_CHO_RE.sub(lambda m: _CHO_COMPAT[ord(m.group()) - 0x1100], s)
     out = []
     for ch in s:
         o = ord(ch)
@@ -2410,13 +2828,21 @@ def _symbol_droppable(ch: str) -> bool:
         return True
 
 
+# 표 묵자 초안의 테두리 · 구분선 표지 줄(`table_braille._print_frame` 의 `┌ ├ └`, 점자 쪽 글상자 · 표 구분선의 짝).
+# 지면 글자가 아니라 우리가 두른 표지다. R17 이 이걸 '빠진 기호'로 세어 2027 dev · val 1,746쪽 중 571쪽에 붙고
+# 265쪽을 그것 하나로 NEEDS_REVIEW 로 세웠다(#1280). 표지는 늘 한 글자뿐인 줄이라 그 줄만 뺀다 — 글 가운데 낀
+# 진짜 `┌` 는 그대로 센다.
+_PRINT_FRAME_LINE_RE = re.compile(r"^[┌├└]$", re.M)
+
+
 def dropped_symbols(text: str) -> collections.Counter:
     """점역에서 조용히 빠질 기호를 글자별로 센다. 페이지 플래그(R17)의 근거 수치다.
 
     문맥으로 점형을 받는 자리는 먼저 걷는다 — `정답 해설 ▶` 의 ▶ 는 쌍점으로 나간다
     (`_ARROW_LABEL_RE`, 2027 8권 128회). 안 걷으면 플래그가 멀쩡한 쪽에 켜진다.
+    표 묵자 초안의 테두리 표지 줄(위 `_PRINT_FRAME_LINE_RE`)도 걷는다.
     """
-    text = _ARROW_LABEL_RE.sub("", text)
+    text = _ARROW_LABEL_RE.sub("", _PRINT_FRAME_LINE_RE.sub("", text))
     return collections.Counter(ch for ch in text if _symbol_droppable(ch))
 
 
@@ -2505,6 +2931,7 @@ _MOJIBAKE_RE = re.compile(r"[ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜ�
 #   ② 괄호 숫자 ⑴⑵⑶ — 유니코드 이름이 PARENTHESIZED DIGIT 다. `(1)` 로 편다(19건).
 #   ③ C1 제어문자(U+0080~U+009F) — `_CTRL_RE` 가 C0 만 잡고 있었다(`\x93` 실측 37건).
 _ZEROWIDTH_RE = re.compile(r"[\u200b-\u200f\u2060\ufeff\u20d0-\u20f0]")
+_ODD_SPACE_RE = re.compile(r"[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")   # Zs 중 ASCII 공백 밖(#1067)
 _PAREN_DIGIT = {chr(0x2474 + i): f"({i + 1})" for i in range(20)}   # ⑴~⒇
 _PAREN_DIGIT_RE = re.compile("[" + "".join(_PAREN_DIGIT) + "]")
 
@@ -2560,7 +2987,7 @@ _ENG_RUN_RE = re.compile(r"[A-Za-z][A-Za-z'\- ]*[A-Za-z]|[A-Za-z]")
 # 제32항 — 로마자표와 종료표 사이는 통일영어점자를 따른다. 즉 라틴 런 사이에 공백·숫자·
 # 영어 문장부호만 끼면 그 전체가 **하나의 로마자 구간**이고 로마자표·종료표는 각각 한 번뿐이다.
 # 규정 실측: `KBS 1 TV 좀…` → ⠴⠠⠠KBS ⠼⠁ ⠠⠠TV⠲ (규정_텍스트.txt:1748).
-_SPAN_BRIDGE_RE = re.compile(r"[0-9,.:;'‐-―\- ]+")
+_SPAN_BRIDGE_RE = re.compile(r"[0-9,.:;'‐-―\- ⠸⠂⠆⠶⠄]+")   # 점자 셀은 세그 안에 영어 밑줄 표지로만 남는다(#1204)
 
 # 제32항 — 구간 내부 문장부호는 통일영어점자 점형. 한글 점자와 점형이 다른 것만 적는다
 # (`.`·`-`는 두 규정이 같은 셀이라 목록에 없어도 결과가 같다).
@@ -2574,6 +3001,12 @@ _ART33_SAME_PUNCT = ".?!…"
 # 제34항 — 닫는 부호(점자로 바뀐 꼴)와 그 여는 짝: ’ ‘ · ) ( · ] [
 _ART34_PAIRS = (("⠴⠄", "⠠⠦"), ("⠠⠴", "⠦⠄"), ("⠰⠴", "⠦⠆"))
 _ART33_FOLLOW_RE = re.compile(r"(?:⠐⠂|⠰⠆|⠤⠤)[ \t⠀]*[가-힣]")
+
+# 영어 1급 한글 없는 줄의 구간 끊김 — 줄바꿈·한글, 그리고 두 칸 이상 띄움(항목 구분) 뒤가 로마자가 아닐 때.
+#   두 칸 뒤에 영어가 바로 이어지면 같은 구간이다 — gold `Unit  Title  Page` = ⠴⠠⠥⠝⠊⠞⠀⠀⠠⠞⠊⠞⠇⠑⠀⠀⠠⠏⠁⠛⠑⠲ ·
+#   `dance  jump rope` = ⠴⠙⠁⠝⠉⠑⠀⠀⠚⠥⠍⠏⠀⠗⠕⠏⠑⠲. 뒤가 번호·빈칸이면 끊는다(`girl  ② cat` · `mom  ___`).
+_G1_PASSAGE_BREAK_RE = re.compile(r"[ ⠀\x01]{2,}(?![A-Za-z])|\n|[가-힣]")
+
 
 def _english_spans(seg: str, runs: list[tuple[int, int]]) -> list[list[tuple[int, int]]]:
     """라틴 런 목록 → 로마자 구간(제32항) 목록. 구간 = 브리지 가능한 간극으로 이어진 런들.
@@ -2592,7 +3025,99 @@ def _english_spans(seg: str, runs: list[tuple[int, int]]) -> list[list[tuple[int
     return spans
 
 
-def _span_gap(gap: str) -> str:
+# 제32항 — 영어 낱말 사이 쌍점·쌍반점(`beard: the hair` · `keeps; for`)은 구간 내부 부호라 UEB(⠒ · ⠆)다.
+#   그런데 symbol_table 이 `:`→⠐⠂ · `;`→⠰⠆ 를 구간 판정보다 먼저 치환해, 위 `_span_gap` 이 그 둘을 받을
+#   일이 없었다(#1175). 앞뒤가 로마자인 자리만 치환 전에 맡겨 두었다가 되돌려 구간 판정에 넘긴다.
+#   gold 영어책 영어 줄 `Patrick: I think` = ⠠⠏⠁⠞⠗⠊⠉⠅⠒⠀⠠⠊… · `keeps; for` = …⠅⠑⠑⠏⠎⠆⠀⠿.
+#   **한글 없는 줄만** 맡긴다. 한글이 섞인 줄의 말머리(`A: X의 총발생량이` · `B: Kelly, 이번 주말에`)는 gold 가
+#   쌍점을 한글 꼴 ⠐⠂ 로 적고 로마자 구간을 거기서 끊는다(`⠴⠠⠁⠐⠂⠀⠴⠠⠭⠲⠺`) — 첫 판에서 이 줄 61개가 깨졌다.
+#   한글과 로마자 사이(`WHO: 세계 보건 기구`)도 제33항 그대로 한글 꼴이다.
+#   자리표시자는 다른 경로가 안 쓰는 제어 문자다(\x01 = _GAP_MARK, \x02·\x03 = inline_math 화학 사슬).
+_ENG_PUNCT_HOLD = {":": "\x05", ";": "\x06"}
+#   부호 뒤가 띄어 쓴 영어 낱말이어야 하고(`RR:Rr:rr`·`a:b` 는 수학 비 ⠐⠂), 줄에 두 글자 이상 영어 낱말이
+#   둘 이상 있어야 한다(`A: O  X  X`·`D: D>0` 같은 홑 글자 이름표 줄은 gold 가 ⠐⠂). 영어 1급(#1189)은 한글 없는 줄
+#   전체가 로마자 구간이라 이 조건을 안 본다 — gold 초등 두 권 `Q: Can I ___?` = ⠴⠠⠟⠒⠀⠠⠉⠁⠝⠀⠠⠊⠀⠨⠤⠦.
+_ENG_PUNCT_RE = re.compile(r"(?:(?<=[A-Za-z])|(?<=\ufdd2⠸⠄))[:;](?= +(?:\ufdd2⠸[⠂⠆⠶])?[A-Za-z])")   # 뒤 낱말 앞 밑줄 표지(#1204)는 건너본다
+_ENG_PROSE_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_ENG_LOWER_WORD_RE = re.compile(r"[a-z]{2,}")
+
+
+# B-30 · C-165 A-1(#1224) — 한글 없는 영어 산문 줄의 괄호도 구간 안 부호라 통일영어점자 꼴이다. 제32항(재추출
+#   1650~1651행) · 예(1664~1666행) `모음에는 (a), (e) …` = `0"<a">1`"<;e">1…`(소괄호 ⠐⠣ ⠐⠜). symbol_table 은 한글 꼴
+#   (⠦⠄ ⠠⠴ · ⠦⠆ ⠰⠴)로 먼저 바꾸므로 쌍점처럼 치환 전에 맡겨 두었다가 UEB 셀로 되돌린다.
+#   대괄호 ⠨⠣ ⠨⠜: gold 영어책 264 : 한글 꼴 191(그중 189 가 HS-REF-T26-013 한 권 관행). 소괄호: gold 는 UEB 꼴을 0 번 썼지만
+#   (EBAE ⠶ · 한글 꼴) 조항과 예가 명확해 규정을 따른다(원장 C-165, pm 10-08 승인).
+#   ⚠ 홑 글자 · 홑 숫자 표지 `(a)` `(1)` 은 맡기지 않는다 — gold 가 EBAE ⠶a⠶ 801 · 한글 꼴 92 로 갈려 판정 보류(C-165 A-2).
+#   번호 머리 `1)` `a)` 도 표지라 종전대로다(gold `1) - Check-up Test` = ⠼⠁⠠⠴).
+#   영어 1급(#1189) 줄은 종전대로 둔다(초등 gold `(Answers)` = ⠦⠄⠴…⠠⠴, 안 쟀다).
+#   함수명(sin · log …)이 든 줄은 종전대로다 — 수식 글이 쪼개져 한글 없는 조각이 된 것이고, gold 수식 괄호는 한글 꼴이다
+#   (dev EBS-E26-009 `TJO`(∠"#1) : …` 한컴 흔적 = sin · gold body p0059 `8'…,0`).
+#   메일 · 주소(`@`)가 든 줄도 종전대로다 — 한글 문장의 괄호가 줄바꿈으로 갈린 자리였다(dev EBS-E26-004 `Kkim@.com)` ·
+#   gold body p0124 101행 `…com,0` 한글 닫는 괄호). `= + →` 가 든 줄도 종전대로다 — 그 기호를 한글 점자 꼴(⠒⠒ · ⠢ · ⠒⠕)로 적는 줄은 gold 가 한글 문맥으로 본다
+#   (단어장 어원 줄 `dis(= not) +` = ⠴⠙⠊⠎⠦⠄⠒⠒⠀⠴⠝⠕⠞⠠⠴⠀⠢, HS-REF-T25-023 48줄이 첫 판에서 나빠졌다).
+_ENG_BRACKET_HOLD = {"(": "\x10", ")": "\x11", "[": "\x12", "]": "\x13"}
+_ENG_BRACKET_CELL = {"\x10": "⠐⠣", "\x11": "⠐⠜", "\x12": "⠨⠣", "\x13": "⠨⠜"}
+_ENG_BRACKET_RE = re.compile(r"\([A-Za-z0-9]\)|(?<![^\s])[A-Za-z0-9]{1,2}\)|[()\[\]]")
+_ENG_BRACKET_SKIP_RE = re.compile(r"[=+→@]")
+
+
+def _hold_eng_line(ln: str) -> str:
+    ln = _ENG_PUNCT_RE.sub(lambda m: _ENG_PUNCT_HOLD[m.group()], ln)
+    if (ENGLISH_GRADE1.get() or len(_ENG_PROSE_WORD_RE.findall(ln)) < 2 or _ENG_BRACKET_SKIP_RE.search(ln)
+            or _ART39_FUNC_RE.search(ln)):
+        return ln
+    return _ENG_BRACKET_RE.sub(_eng_bracket_repl, ln)
+
+
+# C-165 A-2(#1229) — 영어 산문 줄의 홑 낱자 보기 표지 `(a)` `(b)` 는 gold 관행 EBAE 괄호 ⠶ … ⠶ 로 적는다.
+#   gold 영어책 한글 없는 줄 표지 903곳 중 로마자표 ~ 종료표 구간 안 90 · 밖 807(앞에 한글, 그 뒤 로마자표 없음 784 ·
+#   괄호 안쪽 로마자표 23) · 판정 불가 6(`temp/n46/e9/label_span.py`) — 구간 밖이 다수라 제32항(재추출 1650~1651행) 밖으로
+#   보고 관행을 따른다(pm 10-08 18:5x 판정표 (나)). 꼴은 EBAE ⠶ 801(6권) · 한글 소괄호 92(85 가 HS-REF-T26-013 한 권).
+#   낱자가 a · i · o 가 아니면 통일영어점자 1급 기호 ⠰ 를 붙인다(그 셋은 영어에서 낱말이라 약자로 읽힐 일이 없다 · 나머지는 단어 약자 but · can … 과 같은 셀) — gold `(b)` = ⠶⠰⠃⠶ 286 · `(c)` = ⠶⠰⠉⠶ 111 · `(a)` = ⠶⠁⠶ 281.
+#   숫자 표지 `(1)` 은 gold 가 한글 소괄호(87)라 종전대로다.
+_EBAE_PAREN = "⠶"
+
+
+def _eng_bracket_repl(m: re.Match) -> str:
+    tok = m.group()
+    if len(tok) == 1:
+        return _ENG_BRACKET_HOLD[tok]
+    if tok[0] == "(" and tok[1].isalpha():
+        ch = tok[1]
+        return _EBAE_PAREN + ("" if ch.lower() in "aio" else "⠰") + eng_braille.translate(ch) + _EBAE_PAREN
+    return tok
+
+
+def _hold_eng_punct(text: str) -> str:
+    if any(ph in text for ph in (*_ENG_PUNCT_HOLD.values(), *_ENG_BRACKET_CELL)):    # 깨진 글자층에 같은 제어 문자가 이미 있으면 안 맡긴다
+        return text
+    return "\n".join(_hold_eng_line(ln)
+                     if not _HANGUL_SYL_RE.search(_RESIDUAL_BANG_TAG_RE.sub("", ln))
+                     and (len(_ENG_PROSE_WORD_RE.findall(ln)) >= 2 or ENGLISH_GRADE1.get()) else ln
+                     for ln in text.split("\n"))
+
+
+def _unhold_eng_punct(text: str) -> str:
+    for ch, ph in _ENG_PUNCT_HOLD.items():
+        text = text.replace(ph, ch)
+    for ph, cell in _ENG_BRACKET_CELL.items():
+        text = text.replace(ph, cell)
+    return text
+
+
+# ★ #1214 — 한글 없는 영어 산문 줄에서는 라틴 런에 바로 붙지 않은 쉼표(줄 끝 `safety,` · 따옴표 앞 `like, "` ·
+#   숫자 뒤 `A256, but`)도 통일영어점자 ⠂ 다(제7·28항 · 제33항: 쉼표는 두 규정 점형이 다르다). 종전엔 한글 점역기로
+#   넘어가 ⠐ 가 됐다. gold 영어책 왕복(c0b514a) 이 갈래 862줄. 숫자 사이 쉼표(`1,000` 자릿점)는 가르지 않는다.
+#   한글이 한 글자라도 있는 줄은 종전대로다(`나는 사과, 배를` · 제33항 한글 사이).
+_ENG_COMMA_SPLIT_RE = re.compile(r"(?<!\d),|,(?!\d)")
+
+
+def _eng_line_gap(text: str) -> str:
+    """영어 산문 줄의 구간 밖 글 — 쉼표만 ⠂ 로 적고 나머지는 종전 길(#1214)."""
+    return "⠂".join(_braillify_korean(p) if p else "" for p in _ENG_COMMA_SPLIT_RE.split(text))
+
+
+def _span_gap(gap: str, eng_prose: bool = False) -> str:
     """구간 **내부** 간극(라틴 런 사이) 점역. 앞선 런에 바로 붙은 문장부호만 통일영어점자로.
 
     공백을 건너뛰어 붙지 않은 부호(예: 수 안의 `1,000`)까지 바꾸면 근거를 벗어나므로,
@@ -2600,17 +3125,21 @@ def _span_gap(gap: str) -> str:
     """
     i = 0
     out: list[str] = []
+    lead = _UL_LEAD_RE.match(gap)            # 구절 종료표 ⠸⠄ 뒤 부호(`smile⠸⠄,`)도 런에 붙은 것이다(#1204)
+    if lead:
+        out.append(lead.group())
+        i = lead.end()
     while i < len(gap) and gap[i] in _UEB_PUNCT:
         out.append(_UEB_PUNCT[gap[i]])
         i += 1
     if i < len(gap):
-        out.append(_braillify_korean(gap[i:]))
+        out.append((_eng_line_gap if eng_prose else _braillify_korean)(gap[i:]))
     return "".join(out)
 
 
 def _eng_terminator(seg: str, end: int) -> str:
-    """구간 뒤에 로마자 종료표를 적을지 판정(제33·35항)."""
-    rest = seg[end:]
+    """구간 뒤에 로마자 종료표를 적을지 판정(제33·35항). 바로 뒤 영어 밑줄 표지(#1204)는 건너본다."""
+    rest = _UL_LEAD_RE.sub("", seg[end:])
     if not rest.strip():
         return "⠲"
     # 제35항 — 로마자와 숫자가 이어 나올 때에는 종료표를 적지 않는다.
@@ -2664,42 +3193,72 @@ def _split_english(seg: str, ctx: "_RomanCtx | None" = None) -> str | None:
     runs = [m.span() for m in _ENG_RUN_RE.finditer(seg)]
     if not runs:
         # 한글이 끼면 로마자 구간은 닫힌 것으로 본다(제29항 후단 '연이어').
-        if ctx is not None and _HANGUL_SYL_RE.search(seg):
+        if ctx is not None and _HANGUL_LETTER_RE.search(seg):
             ctx.opened = False
         return None
     if ctx is None:
         ctx = _RomanCtx(seg)          # 문맥 없이 직접 호출된 경우 = 세그 국소 판정
     has_hangul = any(_is_hangul(c) for c in seg)
+    # 영어 1급(#1189) — 약자 없이 적고, 한글 없는 줄의 영어 구간도 제29항 그대로 ⠴…⠲ 로 연다·닫는다.
+    #   제29항 [다만](1506행)의 생략은 **할 수 있다**이고, 초급자 자료는 생략하지 않는다(B-27 근거 두 줄).
+    eng_g1 = ENGLISH_GRADE1.get()
+    # 한글 없는 줄은 줄 하나가 로마자 구간 하나다 — 빈칸(⠨⠤)·줄표·빗금·따옴표처럼 점자로 먼저 바뀌어 세그를
+    #   끊는 부호를 넘어 이어지고, 두 칸 띄움(항목 구분)·줄 끝에서만 닫는다. gold 초등 두 권:
+    #   `This ___ is ___.` = ⠴⠠⠞⠓⠊⠎⠀⠨⠤⠀⠊⠎⠀⠨⠤⠲ · `bedroom - many books` = ⠴⠃⠑⠙⠗⠕⠕⠍⠀⠤⠀⠍⠁⠝⠽⠀⠃⠕⠕⠅⠎⠲ ·
+    #   `5 mom  ___` = ⠼⠑⠀⠴⠍⠕⠍⠲⠀⠀⠸⠤ · `① swim  ② jump high` = ⠼⠂⠀⠴⠎⠺⠊⠍⠲⠀⠀⠼⠆⠀⠴⠚⠥⠍⠏⠀⠓⠊⠛⠓⠲.
+    line_eng = eng_g1 and ctx is not None and not ctx.has_hangul
     out: list[str] = []
     last = 0
     for span in _english_spans(seg, runs):
         start, end = span[0][0], span[-1][1]
         if start > last:
             pre = seg[last:start]
-            if _HANGUL_SYL_RE.search(pre):
+            if _HANGUL_LETTER_RE.search(pre):
                 ctx.opened = False
-            out.append(_braillify_korean(pre))
+            out.append((_eng_line_gap if ctx.eng_prose else _braillify_korean)(pre))
         body: list[str] = []
         pos = start
         # 1종 지시자 ⠰(원장 C-99) — 로마자표를 적는 구간이면 첫 런은 ⠴ 바로 뒤("lead"), 뒤 런은 이어짐("cont").
         #   ★ 여는 괄호 등이 먼저 점자가 돼 세그가 끊긴 자리(`[C] [D]`)는 켜지 않는다 — gold 는 거기서
         #   로마자표를 새로 연다(`⠦⠆⠴⠠⠙`, 001 ans p0033). ⠰ 를 붙이면 빠진 ⠴ 자리에 엉뚱한 셀이 선다.
         #   한글 없는 순수 로마자 줄도 켜지 않는다(실측 전).
-        link = ctx.hyphen_link and start == 0     # 붙임표로 이어진 구간 — ⠴ 를 다시 열지 않는다
+        link = ctx.hyphen_link if start == 0 else ""   # 붙임표 · 물결로 이어진 구간 — ⠴ 를 다시 열지 않는다
         ctx.hyphen_link = False
-        g1 = "cont" if link else ("lead" if (has_hangul or ctx.wants_roman()) else "")
+        # 통일영어점자는 붙임표 뒤 낱자를 홀로 선 글자로 보아 ⠰ 를 적는다(제36항 예문 `v-x` = ⠴⠧⠤⠰⠭⠲). 물결 뒤는
+        #   홀로 선 글자가 아니다(gold dev · val `A~F` 꼴 235곳 모두 ⠰ 없음, #1329).
+        g1 = ("cont" if link == "⠤" else "") if link else ("lead" if (has_hangul or ctx.wants_roman()) else "")
+        if eng_g1:
+            g1 = ""                               # 약자가 없으니 1종 지시자도 없다
+        # ★ 원소 기호 나열(`Li, Na, K`)에는 1종 지시자를 안 적는다(T36, eval T32 결함 4). 과학 점자 제1항
+        #   예문 `Li, Na, K는` = `0,li1`,na1`,k4cz`(재추출 4323행) — K 앞에 ⠰ 가 없다. 원소 기호는 약자가
+        #   아니라 제29항 로마자다. 두 글자 원소가 하나라도 있어야 원소 나열로 본다 — `a, b, c`·`B, C`
+        #   (개체·유전자 이름표)는 2027 gold 가 ⠰ 를 적는다(347/347, 원장 C-99). 넓히지 않는다.
+        words = [seg[a:b] for a, b in span]
+        if (len(words) >= 2 and any(re.fullmatch(r"[A-Z][a-z]", w) for w in words)   # `VI`·`II`(로마 숫자)는 아님
+                and all(len(w) <= 2 and eng_braille._is_element_seq(w) for w in words)):
+            g1 = ""
         for s, e in span:
             if s > pos:
-                body.append(_span_gap(seg[pos:s]))
+                body.append(_span_gap(seg[pos:s], ctx.eng_prose))
             # 낱말 사이 공백은 점자 빈칸으로 — 한글 구간(braillify) 출력과 통일한다.
-            body.append(eng_braille.translate(seg[s:e], grade1=g1).replace(" ", "⠀"))
+            body.append(eng_braille.translate(seg[s:e], grade1=g1, uncontracted=eng_g1).replace(" ", "⠀"))
             if g1:
                 g1 = "cont"
             pos = e
         core = "".join(body)
-        if has_hangul:
+        if has_hangul or line_eng:
             # 종전 경로 — 세그 안에 한글이 있으니 제29항 그대로 ⠴…⠲.
             term = _eng_terminator(seg, end)
+            if line_eng:
+                after = seg[end:] + ctx.follow
+                brk = _G1_PASSAGE_BREAK_RE.search(after)
+                ahead = after[:brk.start() if brk else len(after)]
+                # 뒤에 로마자가 더 오거나 빈칸(⠨⠤)이 오면 구간이 이어진다 — 빈칸 뒤 문장 부호가 닫는다
+                #   (gold `This ___ is ___.` = …⠊⠎⠀⠨⠤⠲ · `Q: Can I ___?` = …⠠⠊⠀⠨⠤⠦).
+                if _LATIN_CHAR_RE.search(ahead) or _ENG_BLANK in ahead:
+                    term = ""
+                if ctx.opened:
+                    link = True                   # 이미 열린 구간 — ⠴ 를 다시 적지 않는다
             if term == "" and seg[end:end + 1] == "?":
                 # 제33항 [다만] — 물음표는 두 규정 점형이 같다(⠦). 구간 밖으로 넘기면 braillify 가
                 # 세그 머리의 `?` 를 제49항 [붙임] 단독 부호로 보고 ⠸⠦ + 점역자 주 '물음표' 를 붙인다
@@ -2718,9 +3277,9 @@ def _split_english(seg: str, ctx: "_RomanCtx | None" = None) -> str | None:
             ctx.tail_term = False
         last = end
     if seg[last:]:
-        if _HANGUL_SYL_RE.search(seg[last:]):
+        if _HANGUL_LETTER_RE.search(seg[last:]):
             ctx.opened = False
-        out.append(_braillify_korean(seg[last:]))
+        out.append((_eng_line_gap if ctx.eng_prose else _braillify_korean)(seg[last:]))
         ctx.tail_term = False
     return "".join(out)
 
@@ -2767,7 +3326,7 @@ def _translate_english_sentence(text: str) -> str:
         if tok[0] == "가" or "가" <= tok[0] <= "힣":
             out.append("⠸⠷" + _braillify_korean(tok) + "⠸⠾")
         elif tok[0].isascii() and tok[0].isalpha():
-            out.append(eng_braille.translate(tok))
+            out.append(eng_braille.translate(tok, uncontracted=ENGLISH_GRADE1.get()))
         elif tok.isspace():
             out.append("⠀")
         else:
@@ -2822,8 +3381,16 @@ def _safe_to_unicode(seg: str, _split_eng: bool = True,
         #   연속 빈칸 5,378자리 중 3칸 이상이 3,558자리다.
         #   ⚠ 점자 들여쓰기는 여기를 안 탄다 — layout_braille 이 점역 **뒤에** 점자
         #     빈칸(U+2800)으로 붙인다(`_PAD`). 여기 걸리는 연속 빈칸은 묵자 것뿐이다.
-        return "".join(_GAP_MARK * 2 if i % 2 else _safe_to_unicode(p, _split_eng, ctx)
-                       for i, p in enumerate(parts))
+        if ctx is None:
+            return "".join(_GAP_MARK * 2 if i % 2 else _safe_to_unicode(p, _split_eng, ctx)
+                           for i, p in enumerate(parts))
+        # 조각마다 '뒤에 이어지는 글'을 넘긴다(영어 1급 구간 판정, #1189). 끊어 부르면 두 칸 띄움이 안 보인다.
+        follow, out = ctx.follow, []
+        for i, p in enumerate(parts):
+            ctx.follow = "".join(parts[i + 1:]) + follow
+            out.append(_GAP_MARK * 2 if i % 2 else _safe_to_unicode(p, _split_eng, ctx))
+        ctx.follow = follow
+        return "".join(out)
     if _split_eng:
         split = _split_english(seg, ctx)
         if split is not None:
@@ -2835,7 +3402,7 @@ def _safe_to_unicode(seg: str, _split_eng: bool = True,
         return lead
     seg = core
     try:
-        return lead + _braillify_lib.translate_to_unicode(seg) + trail
+        return lead + _kor_unicode(seg) + trail
     except Exception:  # noqa: BLE001 — 미지 글자 격리(줄 보존)
         # ★ 글자 단위 폴백은 약자·어절 공백을 깨뜨린다(䤎 하나로 '하였'의 ⠣ 소실,
         #   세계사 p019·021 실측 — 교차 31건). 먼저 변환 불가 글자만 제거하고 세그먼트를
@@ -2849,16 +3416,52 @@ def _safe_to_unicode(seg: str, _split_eng: bool = True,
         if bad:
             cleaned = "".join(ch for ch in seg if ch not in bad)
             try:
-                return lead + _braillify_lib.translate_to_unicode(cleaned) + trail
+                return lead + _kor_unicode(cleaned) + trail
             except Exception:  # noqa: BLE001
                 pass
         out = []
         for ch in seg:
             try:
-                out.append(_braillify_lib.translate_to_unicode(ch))
+                out.append(_kor_unicode(ch))
             except Exception:  # noqa: BLE001
                 out.append(" ")
         return lead + "".join(out) + trail
+
+
+# ── LaTeX 로 온 단순 화학식 → 유니코드 화학식(원장 B-24 · #1058) ──────────────────
+# `$\mathrm{CO}_{2}$` 는 평문 화학 경로(inline_math `_CHEM_TOK`)를 안 타고 수식 조판으로 가서
+# 규정 예문(과학 제7항 1호, 재추출 4435~4437행 `0,h;#b,o4v`0,o;#b`eo2`)과 달리 식 앞뒤에 빈칸을
+# 넣고 둘째 식부터 로마자표를 빠뜨렸다. 괄호 앞에는 종료표를 안 적는데(제34항 1709행) `(CO₂)` 를
+# `8'``0,c,o;#b4``,0` 로 냈다. 식 전체가 화학식일 때만 유니코드로 풀어 평문 화학 경로 하나로 보낸다.
+# 가드: `\mathrm` 안 대문자 토막이 전부 원소 기호이고, 전하가 있거나 원소가 둘 이상이어야 한다.
+# 원소 하나 + 아래첨자(`O₂`)는 수식 쪽(MATH_PAGE)이 아닐 때만 — 수학의 점 `\mathrm{P}_{1}` 을 안 건드린다.
+_LATEX_MATHRM_RE = re.compile(r"\\mathrm\{((?:[^{}]|\{[^{}]*\})*)\}")
+_LATEX_CHEM_BODY_RE = re.compile(r"(?:[A-Z][a-z]?|_\{?\d+\}?|\^\{?\d*[+-]\}?|\{-\}|\s)+")
+_SUB_DIGITS = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+_SUP_DIGITS = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
+
+
+def _latex_chem_to_unicode(text: str) -> str:
+    def one(m: re.Match) -> str:
+        body = m.group(1)
+        if "\\mathrm" not in body:
+            return m.group(0)
+        flat = _LATEX_MATHRM_RE.sub(r"\1", body)
+        if "\\" in flat or not _LATEX_CHEM_BODY_RE.fullmatch(flat):
+            return m.group(0)
+        els = re.findall(r"[A-Z][a-z]?", flat)
+        charge = bool(re.search(r"\^\{?\d*[+-]", flat))
+        sub = "_" in flat
+        if not els or not all(e in _kor_math_rules._ELEMENTS for e in els) or not (charge or sub):
+            return m.group(0)
+        if not charge and len(els) < 2 and inline_math.MATH_PAGE.get():
+            return m.group(0)
+        out = re.sub(r"_\{?(\d+)\}?", lambda x: x.group(1).translate(_SUB_DIGITS), flat)
+        out = re.sub(r"\^\{?(\d*[+-])\}?", lambda x: x.group(1).translate(_SUP_DIGITS), out)
+        return re.sub(r"\s+", "", out.replace("{-}", "-"))
+    if not _HANGUL_SYL_RE.search(text):      # 식 하나만 선 줄은 수식 경로 그대로(로마자표·종료표를 거기서 붙인다)
+        return text
+    return re.sub(r"\$([^$\n]+)\$", one, text)
 
 
 def _normalize_inline_math(text: str) -> str:
@@ -2881,6 +3484,14 @@ def _normalize_inline_math(text: str) -> str:
 # (사회문화 p101 '①2000년' → #1 #bjjj — listitem_diff.md 실측, ①선지 실패 56건의 주범).
 # 문중 참조("㉠과")는 붙어야 하므로 줄머리만 잡는다.
 _CHOICE_HEAD_RE = re.compile(r"(?m)^([①-⑳])\s*")
+# 줄머리 괄호 번호 머리(`(1)` · `(i)` · `(가)` · `⑴`) 뒤 띄움도 한 칸이다(#1338, 원장 C-169). 묵자 탭 · 여러 칸은 항목 구분
+#   두 칸(`_MULTI_SPACE_RE`)이 아니라 머리 뒤 띄움이다 — 「점자 도서 제작 지침」 [예 2-32](재추출 1449행) `(가) 제1조` =
+#   `8'$,0`.n#a.u`. 머리 뒤가 바로 글이면(`(가)는 …`, 줄머리 주어) 그대로 둔다.
+_LINE_HEAD = r"\(\s*(?:\d{1,2}|i{1,3}|iv|vi{0,3}|ix|x|[가-하])\s*\)|[⑴-⒇]"
+_PAREN_HEAD_RE = re.compile(rf"^(\s*(?:<!\d+칸>)?\s*(?:{_LINE_HEAD}))[ \t]+")
+# ⚠ 머리 바로 뒤가 수식이면 두 칸 그대로다. 「한국 점자 규정」 수학 제11항(재추출 3234행) "수식과 수학적 표기는 앞뒤를
+#   두 칸씩 띄어 쓴다" 에 번호 머리 예외가 없다(#1083 도 `① $x+1$` 을 두 칸으로 정했다). gold 는 머리 뒤 한 칸이라
+#   (수학Ⅰ `(1)` 123 · `(i)` 108 · `(가)` 94 · `①` 582 줄, 두 칸 0줄) 원장 C-169 로 자문에 올렸다.
 
 # ── 레거시 폰트 오디코딩 복원 (w1, 2026-07-21) ──────────────────────────────
 # 교재 PDF의 사설 인코딩 폰트(딩뱃)가 매핑 없는 코드포인트로 추출돼 braillify가 요소
@@ -2935,6 +3546,40 @@ def merge_hidden_runs(braille: str) -> str:
         lambda m: "⠸" + m.group(2) * (len(m.group(0)) // 3) + "⠇", braille)
 
 
+# ── 「한글 점자」 제74항 — 컴퓨터 점자(URL·이메일)는 통일영어점자로 (eval 규정 전수 A 9, #1031) ──────
+# 재추출 2960~2965행: `https://www.korean.go.kr이다` = `0https3_/_/www4kor1n4go4kr4oi4`
+#   · `greenpark7150@korea.kr이다` = `0gre5p>k` + `#gaej@akorea4kr4oi4`(줄 끝 `"` 는 줄 이음 표시).
+# 종전에는 쌍점이 종료표+한글 쌍점(⠲⠐⠂)으로 나가고 `//`·`@` 뒤에서 로마자표 ⠴ 를 다시 열었다.
+# 주소 하나를 구간 하나로 묶는다: 낱말은 묶음 약자만(`go` 를 단어 약자 ⠛ 로 안 줄인다 — 예문 `go4`),
+# 부호는 UEB(`:`=⠒ · `/`=⠸⠌ · `.`=⠲ · `@`=⠈⠁ · `-`=⠤ · `_`=⠨⠤), 숫자는 수표 + a~j.
+_URL_RE = re.compile(
+    r"(?<![A-Za-z0-9@._%+-])(?:https?://[A-Za-z0-9._~:/?=&%#-]+|www\.[A-Za-z0-9.-]+"
+    r"|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+_URL_PUNCT = {":": "⠒", "/": "⠸⠌", ".": "⠲", "@": "⠈⠁", "-": "⠤", "_": "⠨⠤"}
+_DIGIT_LETTER = dict(zip("1234567890", "⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚"))
+
+
+def _url_cells(m: re.Match) -> str:
+    url = m.group().rstrip(".,")
+    tail = m.group()[len(url):]
+    out: list[str] = []
+    prev_digit = False
+    for tok in re.findall(r"[A-Za-z]+|[0-9]+|.", url):
+        if tok.isdigit():
+            out.append("⠼" + "".join(_DIGIT_LETTER[c] for c in tok))
+        elif tok.isalpha():
+            # 대문자가 섞인 토막은 약자 없이 글자대로(대문자표 ⠠) — 실물 URL 은 거의 소문자다
+            cells = eng_braille._apply_groups(tok) if tok.islower() and not ENGLISH_GRADE1.get() else "".join(
+                ("⠠" if c.isupper() else "") + eng_braille.ALPHABET[c.lower()] for c in tok)
+            out.append(("⠰" if prev_digit and tok[0].lower() in "abcdefghij" else "") + cells)
+        elif tok in _URL_PUNCT:
+            out.append(_URL_PUNCT[tok])
+        else:
+            return m.group()                  # 모르는 부호가 끼면 손대지 않는다
+        prev_digit = tok.isdigit()
+    return "⠴" + "".join(out) + "⠲" + tail
+
+
 def translate_tagged_text(text: str, *, force_roman: bool = False,
                           qnum_period: bool = True) -> str:
     """<!수식> 태그가 포함된 텍스트를 점자 BRF로 변환."""
@@ -2943,6 +3588,10 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     # R-72 — 뒤집힌 닫는 태그(`</!이름>`). 여기에도 두는 이유는 `table_braille` 이
     # 이 함수를 **직접** 부르기 때문이다(표 칸 269건 중 14건). 멱등이라 겹쳐도 무해하다.
     text = _MIRRORED_CLOSE_RE.sub("<!/", text)
+    text = normalize_tag_aliases(text)   # 목록표 이름 `<!밑줄빈칸>` · `<!네모빈칸>` → 엔진 이름(#1382)
+    # 기울임 태그(#1205)는 아직 점형이 없다 — 맨 먼저 걷어 점자를 태그 없는 글과 같게 둔다.
+    #   UEB 이탤릭(⠨⠂ · ⠨⠶…⠨⠄)은 gold 와 맞댈 묵자 짝이 생기면 단다(gold 이탤릭 242곳이 전부 짝 없는 책).
+    text = _TAGS.ITALIC_TAG_RE.sub("", text)
     # ★ 관문 G3(재구조화 §2-2) — 점역기 입구는 **제거만** 한다. 여기는 요소를 비울 수도
     #   R11 을 붙일 수도 없는 자리다(`str -> str`). AI 해설문 판정은 G1 몫이라 여기 두지
     #   않는다. 형식 토큰(`⟦재료⟧`)만 걷는다 — 뒤집힌 태그(R-72, 위)·마크업 조각(#667,
@@ -2960,13 +3609,14 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     #   지우고 있었으므로 그 경로의 동작은 안 바뀐다(같은 결과, 더 이른 자리).
     text = _TAGS._INDENT_TAG_RE.sub("", text)
     if not force_roman and _english_sentence_with_hangul(text):
-        return _translate_english_sentence(text)   # 제39항(#950)
+        return _ODD_SPACE_RE.sub("⠀", _translate_english_sentence(text))   # 제39항(#950) · #1067
     text = _restore_legacy_glyphs(text)     # 오디코딩 5자(⇂¤‹˘⇨)
     text = _restore_broken_subscripts(text)  # 깨진 아래첨자 ¡™£¢§ → ₁₂₃₄₆ (수식 라우팅 전, r16)
     text = _restore_ion_signs(text)         # 이온 전하 ±— → ⁺⁻ (과학점자 제2항, 아래첨자 복원 뒤)
     text = _restore_circled_black(text)     # 검은 원문자 ❶-❻ (선지머리 정규화보다 먼저)
     text = _normalize_araea_middot(text)    # 아래아 ㆍ → 가운뎃점 ·(제50항, 수표 혼입 차단)
     text = _CHOICE_HEAD_RE.sub(r"\1 ", text)
+    text = _PAREN_HEAD_RE.sub(r"\1 ", text)
     # 단위 앞 좁은 공백 백틱 제거는 수식 라우팅보다 **먼저** — 뒤에 두면 이미 수식으로
     # 먹힌 뒤라 제69항 로마자표 경로가 실행되지 않는다.
     # 반복 ×는 곱셈이 아니라 숨김표다(제57항) — **수식 라우팅보다 먼저** 바꾼다.
@@ -2974,10 +3624,16 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     # convert_latex이 곱셈 ⠡ 셋으로 낸다(규정 예시는 ⠸⠭⠭⠭⠇).
     text = _HIDDEN_X_RUN_RE.sub(lambda m: "⠸" + "⠭" * len(m.group()) + "⠇", text)
     # 숫자 뒤 ′″는 프라임이 아니라 단위 분·초다(제69항) — 같은 이유로 라우팅보다 먼저.
+    if _HANGUL_SYL_RE.search(text):          # 제74항 URL·이메일 — 한글 문장 속일 때만(순수 영어 줄은 종전대로)
+        text = _URL_RE.sub(_url_cells, text)
     text = _UNIT_PRIME_RE.sub(lambda m: SYMBOL_TABLE[m.group()], text)
     text = _UNIT_BACKTICK_RE.sub("", text)
     text = _BACKTICK_MATH_RE.sub(lambda m: f"<!수식>{m.group(1).rstrip()}<!/수식> ", text)
+    text = _latex_chem_to_unicode(text)     # B-24 LaTeX 단순 화학식 → 평문 화학 경로
+    text = inline_math.chem_chains(text)    # 반응식 식 경계(C-132) — $…$ 를 풀기 전에
     text = _normalize_inline_math(text)     # $…$/\(…\) → <!수식> (P1: 수식 라우팅)
+    if _HANGUL_SYL_RE.search(text):
+        text = _SINGLE_LETTER_MATH_RE.sub(_single_letter_math_repl, text)   # 현장 지적 4(#1095)
     # 구분자 없는 평문 수식(cos 2α=1-2 sin² α)도 같은 경로로 보낸다 — 수학 본문의
     # 16%가 이 형태다(inline_math 모듈이 오탐 없이 구간만 골라 태그를 붙인다).
     # ★ 맞고 틀림 표시는 **수식 라우팅보다 먼저** 고정한다(2026-08-26 2차).
@@ -2986,16 +3642,22 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     #   여기서 점형으로 바꿔 두면 수식 구간 판정에 안 걸린다(`_AMP_RE` 와 같은 수법).
     text = _OX_MARK_RE.sub(_ox_mark_repl, text)
     text = _space_hangul_operators(text)  # 제46항 — 수식 라우팅보다 먼저(#938)
+    text = _space_refmark(text)           # 제60항 — 참고표 ※ 앞뒤 한 칸(#1378)
+    text = _attach_length_mark(text)      # 제63항 — 긴소리표 앞뒤 붙임(#1222)
     text = inline_math.wrap(text)
-    if _BOOK_STYLE and not force_roman:
-        # ★ 꼬리말(force_roman)에서는 이 관행을 끈다. 섹션번호 낱자형의 근거는 **본문** 실측
-        #   세 쪽인데, 페이지행 꼬리말은 반대다 — gold 실측 로마자표형 5,762 : 낱자형 466
-        #   (92.5%). 여기서 낱자형을 쓰면 로마자표·종료표가 빠져 그 셀이 한글로 읽힌다.
-        text = _book_roman_to_cells(text)   # 로마 숫자 섹션번호 → 낱자 점형(도서 관행, 수식 밖만)
+    text = _unwrap_token_punct(text)       # 첨자 토큰 · 이온 조각에 묻은 , ( ) 를 꺼낸다(#1377)
     text = _normalize_roman_numerals(text)  # 로마 숫자 → 로마자(제36항), braillify 거부 방지
     text = sanitize_for_braille(text)        # PUA·제어문자 정화(요소 전체 소실 방지)
-    return merge_hidden_runs(_translate_with_braillify(
-        text, force_roman=force_roman, qnum_period=qnum_period))
+    # ★ #1067 — 유니코드 공백 구분자(Zs)가 셀열에 남으면 빈칸 셀로 바꾼다. 영어 낱말이 섞인 경로가 원문의
+    #   가는 띄움(U+2009)을 그대로 옮겼다(수학 I 원본 58쪽 `각각 \u2009p, q이고` → G4 `U+2009×2`). 그러면 BRF 에
+    #   `⟨2009⟩` 가 찍히거나 파일을 못 낸다. **입구가 아니라 출구에서** 바꾼다 — 입구에서 보통 공백으로 바꾸면
+    #   줄 바꿈 없는 공백 뒤 로마자(`생명과학\u00a0I`)가 수식 경로로 빠져 383 요소가 달라졌다. 출구에서는 새던
+    #   글자만 바뀐다. 한 글자를 한 글자로 바꾸므로 끊을 자리 오프셋은 안 밀린다.
+    out = _ODD_SPACE_RE.sub("⠀", merge_hidden_runs(_translate_with_braillify(
+        text, force_roman=force_roman, qnum_period=qnum_period)))
+    if ENGLISH_GRADE1.get() and not _HANGUL_ANY_RE.search(_TAG_TOKEN_RE.sub("", text)):
+        out = _UL_BEFORE_ROMAN_RE.sub(r"⠴\1", out)       # #1204 — 1급 줄은 ⠴ 가 typeform 표지 앞
+    return out
 
 
 # ── 음절 단위 줄바꿈 지점 산출 (NLD-1.2.1) ──────────────────────────────────
@@ -3026,6 +3688,61 @@ def _no_cut_interior(src: str) -> list[bool]:
 _NO_BREAK_BEFORE = frozenset(".,?!:;…·)]}」』’”〉》")
 _CLOSERS = ")]}」』’”〉》"
 _HANGUL_OR_JAMO_RE = re.compile(r"[가-힣ㄱ-ㆎ]$")
+# 문장 부호(마침표 · 쉼표 · 쌍점 · 쌍반점 · 물음표 · 느낌표, 전각 포함)는 앞 글자가 무엇이든 그 앞에서 끊지 않는다(#1240).
+#   근거: 「한국 점자 규정」 제49항(재추출 2114~2115행) 문장 부호 띄어쓰기는 「한글 맞춤법」 문장 부호 규정(앞말에 붙여
+#   씀)을 따른다 · 제51항(2346행) 쌍점의 앞은 붙여 쓴다. 줄표 · 빗금 · 물결표는 줄 첫머리에 올 수 있어(제55항 2422행) 뺀다.
+#   위 막이는 한글 뒤만 봐서 음절 접기 실측(옛 동결 1,131쪽)에서 부호가 줄머리로 간 자리 14곳 중 10곳을 비켜 갔다:
+#   전각 쌍점 `수용‖：` 3 · 한글 아닌 글자 뒤 쉼표 `□□‖,` 2 · `Cl—‖,` · `BOD‖,` · `콤플렉스*‖,` · 닫는 태그 뒤 마침표
+#   `있다‖<!/드러냄>.` 1(태그를 걷고 다음 글자를 본다) · 한글 뒤 붙임표 1(`다‖-`, 이 막이 밖). 나머지 4곳은 여는 괄호 「 · [ 앞
+#   (부호가 다음 줄 머리로 가는 것이 맞다)과 깨진 글자다. 닫는 괄호 · 따옴표는 종전대로 한글 뒤만 본다(수식 줄 강제분리).
+_NO_BREAK_BEFORE_ANY = frozenset(".,?!:;，．？！：；")
+# 여는 괄호 · 따옴표 바로 뒤, 그리고 뒤에 문장 부호가 붙은 닫는 괄호 · 따옴표(`).` `’,` `”,`) 앞은 끊지 않는다(#1243).
+#   근거: 「한국 점자 규정」 제54항(재추출 2406행) 여는 따옴표와 여는 괄호 뒤, 닫는 따옴표와 닫는 괄호 앞은 붙여 쓴다.
+#   #1240 이 문장 부호 앞을 막자 종전부터 있던 자리가 골라졌다(dev · val 응답 접기에서 처음 갈린 46곳 중
+#   `되었다(1861‖).` · `들리시나요?‖’,` 같은 꼴 6 · `영상(‖https://…` 같은 여는 괄호 줄 끝 3).
+#   닫는 부호 앞 전부를 막지 않는 것은 위 `_NO_BREAK_BEFORE` 의 까닭(수식 줄 `cos2α)` 강제분리) 때문이다.
+#   부호가 붙은 닫는 부호는 어차피 부호가 줄머리로 가므로 막아도 그 까닭에 안 걸린다.
+#   ASCII `"` `'` 는 여닫이를 못 가려 뺀다.
+_OPENERS = frozenset("([{「『‘“〈《")
+_SCRIPT_CHARS = frozenset("₀₁₂₃₄₅₆₇₈₉₊₋⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")      # 첨자 · 위첨자(화학식 · 이온 토큰 끝, #1377)
+
+
+def _punct_any_on() -> bool:
+    """`BREAK_PUNCT_ANY=0` 이면 종전(한글 뒤만). 호출 때 읽는다 — A/B 팔을 같은 커밋에서 가른다."""
+    return os.environ.get("BREAK_PUNCT_ANY", "1") != "0"
+
+
+def _bracket_attach_on() -> bool:
+    """`BREAK_BRACKET_ATTACH=0` 이면 종전(#1243 전). 호출 때 읽는다."""
+    return os.environ.get("BREAK_BRACKET_ATTACH", "1") != "0"
+
+
+_SEGMENT_RE = re.compile(r"^ +|[^ ]+ *")      # 줄 머리 빈칸 · 낱말 + 뒤 빈칸
+# 조각 경로는 한글 · 빈칸 · 문장 부호 넷만 든 줄에만 쓴다(#1323). 로마자 · 로마 숫자는 줄 한글 비율로 로마자표를 정하고,
+#   줄 머리 문항 번호 · 괄호 · 따옴표 · 탭은 앞 조각의 점역이 뒤 글을 보고 갈려서 조각만 따로 점역하면 접두 재점역과
+#   달라진다(dev · val 입력 29만 줄 대조에서 1만 1천 줄이 갈렸고 표본 300줄 중 284줄이 로마자 든 줄이었다).
+_PLAIN_LINE_RE = re.compile(r"[가-힣 .,?!]*")
+
+
+def _segment_starts(src: str, braille: str) -> list[tuple[int, int]] | None:
+    """순한글 줄(`_PLAIN_LINE_RE`)의 점역이 '낱말(뒤 빈칸 포함)마다 따로 점역해 이은 것'과 같으면 조각마다
+    (원문 시작, 점자 시작). 아니면 None 이고 `_break_offsets` 는 종전 계산(접두 통째 재점역)을 그대로 한다.
+
+    같으면 접두 `src[:sp]` 의 점역은 앞 조각들의 점자에 그 조각 앞부분의 점역을 이은 것이다. 그래서 음절 자리마다
+    접두를 통째로 다시 점역하지 않고 조각 앞부분만 점역한다. 종전에는 그 접두 재점역이 줄 길이의 제곱으로 늘어
+    (같은 문장 되풀이 1,000자 21초) 사이드카와 서버가 긴 줄 하나에 멈췄다.
+    """
+    if not _PLAIN_LINE_RE.fullmatch(src):
+        return None
+    segs = _SEGMENT_RE.findall(src)
+    cells = [translate_tagged_text(s) for s in segs]
+    if "".join(segs) != src or "".join(cells) != braille:
+        return None
+    out, s, b = [], 0, 0
+    for seg, c in zip(segs, cells):
+        out.append((s, b))
+        s, b = s + len(seg), b + len(c)
+    return out
 
 
 def _break_offsets(src: str, braille: str) -> list[int]:
@@ -3037,6 +3754,18 @@ def _break_offsets(src: str, braille: str) -> list[int]:
     """
     if len(braille) <= 1:
         return []
+    token = _LATEX_MEMO.set({})
+    probe = _BREAK_PROBE.set(True)
+    try:
+        return _break_offsets_in(src, braille)
+    finally:
+        _BREAK_PROBE.reset(probe)
+        _LATEX_MEMO.reset(token)
+
+
+def _break_offsets_in(src: str, braille: str) -> list[int]:
+    starts = _segment_starts(src, braille)
+    seg_src = [s for s, _ in starts] if starts else []
     offs: set[int] = set()
     # 바닥선: 출력 점자 공백 = 어절 경계, 항상 안전한 줄바꿈 지점(§1.2.1 단어 단위).
     # 한영 혼합 등 접두가 깨지는 경우에도 최소 어절 단위 줄바꿈은 보장한다.
@@ -3051,12 +3780,31 @@ def _break_offsets(src: str, braille: str) -> list[int]:
         # 앞 글자는 태그를 걷고 본다 — `<!드러냄>지도자<!/드러냄>의` 의 `자`.
         prev = _TAG_RE.sub("", src[:sp])[-1:]
         after_hangul = "가" <= prev <= "힣"
-        if src[sp] in _NO_BREAK_BEFORE and _HANGUL_OR_JAMO_RE.search(
-                _TAG_RE.sub("", src[:sp]).rstrip(_CLOSERS)):
+        head, nxt = _TAG_RE.sub("", src[:sp]), src[sp]
+        if _punct_any_on():
+            nxt = _TAG_RE.sub("", src[sp:])[:1]          # 태그를 걷고 다음 글자를 본다(`있다<!/드러냄>.`)
+            if nxt in _NO_BREAK_BEFORE_ANY and head[-1:].strip():
+                continue
+        if _bracket_attach_on():
+            if head[-1:] in _OPENERS:
+                continue
+            rest = _TAG_RE.sub("", src[sp:])
+            if (rest[:1] and rest[0] in _CLOSERS and head[-1:].strip()
+                    and rest.lstrip(_CLOSERS)[:1] in _NO_BREAK_BEFORE_ANY):
+                continue
+        if nxt in _NO_BREAK_BEFORE and _HANGUL_OR_JAMO_RE.search(head.rstrip(_CLOSERS)):
             continue
-        pre = translate_tagged_text(src[:sp])
-        if not (pre and len(pre) < len(braille) and braille.startswith(pre)):
-            continue
+        if starts:                                       # 조각 앞부분만 점역(`_segment_starts`)
+            ws, bs = starts[bisect.bisect_right(seg_src, sp) - 1]
+            part = translate_tagged_text(src[ws:sp]) if sp > ws else ""
+            n = bs + len(part)
+            if not (n and n < len(braille) and braille.startswith(part, bs)):
+                continue
+        else:
+            pre = translate_tagged_text(src[:sp])
+            if not (pre and len(pre) < len(braille) and braille.startswith(pre)):
+                continue
+            n = len(pre)
         # ★ 뒤쪽도 따로 점역해 이어 붙인 것과 같아야 끊는 자리다(2026-09-29). 접두만 보면
         #   `나이`(⠉⠣⠕)의 접두 `나`가 약자 ⠉ 로 통과해 ⠉|⠣(ㄴ과 ㅏ 사이)에 후보가 섰다 —
         #   제14항: 나·다·마·바·자·카·타·파·하 에 모음이 붙으면 약자를 안 쓴다. 줄머리 ⠣ 는
@@ -3064,9 +3812,16 @@ def _break_offsets(src: str, braille: str) -> list[int]:
         #   한글 뒤에서만 본다 — 수식 조각은 따로 점역하면 문맥이 달라 후보가 빠지고 강제분리가 는다.
         if after_hangul:
             end = next((k for k in range(sp, len(src)) if src[k].isspace()), len(src))
-            if not braille.startswith(translate_tagged_text(src[sp:end]), len(pre)):
+            if not braille.startswith(translate_tagged_text(src[sp:end]), n):
                 continue
-        offs.add(len(pre))
+        # #1377 — 화학식 토큰 바로 뒤 글 닫는 괄호 앞은 끊지 않는다(제54항 재추출 2406행). 첨자 토큰이 수식 구간에서 나오며
+        #   (`_unwrap_token_punct`) 접두 `O₂` 가 전체와 맞게 되자 `O₂‖)를` = `⠰⠼⠃|⠠⠴⠐⠮` 에 후보가 섰다. 그 꼴로만 좁힌다:
+        #   앞 글자가 첨자 · 위첨자이고, 그 자리 셀이 글 괄호 `⠠⠴` 이고, 묵자에서 괄호 뒤가 빈칸이 아니다. 수식 괄호 `⠴` ·
+        #   닫는 따옴표 · 뒤가 빈칸인 자리(#1243)와 닫는 괄호 앞 전체(#1385)는 이 PR 범위 밖이다.
+        if (head[-1:] in _SCRIPT_CHARS and braille.startswith("⠠⠴", n)
+                and _TAG_RE.sub("", src[sp:])[1:2] not in ("", " ", "\n", "\t")):
+            continue
+        offs.add(n)
     return sorted(offs)
 
 
@@ -3082,10 +3837,58 @@ _EMPH_PAIR_RE = re.compile(r"<!강조>(.*?)<!/강조>", re.S)
 _HANGUL_ANY_RE = re.compile(r"[가-힣]")
 
 
+# ★ #1204 — 한글 없는 **영어 줄**의 밑줄은 영문 강조다. 「한국 점자 규정」 제7·28항(영어는 통일영어점자) ·
+#   점역사 Q&A A13(영문 강조는 UEB 규정) → UEB 밑줄 typeform 으로 적는다. 종전엔 위 오검출 방어에 같이 걸려 버려졌다.
+#   gold 영어책 12권(holdout 제외) 영어 줄 33,369 실측(`V2/temp/n46/e9/ul_census.py`):
+#     1~2 낱말은 낱말마다 ⠸⠂ — 낱말표 연속 1낱말 3,002 · 2낱말 777 (`Can I ⠸⠂sit ⠸⠂here?`)
+#     3낱말 이상은 구절 ⠸⠶ … ⠸⠄ — 한 줄 안 구절 3낱말+ 675 : 2낱말 1, 3낱말+ 을 낱말표로 이은 곳 79
+#     홑 글자 낱말은 기호표 ⠸⠆ (`Birds of ⠸⠆a feather`, a·I·A 낱말 ⠸⠆ 60 : ⠸⠂ 17) · 낱말 중간에서 끝나면 종료표 ⠸⠄ (`⠸⠂possession⠸⠄s`, 92곳)
+#   오검출 방어는 그대로 둔다. 줄에 한글이 없고, 태그 안이 로마자 낱말과 문장 부호뿐이고, 줄에 두 글자 이상
+#   로마자 낱말이 둘 이상일 때만 적는다 — 분수 분자(`1`·`2p`)·정답 번호·홀로 선 라벨(`A`·`an`)은 안 걸린다.
+#   ⚠ 그래서 한 낱말만 있는 줄(`Hello!`)의 밑줄은 못 적는다 — dev·val 의 한글 없는 강조 143 이 거의 다 그런 꼴의 오검출이었다.
+#   1급(#1189) 줄은 로마자표가 typeform 표지보다 앞이다 — gold 255 : 0, 13권 모두(원장 C-161).
+#   겉보기 '반대 순서' 67곳 중 65곳은 UEB `was` 약자(⠴)에 밑줄을 친 `⠸⠂⠴⠀` 였다(#1207 본문의 263 : 67 정정).
+#   한글 든 줄의 영어 밑줄은 종전대로 걷는다(gold 관행 미확인). 이탤릭 ⠨⠂ 은 추출이 안 가르므로 범위 밖(#1205).
+_UL_BODY_RE = re.compile(r"[A-Za-z'’‘“”\" ,.!?;:-]*[A-Za-z][A-Za-z'’‘“”\" ,.!?;:-]*")
+_LATIN_WORD2_RE = re.compile(r"[A-Za-z]{2,}")
+# 표지 앞 깃발 — `_emit_mixed` 가 점자 셀에서 세그를 끊는데, 표지에서 끊으면 영어 구간이 쪼개져 표지 밖 부호가
+#   한글 꼴로 바뀐다(`car, ⠸⠶…` 의 쉼표 ⠂→⠐ 122 · `Debora: ⠸⠶…` 의 쌍점 ⠒→⠐⠂ 19, 왕복 실측). 깃발 붙은 표지만
+#   글 조각 안에 남긴다. □(⠸⠶) 같은 다른 점자는 깃발이 없어 종전대로 끊는다. 비문자라 실문서에 없다(WRAP_HYPHEN 과 같은 수법).
+_UL_FLAG = "\ufdd2"
+_UL_WORD, _UL_SYMBOL, _UL_PASSAGE, _UL_TERM = (_UL_FLAG + c for c in ("⠸⠂", "⠸⠆", "⠸⠶", "⠸⠄"))
+_UL_BEFORE_ROMAN_RE = re.compile("(⠸[⠂⠆⠶])⠴")
+_UL_LEAD_RE = re.compile("^(?:⠸[⠂⠆⠶⠄])+")
+
+
+def _ueb_underline(text: str, m: "re.Match[str]") -> str | None:
+    """영어 줄 밑줄 쌍 → UEB 표지를 박은 글. 영어 줄이 아니면 None(#1204)."""
+    body = m.group(1)
+    core = body.strip()
+    if not _UL_BODY_RE.fullmatch(core):
+        return None
+    ls = text.rfind("\n", 0, m.start()) + 1
+    le = text.find("\n", m.end())
+    le = len(text) if le < 0 else le
+    if _HANGUL_ANY_RE.search(_TAG_TOKEN_RE.sub("", text[ls:le])):
+        return None
+    if len(_LATIN_WORD2_RE.findall(_TAG_TOKEN_RE.sub("", text[ls:le]))) < 2:
+        return None
+    words = core.split()
+    if len(words) >= 3:
+        marked = _UL_PASSAGE + core + _UL_TERM
+    else:
+        marked = " ".join((_UL_SYMBOL if sum(c.isalpha() for c in w) == 1 else _UL_WORD) + w for w in words)
+        if core[-1].isalpha() and text[m.end():m.end() + 1].isalpha():
+            marked += _UL_TERM
+    lead = body[:len(body) - len(body.lstrip())]
+    return lead + marked + body[len(body.rstrip()):]
+
+
 def _drop_nonkorean_emphasis(text: str) -> str:
-    """한글이 없는 드러냄 구간은 밑줄 오검출로 보고 태그만 제거(내용은 유지)."""
+    """한글이 없는 드러냄 구간은 밑줄 오검출로 보고 태그만 제거(내용은 유지). 영어 줄은 UEB 밑줄(#1204)."""
     return _EMPH_PAIR_RE.sub(
-        lambda m: m.group(1) if not _HANGUL_ANY_RE.search(m.group(1)) else m.group(0),
+        lambda m: m.group(0) if _HANGUL_ANY_RE.search(m.group(1))
+        else (_ueb_underline(text, m) or m.group(1)),
         text,
     )
 
@@ -3279,6 +4082,12 @@ def translate_with_breaks(text: str, *, force_roman: bool = False,
     #   한다: 아래 _drop_nonkorean_emphasis·isolate_border_tags·substitute_tags 가 전부
     #   `<!` 앵커로 짝을 세기 때문이다(_MIRRORED_CLOSE_RE 주석 참조).
     text = _MIRRORED_CLOSE_RE.sub("<!/", text)
+    # ★ 첫 줄 들여쓰기 태그 `<!N칸>` 은 조판 표시다. 요소 첫머리를 보는 아래 판정(_QNUM_RE 문항 번호 등)보다
+    #   먼저 뗀다(#1282). 묵자 창 글은 첫 줄에 이 태그를 달고 나가(`pipeline._print_contents`) mode b · 앱이
+    #   그대로 되돌린다. 줄마다 `translate_tagged_text` 가 어차피 떼던 것이고, 들여쓰기 값은 layout 이
+    #   `corrected_text` 에서 읽으므로 여기서 떼도 잃지 않는다.
+    text = _TAGS._INDENT_TAG_RE.sub("", text)
+    text = _TAGS.ITALIC_TAG_RE.sub("", text)   # 기울임(#1205) — 요소 전체를 보는 아래 단계 전에(`translate_tagged_text` 주석)
     text = _strip_markup_fragments(text)   # #667 마크업 조각
     text = isolate_border_tags(text)
     if qnum_period:
@@ -3298,6 +4107,8 @@ def translate_with_breaks(text: str, *, force_roman: bool = False,
     text = _normalize_apostrophe(text)
     if _LINE_HEAD_O_RE.search(text):          # 제72항 [붙임] — 줄을 가로질러 봐야 해서 여기서
         text = _LINE_HEAD_DOUBLE_O_RE.sub(r"\1⠸⠴⠴", text)
+    if _LINE_HEAD_SQ_RE.search(text):
+        text = _LINE_HEAD_FILLED_SQ_RE.sub(r"\1⠸⠶⠶", text)
     if _BOOK_STYLE:
         # ★ 보기 마커 원문 복원(ㄱㄴㄷㄹ)은 나열 시퀀스가 필요해 요소 전체에서 선적용해야
         #   한다 — 줄 분리 후엔 줄당 마커 1개라 ≥2 가드에 걸려 발동 못 한다(2026-07-18).

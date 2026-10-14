@@ -75,8 +75,8 @@ class Test제34항_묶인_로마자:
         # 1713행: … 어말에서는 'k, t, p'로 적는다. = … ,80k1`;t1`;p0'"u`.?czi4
         # 여는 홑따옴표 ⠠⠦ 바로 뒤에 로마자표 ⠴가 서고 첫 낱자 k가 온다.
         # ※ 전체 일치는 아직 못 한다 — 규정은 낱자 b·c·t·p 앞에 통일영어점자 grade-1
-        #   지시부호 ⠰를 두는데 미구현이다(test_roman_span_regulation.py의 xfail과 동일
-        #   건). 이 테스트는 그 미구현과 무관한 '로마자표 개시'만 단언한다.
+        #   지시부호 ⠰를 두는데 미구현이다. 이 테스트는 그 미구현과 무관한 '로마자표 개시'만
+        #   단언한다.
         out = _ours("‘ㄱ, ㄷ, ㅂ’은 자음 앞이나 어말에서는 ‘k, t, p’로 적는다.")
         assert _reg("`,80k") in out          # ⠠⠦ + ⠴ + k
 
@@ -91,11 +91,24 @@ class Test제34항_묶인_로마자:
 class Test제29항_후단_중복개시_억제:
     """"로마자가 둘 이상 연이어 나오면 **첫** 로마자 앞에 로마자표를 적고"(1496행)."""
 
-    def test_대괄호_두_개는_첫_번째만(self):
-        # 정답 도서 언어 p049도 같다: ⠦⠄⠴⠠⠁⠠⠴⠤⠤⠦⠄⠠⠑⠠⠴ — 둘째 [E]엔 ⠴가 없다.
+    def test_대괄호_이름표는_묶음마다_로마자표(self):
+        # #1377 — 괄호가 로마자 구간을 닫으므로(제34항 재추출 1709행: 묶이면 종료표를 적지 않는다) 다음 묶음은
+        #   로마자표를 새로 적는다. 2027 dev · val gold 는 둘째 괄호 이름표에 17/17 적는다(같은 문장 맞대기, 반례 0):
+        #   `[A]~[E]` = …⠦⠆⠴⠠⠁⠰⠴⠈⠔⠦⠆⠴⠠⠑⠰⠴. 종전 기대(둘째엔 없음)는 동결 구판 언어 p049 의 꼴이었다
+        #   (⠦⠄⠴⠠⠁⠠⠴⠤⠤⠦⠄⠠⠑⠠⠴, 대괄호를 소괄호로 적던 판). 판본 역전이다.
         out = _ours("34. [A]~[E]에 대한 감상으로 가장 적절한 것은?")
-        assert _ROMAN + "⠠⠁" in out          # 첫 로마자 A 앞에는 로마자표
-        assert _ROMAN + "⠠⠑" not in out      # 둘째 로마자 E 앞에는 없다
+        assert _ROMAN + "⠠⠁" in out          # 첫 로마자 A 앞에 로마자표
+        assert _ROMAN + "⠠⠑" in out          # 둘째 괄호의 E 앞에도
+
+    def test_닫는_괄호_뒤_수식_로마자는_구간을_다시_열지_않는다(self):
+        # #1377 — 여는 괄호만 새 묶음이다. gold 수학 Ⅰ 해설 p0021 `(i) a+b>1인` = ⠦⠄⠴⠊⠠⠴⠀⠁⠢⠃… (a 앞 ⠴ 없음).
+        out = _ours("(i) a+b>1인 경우")
+        assert "⠦⠄⠴⠊⠠⠴⠁⠢⠃" in out          # 빈칸은 `_cells` 가 걷는다
+        # 이름표가 아닌 괄호도 다시 열지 않는다 — gold `(m>0)` 0:6 · `g(x)`.
+        assert "⠦⠄⠍⠢⠢⠼⠚⠠⠴" in _ours("(m, 2m) (m>0)이라 하면")
+        assert "⠛⠦⠄⠭⠠⠴" in _ours("두 함수 f(x), g(x)의 최댓값")
+        # 둘째 로마 숫자 이름표는 다시 연다 — gold `(i), (ii)` 의 ii 100/100.
+        assert "⠦⠄⠴⠊⠊⠠⠴" in _ours("(i), (ii)에 의하여")
 
     def test_구분자로_쪼개진_한_구간은_한_번만(self):
         # (mg/kg·일) — '/'가 점자 셀이라 세그가 쪼개지지만 로마자런은 이어진다.
@@ -152,16 +165,67 @@ class Test줄_문맥은_전역이_아니다:
         assert lines[0] == translate_tagged_text(src)
 
 
-@pytest.mark.xfail(
-    reason="「과학 점자」 제6항(4437행) '식에 포함된 로마자는 로마자표를 적지 않는다' · "
-           "「수학 점자」 1호(3321행) '수식에 사용하는 로마자는 로마자표를 적지 않고'. "
-           "그런데 inline_math.wrap이 'a>1일 때'를 수식으로 라우팅하지 못해 텍스트 "
-           "경로로 새고, 텍스트 경로는 줄에 한글이 있으니 로마자표를 연다. "
-           "고칠 자리는 로마자표 규칙이 아니라 **수식 라우팅**이다 — 여기에 수학 예외를 "
-           "박으면 같은 판정이 두 층에 흩어진다. 라우팅이 고쳐지면 이 xfail을 지울 것. "
-           "실측 손해: 요소 이진 dev 4 · val 1 (재현 V2/temp/i3_cmp.py).",
-    strict=True,
-)
-def test_수식_속_로마자에는_로마자표_없음() -> None:
-    """정답 도서 수학2 p055도 `⠤⠼⠁⠤⠁⠢⠢⠼⠁⠕⠂` — 변수 a 앞에 ⠴가 없다."""
-    assert _ROMAN not in _ours("a>1일 때")
+@pytest.fixture
+def math_page():
+    """수식 지면(한컴 수식 글꼴 쪽) 문맥. 파이프라인이 요청 PDF 로 재서 세운다(`inline_math.MATH_PAGE`, 원장 R-85)."""
+    from semojum_braille.encoder import inline_math
+    tok = inline_math.MATH_PAGE.set(True)
+    yield
+    inline_math.MATH_PAGE.reset(tok)
+
+
+class Test수식_속_부등식:
+    """「수학 점자」 1호(재추출 3308~3309행) "수식에 사용하는 로마자는 로마자표 0을 적지 않고 수식의 앞뒤를 두 칸씩
+    띄어 쓴다". 부등호 점형은 제4항 2호 `a>b` = `a55b`(3053~3054행) · 4호 `x<0` = `x99#j`(3058~3059행).
+
+    종전에는 `inline_math` 가 `<` · `>` 를 수식 신호로 안 봐 `a>1일 때` 가 글 경로로 새고, 줄에 한글이 있으니 로마자표가
+    열렸다(`⠴⠁⠢⠢⠼⠁⠕⠂`, 이 시험이 xfail 로 덮고 있던 결함). 수식 지면에서만 잡는다 — 009 gold 부등호 둘레 로마자 수식 꼴
+    561 : 로마자표 꼴 8 이고, 수학 밖 책은 드물고 엇갈린다(016 `C>B>A` 로마자표 꼴).
+    """
+
+    def test_로마자표_없이_앞뒤_두_칸(self, math_page) -> None:
+        out = translate_tagged_text("a>1일 때")
+        assert _ROMAN not in _cells(out)
+        assert out.startswith("⠁⠢⠢⠼⠁⠀⠀⠕⠂")
+
+    def test_연이은_부등호와_조사(self, math_page) -> None:
+        """009 gold(해설 p0015) `즉, 3<t<4이므로` 와 같은 꼴 — 제4항 4호 `−1<x<3` 예문의 연이은 부등호."""
+        assert translate_tagged_text("즉, 3<t<4이므로") == "⠨⠪⠁⠐⠀⠀⠼⠉⠔⠔⠞⠔⠔⠼⠙⠀⠀⠕⠑⠪⠐⠥"
+
+    def test_로마_숫자_머리는_글로_남는다(self, math_page) -> None:
+        """`(i)` 머리는 수식이 아니다. 009 gold 본책 p0028 `(i) a>1일 때` = ⠦⠄⠴⠊⠠⠴ · a>1 수식."""
+        out = translate_tagged_text("(i) a>1일 때")
+        assert out.startswith("⠦⠄⠴⠊⠠⠴")
+        assert "⠁⠢⠢⠼⠁⠀⠀⠕⠂" in out
+
+    def test_수식_지면이_아니면_종전대로(self) -> None:
+        assert _ROMAN in _ours("a>1일 때")
+
+
+def test_기계_태그는_수식_구간에_안_든다() -> None:
+    """`<` · `>` 가 수식 원자라 `<!강조>x=1<!/강조>` 의 태그 꺾쇠를 수식이 삼켜 태그 글자가 점자로 찍혔다(생명과학 본책 p0055 실물)."""
+    out = translate_tagged_text("<!밑줄>x=1<!/밑줄> 이다")
+    assert "⠔⠔⠖" not in out
+    assert "⠭⠒⠒⠼⠁" in out
+
+
+def test_줄머리에_종료표_닫는_괄호가_오는_끊을_자리는_없다():
+    # #1377 — 이 과제가 만들 뻔한 나쁜 후보: 선택지 줄 판정이 접두에 걸려 생기는 줄머리 종료표 `⠴⠠⠁‖⠲` 와
+    #   첨자 뒤 닫는 괄호 `O₂‖)를`(제54항 재추출 2406행).
+    from semojum_braille.encoder.translator import translate_with_breaks
+    for s in ("①  A는 몰가치성, B는 가치 함축성을 띤다.", "㉠은 O₂)를 내보낸다.", "③ T3 시기에 대해"):
+        (cells,), (breaks,) = translate_with_breaks(s)
+        assert not [b for b in breaks if cells[b] == "⠲" or cells.startswith("⠠⠴", b) or cells[b - 1:b + 1] == "⠞⠼"], (s, cells, breaks)
+
+
+def test_화학식_토큰만_수식_구간에서_꺼낸다():
+    # #1377 — 화학식은 로마자표(과학 제1 · 2항, gold `O₂,` · `이온(NH₄⁺)`), 생물 · 수학 표기는 종전 수식 길.
+    assert "⠴⠠⠕⠰⠼⠃⠐" in translate_tagged_text("㉠은 O₂, ㉡은 CO₂이다.")
+    assert "⠕⠷⠦⠄⠴⠠⠝⠠⠓⠰⠼⠙⠘⠢⠠⠴" in translate_tagged_text("암모늄 이온(NH₄⁺)이 된다")   # gold 생명과학 Ⅰ 해설 p0049
+    assert "⠴⠠⠛⠰⠼⠁" not in translate_tagged_text("㉠(G₁기 또는 G₂기) 시기")        # 세포 주기 표기(gold ⠴ 없음)
+    from semojum_braille.encoder import inline_math
+    tok = inline_math.MATH_PAGE.set(True)
+    try:
+        assert "⠴⠠⠎⠰⠼⠃⠐" not in translate_tagged_text("넓이를 S₂, 부채꼴의 넓이를 S₃이라 하면")  # 수식 쪽 변수
+    finally:
+        inline_math.MATH_PAGE.reset(tok)

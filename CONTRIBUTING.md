@@ -16,6 +16,14 @@
 
 그 밖의 파일은 여기서 고칩니다. `__init__.py` 셋 · `sidecar.py` · `decoder/wordlist.py` · `decoder/kor_words.json` · 문서 · `tools/` · `test/test_*.py` · `test/conftest.py`. 전체 목록은 `tools/sync_from_ai.py` 의 `OWN` 입니다.
 
+## 조판 세 구현(파이썬 · ts · java)
+
+`semojum_braille/assist.py` · `ts/` · `java/` 는 같은 조판 함수의 세 구현이고 여기서 고칩니다(AI 저장소와 상관없음). 루트 `vectors.json` 이 하나뿐인 정답 파일입니다.
+
+- 규칙을 바꾸면 세 구현과 벡터를 **한 PR** 로 고칩니다. 케이스는 `tools/gen_vectors.py` 에 더하고 `python tools/gen_vectors.py` 로 다시 만듭니다. 벡터를 손으로만 더하면 다시 만들 때 사라집니다.
+- 다시 만들기 전에 지침 근거 케이스(`source` 칸)가 그대로 통과하는지 먼저 봅니다. 그 값은 구현 출력이 아니라 사람이 확인한 정답입니다.
+- 시험: `pytest test/test_assist_vectors.py` · `cd ts && npm install && npm test` · `cd java && mvn test`. CI 는 `test.yml`(파이썬)과 `assist.yml`(ts · java)이 봅니다.
+
 ## 개발 환경
 
 ```

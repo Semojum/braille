@@ -4,3 +4,9 @@ build/
 dist/
 .venv/
 .pytest_cache/
+# ts · java (조판 세 구현)
+node_modules/
+target/
+# C# 예제(examples/csharp-sidecar)
+bin/
+obj/

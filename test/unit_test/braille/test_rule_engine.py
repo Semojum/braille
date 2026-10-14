@@ -69,9 +69,11 @@ class TestDigitsToBraille:
         assert "⠂" in comma_result,   f"자릿점(⠂) 없음: {comma_result!r}"
 
     def test_negative(self) -> None:
+        """C5 는 숫자 셀 앞의 수표다. 음수의 뺄셈표 ⠔ 는 수표 **앞**에 온다(수학 제4항 예문 3060~3062행).
+        종전 단언('⠼ 로 시작 · ⠤ 포함')은 제17항 프라임을 음수로 잘못 읽은 꼴을 지켰다(#1146)."""
         result = digits_to_braille("-5")
-        assert result.startswith(_NUMBER_INDICATOR)
-        assert "⠤" in result
+        assert result == "⠔⠼⠑"
+        assert _NUMBER_INDICATOR + "⠑" in result
 
 
 class TestDigitsToBrailleExact:
@@ -100,8 +102,10 @@ class TestDigitsToBrailleExact:
         )
 
     def test_negative_3(self) -> None:
-        """수학 제17항: 음수 부호는 ⠤."""
-        assert digits_to_braille("-3") == "⠼⠤⠉"
+        """음수는 뺄셈표 ⠔ 를 수표 앞에 — 수학 제2항 뺄셈표 `9`(재추출 3017~3018행) ·
+        제4항 예문 `−1<x<3` → `9#a99x99#c`(3060~3062행). 제17항은 프라임이다(3526행, #1146)."""
+        assert digits_to_braille("-3") == "⠔⠼⠉"
+        assert convert_latex("-3") == "⠔⠼⠉"          # 제품 경로(앞 단계가 ⠔ 로 바꾼다)와 같다
 
     def test_large_number_1234(self) -> None:
         """제40항: 1234 → ⠼⠁⠃⠉⠙."""
@@ -131,7 +135,8 @@ class TestConvertLatex:
         """수학 제18항: 위첨자 ⠘ + 수표 (2026-08-06 재정정, 원장 C-03).
 
         종전 '관행 약기 ⠣'의 근거가 구판 한 종류였다. 신규 2027 수학1에서
-        x⠘⠼2 = 1,511회 · x⠣ = 0회. ⠣는 수가 앞에 붙은 단위 제곱에만 남는다.
+        x⠘⠼2 = 1,511회 · x⠣ = 0회. 단위 제곱에 남겨 둔 ⠣ 예외도 2026-10-11 걷어냈다
+        (한글 제68항 첫 예 ㎡ = 0m^#b, #1321).
         """
         assert convert_latex("x^2") == "⠭⠘⠼⠃"
 
