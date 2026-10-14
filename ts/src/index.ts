@@ -192,7 +192,7 @@ export function toBrfAscii(braille: string): string {
 // 레포 밖으로 흩어진다. 이 레포를 만든 이유가 그걸 막으려는 것이다.
 
 /** breaks — 응답 breaks 그대로(그 블록 text 기준, 선택). heading_level 1 — 접힌 줄을 가운데에. */
-export interface Block { order: number; text: string; breaks?: number[] | null; heading_level?: number }
+export interface Block { order: number; text: string; breaks?: number[] | null; heading_level?: number; align?: string }
 export interface Source { orig_page: number; blocks: Block[] }
 
 /** cols를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
@@ -274,8 +274,9 @@ export function wrap(line: string, cols = 32, mode: WrapMode = 'syllable',
   return out;
 }
 
-/** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 o.wrap 갈래로 접는다. 근거는 python `_fold_blocks`. */
-function foldBlocks(blocks: Block[], o: Options): string[] {
+/** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 o.wrap 갈래로 접는다. 근거는 python `_fold_blocks`.
+ *  반환은 [줄, 블록 align] 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다. */
+function foldBlocks(blocks: Block[], o: Options): Array<[string, string]> {
   // 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
   // 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
   // 마지막 블록은 종전과 같다. breaks 는 그 블록 글 기준이라 끝에 붙인 개행이 오프셋을 안 흔든다.
@@ -287,24 +288,28 @@ function foldBlocks(blocks: Block[], o: Options): string[] {
   if (seg === '') return [];   // 내용이 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
   const starts: number[] = [];
   const centers: boolean[] = [];
+  const aligns: string[] = [];
   const gbreaks: number[] = [];
   let acc = 0;
   blocks.forEach((b, i) => {
     starts.push(acc);
     centers.push((b.heading_level ?? 0) === 1);
+    const al = b.align ?? '';
+    if (al && !ALIGNS.includes(al)) throw new Error(`align은 left|center|right: ${al}`);
+    aligns.push(al);
     for (const x of b.breaks ?? []) gbreaks.push(acc + x);
     acc += texts[i].length;
   });
   // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
   // split('\n')이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
   if (seg.endsWith('\n')) seg = seg.slice(0, -1);
-  const out: string[] = [];
+  const out: Array<[string, string]> = [];
   let base = 0;
   for (const logical of seg.split('\n')) {
     let k = 0;
     while (k + 1 < starts.length && starts[k + 1] <= base) k++;
     const lb = gbreaks.filter((g) => base < g && g < base + logical.length).map((g) => g - base);
-    out.push(...wrap(logical, o.cols, o.wrap, lb, centers[k]));
+    for (const w of wrap(logical, o.cols, o.wrap, lb, centers[k])) out.push([w, aligns[k]]);
     base += logical.length + 1;
   }
   return out;
@@ -334,6 +339,50 @@ export const PAGE_BREAK_TAG = '<!쪽바꿈>';
 /** flat 안에서 쪽바꿈 자리를 표시하는 내부 값. 점자 텍스트에는 못 나오는 문자를 쓴다. */
 const BREAK = '\u0000brk';
 
+// ── 조판 태그(V4 점자 태깅 목록표, #66). 근거와 뜻은 python assist 의 같은 이름 ──────────────────
+/** 장바꿈: 그 자리에서 면을 끊고 다음 내용은 홀수 면에서 시작한다(도서지침 용어 ⑫ 재추출 4534~4537행). */
+export const CHAPTER_TAG = '<!장바꿈>';
+const CHAPTER = '\u0000chp';
+const MARKS = [BREAK, CHAPTER];
+/** 줄을 먹는 태그 → [머리 셀, 채움 셀, 끝 셀]. 그 태그 하나뿐인 블록을 cols 폭 한 줄로 펼친다. */
+export const RULE_TAGS: Record<string, [string, string, string]> = {
+  '<!상단줄>': ['', '⠉', ''], '<!중단줄>': ['', '⠒', ''], '<!하단줄>': ['', '⠤', ''],
+  '<!상단굵은줄>': ['', '⠛', ''], '<!하단굵은줄>': ['', '⠶', ''],
+  '<!표시작>': ['⠖', '⠒', '⠲'], '<!표중앙>': ['⠗', '⠒', '⠺'], '<!표끝>': ['⠓', '⠒', '⠚'],
+  '<!표구분선>': ['', '⠐', ''],
+  '<!표지시작>': ['⠿', '⠛', '⠿'], '<!표지세로>': ['⠿', SPACE, '⠿'], '<!표지끝>': ['⠿', '⠶', '⠿'],
+};
+/** 쪽 번호 자리표시. 묵자 쪽 번호 = 그 줄의 원본 쪽, 점자 면 번호 = 그 줄이 놓인 면(표지 면은 비움). */
+export const ORIG_PAGE_TAG = '<!묵자쪽번호>';
+export const BRAILLE_PAGE_TAG = '<!점자면번호>';
+export const ALIGNS = ['left', 'center', 'right'];
+
+export function ruleLine(tag: string, cols = 32): string {
+  const [a, f, z] = RULE_TAGS[tag];
+  return a + f.repeat(cols - a.length - z.length) + z;
+}
+
+const stripCells = (s: string) => s.replace(/^[⠀ ]+|[⠀ ]+$/g, '');
+
+function alignLine(line: string, cols: number, how: string): string {
+  if (!how) return line;
+  const s = stripCells(line);
+  if (!s || how === 'left') return s;
+  const pad = Math.max(cols - s.length, 0);
+  return SPACE.repeat(how === 'center' ? Math.floor(pad / 2) : pad) + s;
+}
+
+function fillPageNo(line: string, n: string): string {
+  if (!line.includes(BRAILLE_PAGE_TAG)) return line;
+  const out = line.split(BRAILLE_PAGE_TAG).join(n);
+  return n ? out : out.replace(/⠀+$/, '');
+}
+
+function headerLine(text: string, origPage: number, n: string, cols: number): string {
+  const t = stripCells(text.split(BRAILLE_PAGE_TAG).join(n).split(ORIG_PAGE_TAG).join(num(origPage))).slice(0, cols);
+  return SPACE.repeat(Math.floor((cols - t.length + 1) / 2)) + t;
+}
+
 export function buildPages(
   sources: Source[],
   footer = '',
@@ -345,15 +394,20 @@ export function buildPages(
    * 범위를 해석해 면별 값으로 펼쳐 넘긴다(2026-09-01 결정 E).
    */
   footers?: Record<number | string, string> | null,
+  /** 머리말(이미 점역됨). footer · footers 와 같은 꼴. 머리말이 있는 면은 첫 줄을 먹는다. 표지 · 더한 빈 면에는 없다. */
+  header = '',
+  headers?: Record<number | string, string> | null,
 ): string[][] {
   const o = resolve(opts);
   // JSON을 거쳐 오면 키가 문자열이다 — 세 구현이 같게 굴도록 정수로 맞춘다.
   const fmap = new Map<number, string>();
   for (const [k, v] of Object.entries(footers ?? {})) fmap.set(Number(k), v);
+  const hmap = new Map<number, string>();
+  for (const [k, v] of Object.entries(headers ?? {})) hmap.set(Number(k), v);
   // 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
   const withChange = o.showChangeLine && o.showOrigPage;
   // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
-  const flat: Array<[string, number, boolean]> = [];
+  const flat: Array<[string, number, boolean, string]> = [];   // [줄, 원본 쪽, 표지인가, 정렬]
   sources.forEach((src, i) => {
     // origPageStart가 있으면 표지 뒤 n번째 본문 원본 페이지를 다시 매긴다.
     const op = o.origPageStart !== null && i >= o.coverPages
@@ -361,19 +415,21 @@ export function buildPages(
       : src.orig_page;
     // ★ 표지 판정은 **순번**이다(결정 C). 쪽 번호로 보면 번호를 다시 매길 때 어긋난다.
     const cover = i < o.coverPages;
-    if (i > 0 && withChange) flat.push([pageChangeLine(op, opts), op, cover]);
+    if (i > 0 && withChange) flat.push([pageChangeLine(op, opts), op, cover, '']);
     const blocks = [...(src.blocks ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    // 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
-    const segs: Array<Block[] | null> = [];
+    // 쪽바꿈 · 장바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
+    const segs: Array<Block[] | string> = [];
     let cur: Block[] = [];
     for (const b of blocks) {
-      if ((b.text ?? '').trim() === PAGE_BREAK_TAG) { segs.push(cur); segs.push(null); cur = []; }
+      const t = (b.text ?? '').trim();
+      if (t === PAGE_BREAK_TAG || t === CHAPTER_TAG) { segs.push(cur); segs.push(t === PAGE_BREAK_TAG ? BREAK : CHAPTER); cur = []; }
+      else if (t in RULE_TAGS) cur.push({ order: b.order, text: ruleLine(t, o.cols) });   // 폭이 꼭 cols 라 안 접힌다
       else cur.push(b);
     }
     segs.push(cur);
     for (const seg of segs) {
-      if (seg === null) { flat.push([BREAK, op, cover]); continue; }
-      for (const w of foldBlocks(seg, o)) flat.push([w, op, cover]);
+      if (typeof seg === 'string') { flat.push([seg, op, cover, '']); continue; }
+      for (const [w, al] of foldBlocks(seg, o)) flat.push([w.split(ORIG_PAGE_TAG).join(num(op)), op, cover, al]);
     }
   });
 
@@ -384,27 +440,55 @@ export function buildPages(
   const pages: string[][] = [];
   const firstSeen = new Map<number, number>();
   let last = -1;                                  // 마지막 내용 줄 — 뒤쪽 빈 줄로 빈 면을 만들지 않는다
-  for (let k = 0; k < flat.length; k++) if (flat[k][0] !== BREAK && flat[k][0].trim() !== '') last = k;
+  for (let k = 0; k < flat.length; k++) if (!MARKS.includes(flat[k][0]) && flat[k][0].trim() !== '') last = k;
   let pos = 0;
-  while (pos <= last && flat[pos][0] !== BREAK && flat[pos][0].trim() === '') pos++;
+  while (pos <= last && !MARKS.includes(flat[pos][0]) && flat[pos][0].trim() === '') pos++;
+  /** 빈 면(장바꿈 · 짝수 면 채우기). 페이지행은 다른 면과 같은 규칙이고 원본 번호는 앞 내용의 원본 쪽을 잇는다. */
+  const blank = (bp: number, head: number, cover: boolean): string[] => {
+    const hasRow = hasPageRow(bp, o.pageRowOn) && !cover;
+    const body: string[] = new Array(o.rows - (hasRow ? 1 : 0)).fill('');
+    if (hasRow) {
+      const idx = pages.length;
+      body.push(pageRow(head, idx - (firstSeen.get(head) ?? idx), bp, fmap.get(bp) ?? footer, opts));
+    }
+    return body;
+  };
   let bpn = startBraillePage;                     // 표지 면은 점자 면 번호를 소비하지 않는다
+  let needOdd = false;                            // 장바꿈 뒤 — 다음 내용은 홀수 면에서 시작한다
+  let prevOp: number | null = null;               // 마지막으로 실은 줄의 원본 쪽(장바꿈 빈 면의 페이지행)
   while (pos <= last) {
-    while (pos <= last && flat[pos][0] === BREAK) pos++;   // 이미 이룬 쪽바꿈 표식만 버린다
+    while (pos <= last && MARKS.includes(flat[pos][0])) {   // 이미 이룬 쪽바꿈 · 장바꿈 표식만 버린다
+      needOdd = needOdd || flat[pos][0] === CHAPTER;
+      pos++;
+    }
     if (pos > last) break;
+    const onCover = flat[pos][2];              // 표지 범위는 페이지행 생략
+    if (needOdd && !onCover && bpn % 2 === 0) {
+      pages.push(blank(bpn, prevOp ?? flat[pos][1], false));
+      bpn++;
+    }
+    needOdd = false;
     const idx = pages.length;
     const bp = bpn;
     const head = flat[pos][1];
-    const onCover = flat[pos][2];              // 표지 범위는 페이지행 생략
     const hasRow = hasPageRow(bp, o.pageRowOn) && !onCover;
-    const cap = o.rows - (hasRow ? 1 : 0);
+    const hd = onCover ? '' : (hmap.get(bp) ?? header);
+    const cap = o.rows - (hasRow ? 1 : 0) - (hd ? 1 : 0);
+    if (cap < 1) throw new Error(`rows ${o.rows}줄에서 머리말 · 페이지행을 빼면 본문 줄이 남지 않는다`);
     // 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
     let end = pos;
-    while (end < flat.length && end - pos < cap && flat[end][0] !== BREAK) end++;
-    const body = flat.slice(pos, end).map(([ln]) => ln);
+    while (end < flat.length && end - pos < cap && !MARKS.includes(flat[end][0])) end++;
+    const n = onCover ? '' : num(bp);
+    const body = flat.slice(pos, end).map(([ln, , , al]) => alignLine(fillPageNo(ln, n), o.cols, al));
+    prevOp = flat[end - 1][1];
     pos = end;
-    if (pos < flat.length && flat[pos][0] === BREAK) pos++;   // 표식 자체는 본문에 안 싣는다
+    if (pos < flat.length && MARKS.includes(flat[pos][0])) {   // 표식 자체는 본문에 안 싣는다
+      needOdd = flat[pos][0] === CHAPTER;
+      pos++;
+    }
     if (!firstSeen.has(head)) firstSeen.set(head, idx);
     while (body.length < cap) body.push('');
+    if (hd) body.unshift(headerLine(hd, head, n, o.cols));
     if (hasRow) {
       const f = fmap.get(bp) ?? footer;
       body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, f, opts));
@@ -412,17 +496,7 @@ export function buildPages(
     if (!onCover) bpn++;                          // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
     pages.push(body);
   }
-  if (o.padToEven && pages.length % 2 === 1) {
-    // 빈 면 하나. 페이지행은 다른 면과 같은 규칙이고, 원본 번호는 마지막 면의 원본 쪽을 잇는다.
-    const head = last >= 0 ? flat[last][1] : 0;
-    const hasRow = last >= 0 && hasPageRow(bpn, o.pageRowOn) && !flat[last][2];
-    const body: string[] = new Array(o.rows - (hasRow ? 1 : 0)).fill('');
-    if (hasRow) {
-      const f = fmap.get(bpn) ?? footer;
-      body.push(pageRow(head, pages.length - (firstSeen.get(head) ?? pages.length), bpn, f, opts));
-    }
-    pages.push(body);
-  }
+  if (o.padToEven && pages.length % 2 === 1) pages.push(blank(bpn, flat[last][1], flat[last][2]));
   return pages;
 }
 
@@ -436,6 +510,8 @@ export interface JobBlock {
   braille: string;
   breaks?: number[] | null;
   heading_level?: number;
+  /** 정렬 태그 셋(목록표). 없으면 받은 그대로. */
+  align?: 'left' | 'center' | 'right' | '';
 }
 
 export interface JobSource {
@@ -463,6 +539,10 @@ export interface Job {
   footer?: string;
   /** 면별 꼬리말. `{점자 면 번호: 꼬리말 점자}` — 없는 면은 footer를 쓴다. */
   footers?: Record<string, string> | null;
+  /** 이미 점역된 머리말. 머리말이 있는 면은 첫 줄을 먹는다. */
+  header?: string;
+  /** 면별 머리말. `{점자 면 번호: 머리말 점자}` — 없는 면은 header를 쓴다. */
+  headers?: Record<string, string> | null;
   opts?: JobOptions;
 }
 
@@ -492,10 +572,11 @@ export function buildPagesFromJob(job: Job): string[][] {
     orig_page: src.orig_page ?? i + 1,
     blocks: (src.blocks ?? []).map((b, k) => ({
       order: b.order ?? k, text: b.braille ?? '', breaks: b.breaks ?? null, heading_level: b.heading_level ?? 0,
+      align: b.align ?? '',
     })),
   }));
   return buildPages(sources, job.footer ?? '', job.opts?.first_braille_page ?? 1,
-                    optionsFromJob(job), job.footers ?? null);
+                    optionsFromJob(job), job.footers ?? null, job.header ?? '', job.headers ?? null);
 }
 
 /**
