@@ -262,12 +262,19 @@ public final class BrailleAssist {
         public final int[] breaks;
         /** 1이면 32칸을 넘어 접힌 줄을 가운데에 놓는다(1단계 제목). */
         public final int headingLevel;
+        /** 정렬 태그 셋(목록표) — left · center · right. 빈 값이면 받은 그대로. */
+        public final String align;
 
-        public Block(int order, String text, int[] breaks, int headingLevel) {
+        public Block(int order, String text, int[] breaks, int headingLevel, String align) {
             this.order = order;
             this.text = text;
             this.breaks = breaks;
             this.headingLevel = headingLevel;
+            this.align = align == null ? "" : align;
+        }
+
+        public Block(int order, String text, int[] breaks, int headingLevel) {
+            this(order, text, breaks, headingLevel, "");
         }
 
         public Block(int order, String text) { this(order, text, null, 0); }
@@ -387,15 +394,21 @@ public final class BrailleAssist {
         return out;
     }
 
-    /** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 opts.wrap 갈래로 접는다. 근거는 python {@code _fold_blocks}. */
-    private static java.util.List<String> foldBlocks(java.util.List<Block> blocks, Options opts) {
+    /** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 opts.wrap 갈래로 접는다. 근거는 python {@code _fold_blocks}.
+     *  반환은 {줄, 블록 align} 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다. */
+    private static java.util.List<String[]> foldBlocks(java.util.List<Block> blocks, Options opts) {
         StringBuilder sb = new StringBuilder();
         java.util.List<Integer> starts = new java.util.ArrayList<>();
         java.util.List<Boolean> centers = new java.util.ArrayList<>();
+        java.util.List<String> aligns = new java.util.ArrayList<>();
         java.util.List<Integer> gbreaks = new java.util.ArrayList<>();
         for (Block b : blocks) {
             starts.add(sb.length());
             centers.add(b.headingLevel == 1);
+            String al = b.align == null ? "" : b.align;
+            if (!al.isEmpty() && !ALIGNS.contains(al))
+                throw new IllegalArgumentException("align은 left|center|right: " + al);
+            aligns.add(al);
             if (b.breaks != null) for (int x : b.breaks) gbreaks.add(sb.length() + x);
             String t = b.text == null ? "" : b.text;
             sb.append(t);
@@ -404,7 +417,7 @@ public final class BrailleAssist {
             // 마지막 블록은 종전과 같다. breaks 는 그 블록 글 기준이라 끝에 붙인 개행이 오프셋을 안 흔든다.
             if (!t.isEmpty() && !t.endsWith("\n")) sb.append('\n');
         }
-        java.util.List<String> out = new java.util.ArrayList<>();
+        java.util.List<String[]> out = new java.util.ArrayList<>();
         String seg = sb.toString();
         if (seg.isEmpty()) return out;   // 내용 없는 토막(쪽바꿈 표식이 잇달은 자리)
         // 통 문자열의 끝 개행은 마지막 줄을 끝내는 종결자이지 빈 줄이 아니다.
@@ -416,8 +429,9 @@ public final class BrailleAssist {
             while (k + 1 < starts.size() && starts.get(k + 1) <= base) k++;
             java.util.List<Integer> lb = new java.util.ArrayList<>();
             for (int g : gbreaks) if (base < g && g < base + logical.length()) lb.add(g - base);
-            out.addAll(wrap(logical, opts.cols, opts.wrap,
-                            lb.stream().mapToInt(Integer::intValue).toArray(), centers.get(k)));
+            for (String w : wrap(logical, opts.cols, opts.wrap,
+                                 lb.stream().mapToInt(Integer::intValue).toArray(), centers.get(k)))
+                out.add(new String[]{w, aligns.get(k)});
             base += logical.length() + 1;
         }
         return out;
@@ -473,17 +487,86 @@ public final class BrailleAssist {
     /** lines 안에서 쪽바꿈 자리를 표시하는 내부 값. 점자 텍스트에는 못 나오는 문자를 쓴다. */
     private static final String BREAK = "\u0000brk";
 
+    // ── 조판 태그(V4 점자 태깅 목록표, #66). 근거와 뜻은 python assist 의 같은 이름 ──────────────
+    /** 장바꿈: 그 자리에서 면을 끊고 다음 내용은 홀수 면에서 시작한다(도서지침 용어 ⑫ 재추출 4534~4537행). */
+    public static final String CHAPTER_TAG = "<!장바꿈>";
+    private static final String CHAPTER = "\u0000chp";
+    /** 줄을 먹는 태그 → {머리 셀, 채움 셀, 끝 셀}. 그 태그 하나뿐인 블록을 cols 폭 한 줄로 펼친다. */
+    public static final java.util.Map<String, String[]> RULE_TAGS = java.util.Map.ofEntries(
+            java.util.Map.entry("<!상단줄>", new String[]{"", "⠉", ""}),
+            java.util.Map.entry("<!중단줄>", new String[]{"", "⠒", ""}),
+            java.util.Map.entry("<!하단줄>", new String[]{"", "⠤", ""}),
+            java.util.Map.entry("<!상단굵은줄>", new String[]{"", "⠛", ""}),
+            java.util.Map.entry("<!하단굵은줄>", new String[]{"", "⠶", ""}),
+            java.util.Map.entry("<!표시작>", new String[]{"⠖", "⠒", "⠲"}),
+            java.util.Map.entry("<!표중앙>", new String[]{"⠗", "⠒", "⠺"}),
+            java.util.Map.entry("<!표끝>", new String[]{"⠓", "⠒", "⠚"}),
+            java.util.Map.entry("<!표구분선>", new String[]{"", "⠐", ""}),
+            java.util.Map.entry("<!표지시작>", new String[]{"⠿", "⠛", "⠿"}),
+            java.util.Map.entry("<!표지세로>", new String[]{"⠿", String.valueOf(SPACE), "⠿"}),
+            java.util.Map.entry("<!표지끝>", new String[]{"⠿", "⠶", "⠿"}));
+    /** 쪽 번호 자리표시. 묵자 쪽 번호 = 그 줄의 원본 쪽, 점자 면 번호 = 그 줄이 놓인 면(표지 면은 비움). */
+    public static final String ORIG_PAGE_TAG = "<!묵자쪽번호>";
+    public static final String BRAILLE_PAGE_TAG = "<!점자면번호>";
+    public static final java.util.List<String> ALIGNS = java.util.List.of("left", "center", "right");
+
+    public static String ruleLine(String tag, int cols) {
+        String[] r = RULE_TAGS.get(tag);
+        return r[0] + r[1].repeat(cols - r[0].length() - r[2].length()) + r[2];
+    }
+
+    private static String stripCellsAndSpaces(String s) {
+        int b = 0, e = s.length();
+        while (b < e && (s.charAt(b) == SPACE || s.charAt(b) == ' ')) b++;
+        while (e > b && (s.charAt(e - 1) == SPACE || s.charAt(e - 1) == ' ')) e--;
+        return s.substring(b, e);
+    }
+
+    private static String alignLine(String line, int cols, String how) {
+        if (how == null || how.isEmpty()) return line;
+        String s = stripCellsAndSpaces(line);
+        if (s.isEmpty() || how.equals("left")) return s;
+        int pad = Math.max(cols - s.length(), 0);
+        return String.valueOf(SPACE).repeat(how.equals("center") ? pad / 2 : pad) + s;
+    }
+
+    private static String fillPageNo(String line, String n) {
+        if (!line.contains(BRAILLE_PAGE_TAG)) return line;
+        String out = line.replace(BRAILLE_PAGE_TAG, n);
+        return n.isEmpty() ? trimEndCells(out) : out;
+    }
+
+    private static String headerLine(String text, int origPage, String n, int cols) {
+        String t = stripCellsAndSpaces(text.replace(BRAILLE_PAGE_TAG, n).replace(ORIG_PAGE_TAG, num(origPage)));
+        if (t.length() > cols) t = t.substring(0, cols);
+        return String.valueOf(SPACE).repeat((cols - t.length() + 1) / 2) + t;
+    }
+
     public static java.util.List<java.util.List<String>> buildPages(
             java.util.List<Source> sources, String footer, int startBraillePage, Options opts,
             java.util.Map<Integer, String> footers) {
+        return buildPages(sources, footer, startBraillePage, opts, footers, "", null);
+    }
+
+    /**
+     * header · headers — 머리말(이미 점역됨). footer · footers 와 같은 꼴이다. 머리말이 있는 면은 첫 줄이 머리말이고
+     * 본문이 한 줄 줄어든다. 표지 면과 장바꿈 · 짝수 면 채우기로 더한 빈 면에는 넣지 않는다.
+     */
+    public static java.util.List<java.util.List<String>> buildPages(
+            java.util.List<Source> sources, String footer, int startBraillePage, Options opts,
+            java.util.Map<Integer, String> footers, String header, java.util.Map<Integer, String> headers) {
         java.util.Map<Integer, String> fmap =
                 footers == null ? java.util.Collections.emptyMap() : footers;
+        java.util.Map<Integer, String> hmap =
+                headers == null ? java.util.Collections.emptyMap() : headers;
+        String hdef = header == null ? "" : header;
         // 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
         boolean withChange = opts.showChangeLine && opts.showOrigPage;
         // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽·표지 여부를 들고 간다.
         java.util.List<String> lines = new java.util.ArrayList<>();
         java.util.List<Integer> owner = new java.util.ArrayList<>();
         java.util.List<Boolean> coverOf = new java.util.ArrayList<>();
+        java.util.List<String> alignOf = new java.util.ArrayList<>();
         for (int i = 0; i < sources.size(); i++) {
             Source src = sources.get(i);
             // origPageStart가 있으면 표지 뒤 n번째 본문 원본 페이지를 다시 매긴다.
@@ -496,35 +579,42 @@ public final class BrailleAssist {
                 lines.add(pageChangeLine(op, opts));
                 owner.add(op);
                 coverOf.add(cover);
+                alignOf.add("");
             }
             java.util.List<Block> bs = new java.util.ArrayList<>(
                     src.blocks == null ? java.util.Collections.emptyList() : src.blocks);
             bs.sort(java.util.Comparator.comparingInt(b -> b.order));
-            // 쪽바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
-            java.util.List<java.util.List<Block>> segs = new java.util.ArrayList<>();
+            // 쪽바꿈 · 장바꿈 표식에서 토막을 낸다. 표식이 없으면 종전과 똑같이 한 토막이다.
+            java.util.List<Object> segs = new java.util.ArrayList<>();
             java.util.List<Block> cur = new java.util.ArrayList<>();
             for (Block b : bs) {
-                String t = b.text == null ? "" : b.text;
-                if (t.trim().equals(PAGE_BREAK_TAG)) {
+                String t = (b.text == null ? "" : b.text).trim();
+                if (t.equals(PAGE_BREAK_TAG) || t.equals(CHAPTER_TAG)) {
                     segs.add(cur);
-                    segs.add(null);
+                    segs.add(t.equals(PAGE_BREAK_TAG) ? BREAK : CHAPTER);
                     cur = new java.util.ArrayList<>();
+                } else if (RULE_TAGS.containsKey(t)) {
+                    cur.add(new Block(b.order, ruleLine(t, opts.cols)));   // 폭이 꼭 cols 라 안 접힌다
                 } else {
                     cur.add(b);
                 }
             }
             segs.add(cur);
-            for (java.util.List<Block> seg : segs) {
-                if (seg == null) {
-                    lines.add(BREAK);
+            for (Object seg : segs) {
+                if (seg instanceof String) {
+                    lines.add((String) seg);
                     owner.add(op);
                     coverOf.add(cover);
+                    alignOf.add("");
                     continue;
                 }
-                for (String w : foldBlocks(seg, opts)) {
-                    lines.add(w);
+                @SuppressWarnings("unchecked")
+                java.util.List<Block> blk = (java.util.List<Block>) seg;
+                for (String[] w : foldBlocks(blk, opts)) {
+                    lines.add(w[0].replace(ORIG_PAGE_TAG, num(op)));
                     owner.add(op);
                     coverOf.add(cover);
+                    alignOf.add(w[1]);
                 }
             }
         }
@@ -537,28 +627,50 @@ public final class BrailleAssist {
         java.util.Map<Integer, Integer> firstSeen = new java.util.HashMap<>();
         int last = -1;   // 마지막 내용 줄 — 뒤쪽 빈 줄로 빈 면을 만들지 않는다
         for (int k = 0; k < lines.size(); k++) {
-            if (!BREAK.equals(lines.get(k)) && !lines.get(k).trim().isEmpty()) last = k;
+            if (!isMark(lines.get(k)) && !lines.get(k).trim().isEmpty()) last = k;
         }
         int pos = 0;
-        while (pos <= last && !BREAK.equals(lines.get(pos)) && lines.get(pos).trim().isEmpty()) pos++;
+        while (pos <= last && !isMark(lines.get(pos)) && lines.get(pos).trim().isEmpty()) pos++;
         int bpn = startBraillePage;   // 표지 면은 점자 면 번호를 소비하지 않는다
+        boolean needOdd = false;      // 장바꿈 뒤 — 다음 내용은 홀수 면에서 시작한다
+        Integer prevOp = null;        // 마지막으로 실은 줄의 원본 쪽(장바꿈 빈 면의 페이지행)
         while (pos <= last) {
-            while (pos <= last && BREAK.equals(lines.get(pos))) pos++;  // 이미 이룬 쪽바꿈만 버린다
+            while (pos <= last && isMark(lines.get(pos))) {   // 이미 이룬 쪽바꿈 · 장바꿈 표식만 버린다
+                needOdd = needOdd || CHAPTER.equals(lines.get(pos));
+                pos++;
+            }
             if (pos > last) break;
+            boolean onCover = coverOf.get(pos);           // 표지 범위는 페이지행 생략
+            if (needOdd && !onCover && bpn % 2 == 0) {
+                pages.add(blankPage(bpn, prevOp == null ? owner.get(pos) : prevOp, false, pages.size(),
+                                    firstSeen, fmap, footer, opts));
+                bpn++;
+            }
+            needOdd = false;
             int idx = pages.size();
             int bp = bpn;
             int head = owner.get(pos);
-            boolean onCover = coverOf.get(pos);           // 표지 범위는 페이지행 생략
             boolean hasRow = hasPageRow(bp, opts.pageRowOn) && !onCover;
-            int cap = opts.rows - (hasRow ? 1 : 0);
+            String hd = onCover ? "" : hmap.getOrDefault(bp, hdef);
+            if (hd == null) hd = "";
+            int cap = opts.rows - (hasRow ? 1 : 0) - (hd.isEmpty() ? 0 : 1);
+            if (cap < 1) throw new IllegalArgumentException(
+                    "rows " + opts.rows + "줄에서 머리말 · 페이지행을 빼면 본문 줄이 남지 않는다");
             // 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
             int end = pos;
-            while (end < lines.size() && end - pos < cap && !BREAK.equals(lines.get(end))) end++;
-            java.util.List<String> body = new java.util.ArrayList<>(lines.subList(pos, end));
+            while (end < lines.size() && end - pos < cap && !isMark(lines.get(end))) end++;
+            String n = onCover ? "" : num(bp);
+            java.util.List<String> body = new java.util.ArrayList<>();
+            for (int k = pos; k < end; k++) body.add(alignLine(fillPageNo(lines.get(k), n), opts.cols, alignOf.get(k)));
+            prevOp = owner.get(end - 1);
             pos = end;
-            if (pos < lines.size() && BREAK.equals(lines.get(pos))) pos++;  // 표식은 본문에 안 싣는다
+            if (pos < lines.size() && isMark(lines.get(pos))) {   // 표식은 본문에 안 싣는다
+                needOdd = CHAPTER.equals(lines.get(pos));
+                pos++;
+            }
             firstSeen.putIfAbsent(head, idx);
             while (body.size() < cap) body.add("");
+            if (!hd.isEmpty()) body.add(0, headerLine(hd, head, n, opts.cols));
             if (hasRow) {
                 String f = fmap.getOrDefault(bp, footer);
                 body.add(pageRow(head, idx - firstSeen.get(head), bp, f, opts));
@@ -566,19 +678,24 @@ public final class BrailleAssist {
             if (!onCover) bpn++;   // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
             pages.add(body);
         }
-        if (opts.padToEven && pages.size() % 2 == 1) {
-            // 빈 면 하나. 페이지행은 다른 면과 같은 규칙이고, 원본 번호는 마지막 면의 원본 쪽을 잇는다.
-            int head = last >= 0 ? owner.get(last) : 0;
-            boolean hasRow = last >= 0 && hasPageRow(bpn, opts.pageRowOn) && !coverOf.get(last);
-            java.util.List<String> body = new java.util.ArrayList<>();
-            while (body.size() < opts.rows - (hasRow ? 1 : 0)) body.add("");
-            if (hasRow) {
-                String f = fmap.getOrDefault(bpn, footer);
-                body.add(pageRow(head, pages.size() - firstSeen.getOrDefault(head, pages.size()), bpn, f, opts));
-            }
-            pages.add(body);
-        }
+        if (opts.padToEven && pages.size() % 2 == 1)
+            pages.add(blankPage(bpn, owner.get(last), coverOf.get(last), pages.size(), firstSeen, fmap, footer, opts));
         return pages;
+    }
+
+    private static boolean isMark(String s) {
+        return BREAK.equals(s) || CHAPTER.equals(s);
+    }
+
+    /** 빈 면(장바꿈 · 짝수 면 채우기). 페이지행은 다른 면과 같은 규칙이고 원본 번호는 앞 내용의 원본 쪽을 잇는다. */
+    private static java.util.List<String> blankPage(int bp, int head, boolean cover, int idx,
+                                                    java.util.Map<Integer, Integer> firstSeen,
+                                                    java.util.Map<Integer, String> fmap, String footer, Options opts) {
+        boolean hasRow = hasPageRow(bp, opts.pageRowOn) && !cover;
+        java.util.List<String> body = new java.util.ArrayList<>();
+        while (body.size() < opts.rows - (hasRow ? 1 : 0)) body.add("");
+        if (hasRow) body.add(pageRow(head, idx - firstSeen.getOrDefault(head, idx), bp, fmap.getOrDefault(bp, footer), opts));
+        return body;
     }
 
     public static java.util.List<java.util.List<String>> buildPages(
@@ -602,13 +719,20 @@ public final class BrailleAssist {
         public final String text;
         /** 응답 TextElement.breaks 그대로(선택). null 이면 그 요소는 word 로 접는다. */
         public final int[] breaks;
+        /** 정렬 태그 셋(목록표) — left · center · right. 빈 값이면 받은 그대로. */
+        public final String align;
 
-        public JobElement(String id, String type, int headingLevel, String text, int[] breaks) {
+        public JobElement(String id, String type, int headingLevel, String text, int[] breaks, String align) {
             this.id = id;
             this.type = type;
             this.headingLevel = headingLevel;
             this.text = text == null ? "" : text;
             this.breaks = breaks;
+            this.align = align == null ? "" : align;
+        }
+
+        public JobElement(String id, String type, int headingLevel, String text, int[] breaks) {
+            this(id, type, headingLevel, text, breaks, "");
         }
 
         public JobElement(String id, String type, int headingLevel, String text) {
@@ -656,12 +780,17 @@ public final class BrailleAssist {
         public final String wrap;
         /** 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드 pad_to_even). */
         public final boolean padToEven;
+        /** 이미 점역된 머리말(조판 태그 머리말). 머리말이 있는 면은 첫 줄을 먹는다. */
+        public final String headerBraille;
+        /** 면별 머리말. {점자 면 번호: 머리말 점자} — 없는 면은 headerBraille를 쓴다. */
+        public final java.util.Map<Integer, String> headersBraille;
 
         public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
                    boolean showOrigPage, boolean showBraillePage, int coverPages,
                    Integer origPageStart, boolean showChangeLine, String footerAlign,
                    String footerBraille, java.util.Map<Integer, String> footersBraille,
-                   int startBraillePage, java.util.List<JobPage> pages, String wrap, boolean padToEven) {
+                   int startBraillePage, java.util.List<JobPage> pages, String wrap, boolean padToEven,
+                   String headerBraille, java.util.Map<Integer, String> headersBraille) {
             this.jobId = jobId;
             this.includePageNumber = includePageNumber;
             this.pageRowOn = pageRowOn == null || pageRowOn.isEmpty() ? "odd" : pageRowOn;
@@ -680,6 +809,20 @@ public final class BrailleAssist {
             this.pages = pages == null ? java.util.Collections.emptyList() : pages;
             this.wrap = wrap == null || wrap.isEmpty() ? "syllable" : wrap;
             this.padToEven = padToEven;
+            this.headerBraille = headerBraille == null ? "" : headerBraille;
+            this.headersBraille = headersBraille == null
+                    ? java.util.Collections.emptyMap() : headersBraille;
+        }
+
+        /** 종전 17인자 형태 — 머리말 없음. */
+        public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
+                   boolean showOrigPage, boolean showBraillePage, int coverPages,
+                   Integer origPageStart, boolean showChangeLine, String footerAlign,
+                   String footerBraille, java.util.Map<Integer, String> footersBraille,
+                   int startBraillePage, java.util.List<JobPage> pages, String wrap, boolean padToEven) {
+            this(jobId, includePageNumber, pageRowOn, rows, cols, showOrigPage, showBraillePage,
+                 coverPages, origPageStart, showChangeLine, footerAlign, footerBraille,
+                 footersBraille, startBraillePage, pages, wrap, padToEven, "", null);
         }
 
         /** 종전 16인자 형태 — 짝수 면 채우기는 끈다. */
@@ -736,12 +879,12 @@ public final class BrailleAssist {
             for (int k = 0; k < pg.elements.size(); k++) {
                 // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
                 JobElement el = pg.elements.get(k);
-                blocks.add(new Block(k, el.text, el.breaks, el.headingLevel));
+                blocks.add(new Block(k, el.text, el.breaks, el.headingLevel, el.align));
             }
             sources.add(new Source(pg.origPageNo > 0 ? pg.origPageNo : i + 1, blocks));
         }
         return buildPages(sources, job.footerBraille, job.startBraillePage, optionsFromJob(job),
-                          job.footersBraille);
+                          job.footersBraille, job.headerBraille, job.headersBraille);
     }
 
     /**

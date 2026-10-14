@@ -428,3 +428,26 @@ def test_build_brf_옛_op_와_잘못된_옵션은_BAD_FIELD():
     assert e.value.code == "BAD_FIELD"
     r = sidecar._answer(json.dumps({"id": 1, "op": "build_brf", "job": {"sources": [], "opts": {"page_row_pages": "even"}}}).encode())
     assert r["code"] == "BAD_FIELD" and "page_row_pages" in r["error"]
+
+
+def test_조판_태그는_아는_태그이고_translate_가_맡을_몫만_한다():
+    """#66 — 조판 태그(목록표). 줄 태그만 든 요소는 32칸 미리보기, 면 넘김 표식은 빈 점자(종전엔 '점역 못 함' 주가
+    나갔다), 정렬 · 머리말은 글에서 뺀다(앱이 블록 align · job.header(s) 로 옮긴다)."""
+    r = sidecar.translate("<!표시작>")
+    assert r["cells"] == "⠖" + "⠒" * 30 + "⠲" and r["unknown_tags"] == [] and not r["blocked"]
+    for t in ("<!쪽바꿈>", "<!장바꿈>", "<!머리말>제1장<!/머리말>"):
+        r = sidecar.translate(t)
+        assert (r["cells"], r["blocked"], r["unknown_tags"]) == ("", False, []), t
+    assert sidecar.translate("<!가운데정렬>제목") == sidecar.translate("제목")
+    assert sidecar.translate("<!머리말>제1장<!/머리말>본문")["cells"] == sidecar.translate("본문")["cells"]
+
+
+def test_쪽_번호_자리표시는_점역을_그대로_지나가고_그_안에서는_안_끊는다():
+    """#66 — build_brf 가 그 면의 번호로 채운다. 태그 앞뒤 자리는 끊을 수 있고, 태그 안쪽은 안 된다."""
+    r = sidecar.translate("제<!점자면번호>쪽, 원본 <!묵자쪽번호>쪽")
+    cells = r["cells"]
+    assert "<!점자면번호>" in cells and "<!묵자쪽번호>" in cells and r["unknown_tags"] == []
+    for tag in ("<!점자면번호>", "<!묵자쪽번호>"):
+        a = cells.index(tag)
+        assert not [b for b in r["breaks"] if a < b < a + len(tag)]
+    assert cells.replace("<!점자면번호>", "").replace("<!묵자쪽번호>", "") == sidecar.translate("제쪽, 원본 쪽")["cells"]

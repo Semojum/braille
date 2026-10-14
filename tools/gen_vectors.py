@@ -278,6 +278,77 @@ BUILD_PAD = [
 ]
 
 
+# ── 조판 태그(V4 점자 태깅 목록표, #66) ─────────────────────────────────────────────
+# 줄 태그 열둘은 그 태그 하나뿐인 블록을 cols 폭 한 줄로 펼친다. 장바꿈은 다음 홀수 면에서 잇는다(도서지침 용어 ⑫
+# 재추출 4534~4537행). 정렬은 블록 align. 쪽 번호 자리표시는 그 줄이 놓인 쪽의 번호로. 머리말은 면 첫 줄을 먹는다.
+_RULES = ["<!상단줄>", "<!중단줄>", "<!하단줄>", "<!상단굵은줄>", "<!하단굵은줄>", "<!표시작>", "<!표중앙>",
+          "<!표끝>", "<!표구분선>", "<!표지시작>", "<!표지세로>", "<!표지끝>"]
+_P1 = "⠀⠀⠁⠃⠉\n"
+_P2 = "⠀⠀⠙⠑⠋\n"
+_FILL5 = "".join(f"⠀⠀{c}\n" for c in "⠁⠃⠉⠙⠑")          # 다섯 줄
+BUILD_TAGS = [
+    ("줄 태그 열둘 — 32칸 한 줄로 펼친다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _P1}] +
+                  [{"order": k + 1, "text": t} for k, t in enumerate(_RULES)]}],
+        opts=opt(rows=16, page_row_on="none")),
+     "점자 태깅 목록표 '점자 줄' · '표 테두리' — ×30 은 32칸일 때"),
+    ("줄 태그 — 칸 수를 따른다(cols 20)", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": "<!표시작>"}, {"order": 1, "text": _P1},
+                                             {"order": 2, "text": "<!표끝>\n"}, {"order": 3, "text": "<!상단줄>"}]}],
+        opts=opt(cols=20, rows=6, page_row_on="none")), ""),
+    ("장바꿈 — 홀수 면에서 끝나면 짝수 면을 비운다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _P1}, {"order": 1, "text": "<!장바꿈>"},
+                                             {"order": 2, "text": _P2}]}],
+        footer=FOOT_C, opts=opt(rows=6, page_row_on="odd")),
+     "도서지침 용어 ⑫(재추출 4534~4537행) — 앞 내용이 홀수 면에서 끝나면 다음 짝수 면은 빈 면"),
+    ("장바꿈 — 짝수 면에서 끝나면 바로 다음 면", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _FILL5 + _P1}, {"order": 1, "text": "<!장바꿈>"},
+                                             {"order": 2, "text": _P2}]}],
+        footer=FOOT_C, opts=opt(rows=6)), ""),
+    ("장바꿈 — 페이지행이 every 면 빈 면에도 페이지행", dict(
+        sources=[{"orig_page": 4, "blocks": [{"order": 0, "text": _P1}, {"order": 1, "text": "<!장바꿈>"}]},
+                 {"orig_page": 5, "blocks": [{"order": 0, "text": _P2}]}],
+        footer=FOOT_C, opts=opt(rows=6, page_row_on="every")), ""),
+    ("장바꿈 · 쪽바꿈이 잇달으면 빈 면은 장바꿈 몫 하나", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _P1}, {"order": 1, "text": "<!쪽바꿈>"},
+                                             {"order": 2, "text": "<!장바꿈>"}, {"order": 3, "text": _P2}]}],
+        opts=opt(rows=6, page_row_on="none")), ""),
+    ("정렬 셋 — 블록 align", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠀⠀⠁⠃⠉⠀⠙\n", "align": "left"},
+            {"order": 1, "text": "⠁⠃⠉⠙\n⠑⠋⠛\n", "align": "center"},
+            {"order": 2, "text": "⠀⠀⠁⠃⠉\n", "align": "right"},
+            {"order": 3, "text": "⠀⠀⠙⠑⠋\n"}]}],
+        opts=opt(rows=6, page_row_on="none")),
+     "align 이 없으면 받은 그대로(들여쓰기 유지)"),
+    ("정렬 — 접힌 줄은 조각마다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": "⠁⠃⠉⠙⠑⠀⠋⠛⠓⠊⠚\n", "align": "right"}]}],
+        opts=opt(cols=8, rows=4, page_row_on="none")), ""),
+    ("쪽 번호 자리표시 — 줄이 놓인 쪽의 번호", dict(
+        sources=[{"orig_page": 12, "blocks": [{"order": 0, "text": "⠀⠀⠁⠀<!묵자쪽번호>⠀⠃⠀<!점자면번호>\n"},
+                                              {"order": 1, "text": "<!쪽바꿈>"},
+                                              {"order": 2, "text": "<!점자면번호>\n", "align": "right"}]},
+                 {"orig_page": 13, "blocks": [{"order": 0, "text": "⠀⠀<!묵자쪽번호>\n"}]}],
+        start_braille_page=9, opts=opt(rows=6, page_row_on="none")),
+     "묵자 쪽 번호 = 그 줄의 원본 쪽 · 점자 면 번호 = 그 줄이 놓인 면"),
+    ("쪽 번호 자리표시 — 표지 면의 점자 면 번호는 비운다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": "⠁⠀<!점자면번호>\n"}]},
+                 {"orig_page": 2, "blocks": [{"order": 0, "text": "<!쪽바꿈>"}, {"order": 1, "text": "⠃⠀<!점자면번호>\n"}]}],
+        opts=opt(rows=6, cover_pages=1, page_row_on="none")),
+     "지침 1장2 3)(1)(도서 335행) — 표지에는 점자 페이지 번호를 적지 않는다"),
+    ("머리말 — 면마다 첫 줄, 본문이 한 줄 준다", dict(
+        sources=[{"orig_page": 3, "blocks": [{"order": 0, "text": _FILL5 + _P1 + _P2}]}],
+        footer=FOOT_C, header=FOOT_A, opts=opt(rows=6)), ""),
+    ("머리말 — 면별 값 · 없는 면은 종전과 같다", dict(
+        sources=[{"orig_page": 3, "blocks": [{"order": 0, "text": _FILL5 + _P1 + _P2}]}],
+        footer=FOOT_C, headers={2: FOOT_C}, opts=opt(rows=6)), ""),
+    ("머리말 — 자리표시를 채운다 · 표지 면엔 없다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _P1}]},
+                 {"orig_page": 2, "blocks": [{"order": 0, "text": "<!쪽바꿈>"}, {"order": 1, "text": _P2}]}],
+        header="⠁⠀<!점자면번호>⠀<!묵자쪽번호>", opts=opt(rows=6, cover_pages=1)), ""),
+]
+
+
 # ── build_brf (V4 엔진 가이드 조판 job) ───────────────────────────────────────
 # 앱이 사이드카 build_brf 로 넘기는 꼴. 세 언어가 **같은 .brf 문자열**을 내야 한다.
 _JOB_SOURCES = [
@@ -323,6 +394,15 @@ BRF_JOB = [
      {"opts": {"rows": 6, "cols": 32},
       "sources": [{"orig_page": 1, "blocks": [
           {"order": 2, "braille": "⠀⠀⠙⠑⠋\n"}, {"order": 1, "braille": "⠀⠀⠁⠃⠉\n"}]}]}, ""),
+    ("조판 job 조판 태그(줄 태그 · 장바꿈 · 정렬 · 자리표시 · 머리말)",
+     {"opts": {"rows": 6, "cols": 32},
+      "footer": FOOT_C, "header": FOOT_A, "headers": {"3": ""},
+      "sources": [{"orig_page": 7, "blocks": [
+          {"order": 0, "braille": "<!표시작>"}, {"order": 1, "braille": "⠀⠀⠁⠃⠉\n"},
+          {"order": 2, "braille": "<!표끝>"}, {"order": 3, "braille": "<!장바꿈>"},
+          {"order": 4, "braille": "⠁⠃⠀<!점자면번호>", "align": "center"},
+          {"order": 5, "braille": "⠀⠀⠙⠑⠋\n", "align": "right"}]}]},
+     "점자 태깅 목록표 · V4 조판 태그 설계(10-14 pm 승인)"),
     ("조판 job 꼬리말 왼쪽 · 짝수 면 채우기",
      {"opts": {"rows": 6, "cols": 32, "footer_align": "left", "page_row_pages": "every", "pad_to_even": True},
       "footer": FOOT_C, "sources": _JOB_SOURCES},
@@ -331,7 +411,7 @@ BRF_JOB = [
 
 
 def build() -> dict:
-    out = {"version": "0.6.0", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.7.0", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
                                          "build_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:
@@ -347,7 +427,7 @@ def build() -> dict:
         out["cases"]["page_change_line"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
              **({"source": src} if src else {})})
-    for name, kw, src in BUILD + BUILD_WRAP + BUILD_PAD:
+    for name, kw, src in BUILD + BUILD_WRAP + BUILD_PAD + BUILD_TAGS:
         o = kw.pop("opts", None)
         got = build_pages(**kw, opts=Options(**o) if o else Options())
         for pg in got:

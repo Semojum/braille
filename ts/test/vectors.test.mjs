@@ -25,7 +25,7 @@ const call = {
   to_brf_ascii: (a) => toBrfAscii(a.braille),
   build_pages: (a) => buildPages(a.sources, a.footer ?? '',
                                  a.start_braille_page ?? 1, toOpts(a.opts),
-                                 a.footers ?? null),
+                                 a.footers ?? null, a.header ?? '', a.headers ?? null),
   build_brf: (a) => buildBrf(a.job),
   wrap: (a) => wrap(a.line, a.cols ?? 32, a.mode ?? 'syllable', a.breaks ?? null, a.center ?? false),
 };

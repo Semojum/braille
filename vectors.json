@@ -1,5 +1,5 @@
 {
-  "version": "0.6.0",
+  "version": "0.7.0",
   "cases": {
     "page_row": [
       {
@@ -2505,6 +2505,776 @@
             "⠕⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠋"
           ]
         ]
+      },
+      {
+        "name": "줄 태그 열둘 — 32칸 한 줄로 펼친다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉\n"
+                },
+                {
+                  "order": 1,
+                  "text": "<!상단줄>"
+                },
+                {
+                  "order": 2,
+                  "text": "<!중단줄>"
+                },
+                {
+                  "order": 3,
+                  "text": "<!하단줄>"
+                },
+                {
+                  "order": 4,
+                  "text": "<!상단굵은줄>"
+                },
+                {
+                  "order": 5,
+                  "text": "<!하단굵은줄>"
+                },
+                {
+                  "order": 6,
+                  "text": "<!표시작>"
+                },
+                {
+                  "order": 7,
+                  "text": "<!표중앙>"
+                },
+                {
+                  "order": 8,
+                  "text": "<!표끝>"
+                },
+                {
+                  "order": 9,
+                  "text": "<!표구분선>"
+                },
+                {
+                  "order": 10,
+                  "text": "<!표지시작>"
+                },
+                {
+                  "order": 11,
+                  "text": "<!표지세로>"
+                },
+                {
+                  "order": 12,
+                  "text": "<!표지끝>"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 16,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉",
+            "⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤",
+            "⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛",
+            "⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶",
+            "⠖⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠲",
+            "⠗⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠺",
+            "⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠚",
+            "⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐",
+            "⠿⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠿",
+            "⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿",
+            "⠿⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠿",
+            "",
+            "",
+            ""
+          ]
+        ],
+        "source": "점자 태깅 목록표 '점자 줄' · '표 테두리' — ×30 은 32칸일 때"
+      },
+      {
+        "name": "줄 태그 — 칸 수를 따른다(cols 20)",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "<!표시작>"
+                },
+                {
+                  "order": 1,
+                  "text": "⠀⠀⠁⠃⠉\n"
+                },
+                {
+                  "order": 2,
+                  "text": "<!표끝>\n"
+                },
+                {
+                  "order": 3,
+                  "text": "<!상단줄>"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 20,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠖⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠲",
+            "⠀⠀⠁⠃⠉",
+            "⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠚",
+            "⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "장바꿈 — 홀수 면에서 끝나면 짝수 면을 비운다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉\n"
+                },
+                {
+                  "order": 1,
+                  "text": "<!장바꿈>"
+                },
+                {
+                  "order": 2,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "odd",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "",
+            "",
+            "",
+            "",
+            "⠼⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "⠀⠀⠙⠑⠋",
+            "",
+            "",
+            "",
+            "",
+            "⠃⠼⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠉"
+          ]
+        ],
+        "source": "도서지침 용어 ⑫(재추출 4534~4537행) — 앞 내용이 홀수 면에서 끝나면 다음 짝수 면은 빈 면"
+      },
+      {
+        "name": "장바꿈 — 짝수 면에서 끝나면 바로 다음 면",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁\n⠀⠀⠃\n⠀⠀⠉\n⠀⠀⠙\n⠀⠀⠑\n⠀⠀⠁⠃⠉\n"
+                },
+                {
+                  "order": 1,
+                  "text": "<!장바꿈>"
+                },
+                {
+                  "order": 2,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁",
+            "⠀⠀⠃",
+            "⠀⠀⠉",
+            "⠀⠀⠙",
+            "⠀⠀⠑",
+            "⠼⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "⠀⠀⠁⠃⠉",
+            "",
+            "",
+            "",
+            "",
+            "⠁⠼⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠃"
+          ],
+          [
+            "⠀⠀⠙⠑⠋",
+            "",
+            "",
+            "",
+            "",
+            "⠃⠼⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠉"
+          ]
+        ]
+      },
+      {
+        "name": "장바꿈 — 페이지행이 every 면 빈 면에도 페이지행",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 4,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉\n"
+                },
+                {
+                  "order": 1,
+                  "text": "<!장바꿈>"
+                }
+              ]
+            },
+            {
+              "orig_page": 5,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "",
+            "",
+            "",
+            "",
+            "⠼⠙⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "⠁⠼⠙⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠃"
+          ],
+          [
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠑",
+            "⠀⠀⠙⠑⠋",
+            "",
+            "",
+            "",
+            "⠼⠑⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠉"
+          ]
+        ]
+      },
+      {
+        "name": "장바꿈 · 쪽바꿈이 잇달으면 빈 면은 장바꿈 몫 하나",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉\n"
+                },
+                {
+                  "order": 1,
+                  "text": "<!쪽바꿈>"
+                },
+                {
+                  "order": 2,
+                  "text": "<!장바꿈>"
+                },
+                {
+                  "order": 3,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "⠀⠀⠙⠑⠋",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "정렬 셋 — 블록 align",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉⠀⠙\n",
+                  "align": "left"
+                },
+                {
+                  "order": 1,
+                  "text": "⠁⠃⠉⠙\n⠑⠋⠛\n",
+                  "align": "center"
+                },
+                {
+                  "order": 2,
+                  "text": "⠀⠀⠁⠃⠉\n",
+                  "align": "right"
+                },
+                {
+                  "order": 3,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠁⠃⠉⠀⠙",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠃⠉⠙",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠋⠛",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠃⠉",
+            "⠀⠀⠙⠑⠋",
+            ""
+          ]
+        ],
+        "source": "align 이 없으면 받은 그대로(들여쓰기 유지)"
+      },
+      {
+        "name": "정렬 — 접힌 줄은 조각마다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠁⠃⠉⠙⠑⠀⠋⠛⠓⠊⠚\n",
+                  "align": "right"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 8,
+            "rows": 4,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠀⠁⠃⠉⠙⠑",
+            "⠀⠀⠀⠋⠛⠓⠊⠚",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "쪽 번호 자리표시 — 줄이 놓인 쪽의 번호",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 12,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠀<!묵자쪽번호>⠀⠃⠀<!점자면번호>\n"
+                },
+                {
+                  "order": 1,
+                  "text": "<!쪽바꿈>"
+                },
+                {
+                  "order": 2,
+                  "text": "<!점자면번호>\n",
+                  "align": "right"
+                }
+              ]
+            },
+            {
+              "orig_page": 13,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀<!묵자쪽번호>\n"
+                }
+              ]
+            }
+          ],
+          "start_braille_page": 9,
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠀⠼⠁⠃⠀⠃⠀⠼⠊",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠚",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠁⠉",
+            "⠀⠀⠼⠁⠉",
+            "",
+            "",
+            ""
+          ]
+        ],
+        "source": "묵자 쪽 번호 = 그 줄의 원본 쪽 · 점자 면 번호 = 그 줄이 놓인 면"
+      },
+      {
+        "name": "쪽 번호 자리표시 — 표지 면의 점자 면 번호는 비운다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠁⠀<!점자면번호>\n"
+                }
+              ]
+            },
+            {
+              "orig_page": 2,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "<!쪽바꿈>"
+                },
+                {
+                  "order": 1,
+                  "text": "⠃⠀<!점자면번호>\n"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 1,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠁",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠃",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "⠃⠀⠼⠁",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        ],
+        "source": "지침 1장2 3)(1)(도서 335행) — 표지에는 점자 페이지 번호를 적지 않는다"
+      },
+      {
+        "name": "머리말 — 면마다 첫 줄, 본문이 한 줄 준다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 3,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁\n⠀⠀⠃\n⠀⠀⠉\n⠀⠀⠙\n⠀⠀⠑\n⠀⠀⠁⠃⠉\n⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "header": "⠴⠠⠊⠲⠀⠉⠣⠺⠀⠘⠂⠈⠡",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠴⠠⠊⠲⠀⠉⠣⠺⠀⠘⠂⠈⠡",
+            "⠀⠀⠁",
+            "⠀⠀⠃",
+            "⠀⠀⠉",
+            "⠀⠀⠙",
+            "⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠴⠠⠊⠲⠀⠉⠣⠺⠀⠘⠂⠈⠡",
+            "⠀⠀⠑",
+            "⠀⠀⠁⠃⠉",
+            "⠀⠀⠙⠑⠋",
+            "",
+            "⠁⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠃"
+          ]
+        ]
+      },
+      {
+        "name": "머리말 — 면별 값 · 없는 면은 종전과 같다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 3,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁\n⠀⠀⠃\n⠀⠀⠉\n⠀⠀⠙\n⠀⠀⠑\n⠀⠀⠁⠃⠉\n⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "headers": {
+            "2": "⠑⠎⠐⠕⠑⠂"
+          },
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁",
+            "⠀⠀⠃",
+            "⠀⠀⠉",
+            "⠀⠀⠙",
+            "⠀⠀⠑",
+            "⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂",
+            "⠀⠀⠁⠃⠉",
+            "⠀⠀⠙⠑⠋",
+            "",
+            "",
+            "⠁⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠃"
+          ]
+        ]
+      },
+      {
+        "name": "머리말 — 자리표시를 채운다 · 표지 면엔 없다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉\n"
+                }
+              ]
+            },
+            {
+              "orig_page": 2,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "<!쪽바꿈>"
+                },
+                {
+                  "order": 1,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "header": "⠁⠀<!점자면번호>⠀<!묵자쪽번호>",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 1,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠃",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠀⠼⠁⠀⠼⠃",
+            "⠀⠀⠙⠑⠋",
+            "",
+            "",
+            "",
+            "⠼⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ]
+        ]
       }
     ],
     "build_brf": [
@@ -2877,6 +3647,57 @@
           }
         },
         "expect": "  abc\n  def\n\n\n\n#a                            #a"
+      },
+      {
+        "name": "조판 job 조판 태그(줄 태그 · 장바꿈 · 정렬 · 자리표시 · 머리말)",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32
+            },
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "header": "⠴⠠⠊⠲⠀⠉⠣⠺⠀⠘⠂⠈⠡",
+            "headers": {
+              "3": ""
+            },
+            "sources": [
+              {
+                "orig_page": 7,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "braille": "<!표시작>"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "⠀⠀⠁⠃⠉\n"
+                  },
+                  {
+                    "order": 2,
+                    "braille": "<!표끝>"
+                  },
+                  {
+                    "order": 3,
+                    "braille": "<!장바꿈>"
+                  },
+                  {
+                    "order": 4,
+                    "braille": "⠁⠃⠀<!점자면번호>",
+                    "align": "center"
+                  },
+                  {
+                    "order": 5,
+                    "braille": "⠀⠀⠙⠑⠋\n",
+                    "align": "right"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "          0,i4 c<w ~1@*\n63333333333333333333333333333334\n  abc\nh333333333333333333333333333333j\n\n#g           es\"oe1           #a\n\n\n\n\n\n\n             ab #c\n                             def\n\n\n\nb#g          es\"oe1           #c",
+        "source": "점자 태깅 목록표 · V4 조판 태그 설계(10-14 pm 승인)"
       },
       {
         "name": "조판 job 꼬리말 왼쪽 · 짝수 면 채우기",

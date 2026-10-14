@@ -13,7 +13,8 @@ import uuid
 from types import SimpleNamespace
 
 from semojum_braille import __version__, confidence
-from semojum_braille.assist import build_brf_file
+from semojum_braille.assist import (BRAILLE_PAGE_TAG, CHAPTER_TAG, ORIG_PAGE_TAG, PAGE_BREAK_TAG, RULE_TAGS,
+                                    build_brf_file, rule_line)
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
 from semojum_braille.encoder import inline_math
@@ -47,6 +48,17 @@ _LATEX_RE = re.compile(r"<!수식>(.*?)<!/수식>", re.DOTALL)
 # 엔진이 아는 태그 = 번역기가 점형으로 바꾸는 표 셋(`substitute_tags`) + 다른 길이 맡는 구조 태그. 그 밖은 `unknown_tags`.
 _STRUCT_TAGS = frozenset({"표", "행", "칸", "수식", "기울임", "쪽바꿈"})
 _INDENT_TAG_RE = re.compile(r"\d+칸")
+# 조판 태그(V4 점자 태깅 목록표, #66). 번역기가 아니라 조판(`build_brf`)이 맡는다. `translate` 는 줄 태그만 든 요소에
+#   32칸 미리보기를, 쪽바꿈 · 장바꿈만 든 요소에 빈 점자를 낸다. 정렬 · 머리말은 앱이 블록 `align` · `job.header(s)` 로
+#   옮기므로 글에서 뺀다. 쪽 번호 자리표시는 그대로 통과시킨다(`build_brf` 가 면 번호로 채운다).
+_ALIGN_TAG_RE = re.compile(r"<!(?:왼쪽|가운데|오른쪽)정렬>")
+_HEADER_RE = re.compile(r"<!머리말>.*?<!/머리말>", re.DOTALL)
+_LAYOUT_TAGS = frozenset({t[2:-1] for t in (*RULE_TAGS, CHAPTER_TAG, ORIG_PAGE_TAG, BRAILLE_PAGE_TAG)}
+                         | {"왼쪽정렬", "가운데정렬", "오른쪽정렬", "머리말"})
+# 자리표시는 같은 길이의 8점 셀 묶음으로 바꿔 점역에 넣는다(점자 셀은 번역기가 그대로 둔다). 점역 뒤 태그로 되돌린다.
+#   길이가 같아 끊을 자리가 안 밀린다. 묶음 안쪽 끊을 자리만 뺀다(태그가 두 줄로 갈리면 조판이 못 채운다).
+_SLOTS = {ORIG_PAGE_TAG: "⣿" * 7 + "⣾", BRAILLE_PAGE_TAG: "⣿" * 7 + "⣽"}
+assert all(len(k) == len(v) for k, v in _SLOTS.items())
 
 
 class SidecarError(Exception):
@@ -105,17 +117,40 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     `_translate_one` 을 바로 불러 그런 요소가 빈 점자로 조용히 사라졌다(`dropped` 도 비어 표시가 없었다).
     """
     _check(text)
+    bare = text.strip()
+    if bare in RULE_TAGS or bare in (PAGE_BREAK_TAG, CHAPTER_TAG):
+        # 조판 태그만 든 요소. 줄 태그는 32칸 미리보기(조판은 `opts.cols` 로 다시 펼친다), 면 넘김 표식은 빈 점자.
+        return {"cells": rule_line(bare) if bare in RULE_TAGS else "", "breaks": [], "dropped": [], "blocked": False,
+                "unknown_tags": []}
+    unknown = _unknown_tags(text)
+    text = _HEADER_RE.sub("", _ALIGN_TAG_RE.sub("", text))
+    for tag, slot in _SLOTS.items():
+        text = text.replace(tag, slot)
     if etype == "table" or parse_table_tags(text) is not None:
-        return table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page)
+        return _unslot(table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page))
     force_roman = force_roman or etype == "header_footer"
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
     bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
                   korean_grade, english_grade, math_page, split_choices)
     out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines),   # AI 서버 검토 표시(C2 · R1)와 같은 판정
-           "unknown_tags": _unknown_tags(text)}
+           "unknown_tags": unknown}
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
         return {"cells": "", "breaks": [], **out}
-    return {**_body(fe, fe.text, fe.breaks), **out}
+    return _unslot({**_body(fe, fe.text, fe.breaks), **out})
+
+
+def _unslot(res: dict) -> dict:
+    """점역 결과의 자리표시 묶음을 태그로 되돌리고 묶음 안쪽 끊을 자리를 뺀다(표 안 `drafts` 도)."""
+    cells = res.get("cells") or ""
+    spans = [(m.start(), m.end()) for slot in _SLOTS.values() for m in re.finditer(slot, cells)]
+    for tag, slot in _SLOTS.items():
+        cells = cells.replace(slot, tag)
+    if spans:
+        res["cells"] = cells
+        res["breaks"] = [b for b in res.get("breaks") or [] if not any(a < b < z for a, z in spans)]
+    for d in res.get("drafts") or []:
+        _unslot(d)
+    return res
 
 
 def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int = 0,
@@ -197,7 +232,7 @@ def _unknown_tags(text: str) -> list[str]:
     out: list[str] = []
     for name in _TAG_RE.findall(text):
         if (name in _TAG_INLINE_MARKER or name in _TAG_PAIR_MARKER or name.rstrip("23") in _BORDER_KIND
-                or name in _STRUCT_TAGS or _INDENT_TAG_RE.fullmatch(name) or name in out):
+                or name in _STRUCT_TAGS or name in _LAYOUT_TAGS or _INDENT_TAG_RE.fullmatch(name) or name in out):
             continue
         out.append(name)
     return out

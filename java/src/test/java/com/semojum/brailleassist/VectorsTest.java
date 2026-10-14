@@ -32,6 +32,14 @@ class VectorsTest {
                 o.has("pad_to_even") && o.get("pad_to_even").asBoolean());
     }
 
+    /** {"면 번호": 점자} → Map. 없거나 null 이면 null. */
+    private static java.util.Map<Integer, String> intMap(JsonNode n) {
+        if (n == null || n.isNull()) return null;
+        java.util.Map<Integer, String> m = new java.util.HashMap<>();
+        n.fieldNames().forEachRemaining(k -> m.put(Integer.parseInt(k), n.get(k).asText()));
+        return m;
+    }
+
     /** breaks 칸 → int[]. 없거나 null 이면 null(그 블록은 word 로 접는다). */
     private static int[] ints(JsonNode n) {
         if (n == null || n.isNull()) return null;
@@ -87,7 +95,8 @@ class VectorsTest {
                     for (JsonNode b : s.get("blocks")) {
                         bs.add(new BrailleAssist.Block(b.get("order").asInt(), b.get("text").asText(),
                                 ints(b.get("breaks")),
-                                b.has("heading_level") ? b.get("heading_level").asInt() : 0));
+                                b.has("heading_level") ? b.get("heading_level").asInt() : 0,
+                                b.has("align") ? b.get("align").asText() : ""));
                     }
                     srcs.add(new BrailleAssist.Source(s.get("orig_page").asInt(), bs));
                 }
@@ -101,7 +110,8 @@ class VectorsTest {
                 return join(BrailleAssist.buildPages(srcs,
                         a.has("footer") ? a.get("footer").asText() : "",
                         a.has("start_braille_page") ? a.get("start_braille_page").asInt() : 1,
-                        toOpts(a.get("opts")), footers));
+                        toOpts(a.get("opts")), footers,
+                        a.has("header") ? a.get("header").asText() : "", intMap(a.get("headers"))));
             }
             case "build_brf": {
                 // V4 엔진 가이드 job: sources[].blocks[].{order, braille, breaks} · footer · footers · opts.
@@ -124,7 +134,8 @@ class VectorsTest {
                             els.add(new BrailleAssist.JobElement(null, "text",
                                     b.has("heading_level") ? b.get("heading_level").asInt() : 0,
                                     b.has("braille") ? b.get("braille").asText() : "",
-                                    ints(b.get("breaks"))));
+                                    ints(b.get("breaks")),
+                                    b.has("align") ? b.get("align").asText() : ""));
                         }
                         pages.add(new BrailleAssist.JobPage(
                                 src.has("orig_page") ? src.get("orig_page").asInt() : i + 1, els));
@@ -155,7 +166,9 @@ class VectorsTest {
                         o != null && o.has("first_braille_page") ? o.get("first_braille_page").asInt() : 1,
                         pages,
                         o != null && o.has("wrap") ? o.get("wrap").asText() : "syllable",
-                        o != null && o.has("pad_to_even") && o.get("pad_to_even").asBoolean());
+                        o != null && o.has("pad_to_even") && o.get("pad_to_even").asBoolean(),
+                        j.has("header") ? j.get("header").asText() : "",
+                        intMap(j.get("headers")));
                 return BrailleAssist.buildBrf(job);
             }
             case "wrap":
