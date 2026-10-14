@@ -59,6 +59,9 @@ def test_build_brf_gives_field_form_file():
     job = {"sources": [{"orig_page": 7, "blocks": [{"order": 0, "braille": "⠁⠃"}]}]}
     brf = sidecar.handle({"op": "build_brf", "job": job})["brf"]
     assert brf.count("\r\n") == brf.count("\n") == 26 and brf.endswith("\x0c")
+    assert sidecar.handle({"op": "build_brf", "job": job})["replaced"] == {}
+    bad = sidecar.handle({"op": "build_brf", "job": {"sources": [{"orig_page": 1, "blocks": [{"order": 0, "braille": "⠁\u2009⠃"}]}]}})
+    assert bad["replaced"] == {"U+2009": 1} and bad["brf"].startswith("a b\r\n")
     lines = brf.split("\r\n")
     assert lines[0] == "ab"
     assert lines[25].startswith("#g") and lines[25].endswith("#a")   # 페이지행: 원본 쪽 7 · 점자 면 1

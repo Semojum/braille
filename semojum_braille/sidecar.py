@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import uuid
+from collections import Counter
 from types import SimpleNamespace
 
 from semojum_braille import __version__, confidence
@@ -311,7 +312,10 @@ def handle(req: dict) -> dict:
         return {"text": decode(req.get("braille", ""), english=_flag(req, "english"),
                                korean_grade1=_grade_arg(req, "korean_grade") == 1)}
     if op == "build_brf":
-        return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
+        bad = Counter()
+        brf = build_brf_file(req.get("job") or {}, replaced=bad).decode("ascii")
+        # 빈칸으로 바꾼 글자가 있으면 알린다(G4). 부르는 쪽이 점역사에게 보여 준다
+        return {"brf": brf, "replaced": {f"U+{ord(c):04X}": n for c, n in bad.items()}}
     if op == "read_brf":
         try:
             return {"pages": parse_brf(req.get("brf", ""))}
