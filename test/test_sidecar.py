@@ -165,6 +165,14 @@ def test_옵션은_정해진_꼴만_받는다():
     assert d["code"] == "BAD_FIELD" and d["id"] == 4
 
 
+def test_옛_급수_이름은_조용히_무시하지_않고_돌려준다():
+    """#72. 앱이 보내던 `korean_grade1` · `english_grade1`(bool)은 엔진이 안 읽어 오류 없이 무시됐다(정자를 골라도 약자)."""
+    for old in ("korean_grade1", "english_grade1"):
+        r = sidecar._answer(json.dumps({"id": 7, "op": "translate", "text": "가", old: True}).encode())
+        assert r["code"] == "BAD_FIELD" and old in r["error"] and r["id"] == 7
+    assert sidecar.handle({"op": "translate", "text": "가", "korean_grade": 1})["cells"].lstrip("⠀") == "⠈⠣"
+
+
 def test_정자로_점역하고_역점역_등급까지_한_바퀴_돈다():
     """#36 · AI#1276. 정자 점자를 2급 역맵으로 읽으면 왕복이 깨져 정자 문서의 등급이 거의 다 low 가 됐다.
     옵션이 translate 에만 가고 decode · grade 에 안 가면 앱에서 같은 일이 난다. 문장은 「한국 점자 규정」 제18항 예(909행)."""

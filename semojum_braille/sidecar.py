@@ -96,7 +96,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     같았다(표 아닌 요소 43,772개 중 0).
 
     꼬리말(`etype="header_footer"`)은 로마자 강제(`force_roman`)를 저절로 켠다(#60). 쓰는 자리가 꼬리말뿐이라
-    앱이 따로 켤 일이 없다. `force_roman` 은 옛 호출을 위해 그대로 받는다.
+    앱이 따로 켤 일이 없다. `force_roman` 은 옛 호출을 위해 그대로 받는다. V4 가이드에는 적지 않고 프로토콜 판을
+    올릴 때(2) 뺀다(같은 일을 하는 길이 둘이면 앱이 헷갈린다. 들여쓰기도 2칸 대 0칸으로 다르다, #72).
 
     `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
@@ -297,7 +298,16 @@ def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float 
     return {"grade": el["review_grade"], "round_trip": el.get("round_trip")}
 
 
+# 앱이 보내던 옛 급수 이름(bool). 엔진은 `korean_grade` · `english_grade`(1 · 2)만 읽어 옛 이름은 오류 없이 무시됐다.
+#   `korean_grade1: true` 응답이 기본(약자)과 바이트로 같았다(10-14 실측, 정자를 골라도 약자로 나감). 콕 집어 `BAD_FIELD` 로
+#   돌려준다. 모르는 필드 전부를 거절하는 것은 프로토콜 2 로 미룬다(앱이 보내는 필드를 다 모른다, #72).
+_OLD_GRADE_FIELDS = {"korean_grade1": "korean_grade", "english_grade1": "english_grade"}
+
+
 def handle(req: dict) -> dict:
+    for old, new in _OLD_GRADE_FIELDS.items():
+        if old in req:
+            raise SidecarError("BAD_FIELD", f"{old} 는 받지 않는다. {new}(1 정자 · 2 약자)를 쓴다")
     op = req.get("op")
     if op == "translate":
         return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
