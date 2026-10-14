@@ -70,8 +70,11 @@ class Options:
       ⚠ `show_orig_page`를 끄면 변경선에 적을 번호가 없어 `⠤`만 남은 빈 줄이 된다.
       그래서 `show_orig_page=False`면 변경선도 함께 꺼진다(2026-09-01 결정 D).
 
-    footer_align — 꼬리말 정렬. `center`(지침 1장3-1 기본)와 `right`.
+    footer_align — 꼬리말 정렬. `center`(지침 1장3-1 기본) · `right` · `left`(V4 가이드).
       right는 점자 페이지 번호 왼쪽에 **두 칸을 띄운 자리**가 오른쪽 끝이다(항목 사이 두 칸 이상).
+      left는 원본 페이지 번호 오른쪽에 두 칸을 띄운 자리(번호가 없으면 첫 칸)에서 시작한다.
+
+    pad_to_even — 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드). 더한 면도 다른 면과 같은 페이지행 규칙을 따른다.
 
     wrap — 32칸을 넘는 줄을 접는 갈래. `syllable`(기본) · `word` 두 갈래다(2026-10-10 대표 확정).
       뜻은 `wrap()` 에 적었다. 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다.
@@ -85,16 +88,17 @@ class Options:
     cover_pages: int = 0             # 앞에서 이만큼의 **원본 페이지**가 표지 (아래 주석)
     orig_page_start: int | None = None   # 본문 첫 원본 페이지에 붙일 번호. None이면 준 값 그대로
     show_change_line: bool = True    # 원본 페이지 변경선을 넣을지
-    footer_align: str = "center"     # center | right
+    footer_align: str = "center"     # center | right | left
     wrap: str = "syllable"           # syllable | word
+    pad_to_even: bool = False        # 홀수 면에서 끝나면 빈 면 하나를 더한다
 
     def __post_init__(self) -> None:
         if self.cols < 8:
             raise ValueError(f"cols는 8 이상이어야 한다: {self.cols}")
         if self.page_row_on not in ("every", "odd", "even", "none"):
             raise ValueError(f"page_row_on은 odd|every|even|none: {self.page_row_on!r}")
-        if self.footer_align not in ("center", "right"):
-            raise ValueError(f"footer_align은 center|right: {self.footer_align!r}")
+        if self.footer_align not in ("center", "right", "left"):
+            raise ValueError(f"footer_align은 center|right|left: {self.footer_align!r}")
         if self.cover_pages < 0:
             raise ValueError(f"cover_pages는 0 이상이어야 한다: {self.cover_pages}")
         if self.wrap not in WRAP_MODES:
@@ -174,6 +178,8 @@ def page_row(
         if f:
             if opts.footer_align == "right":
                 start = hi - len(f)                # 오른쪽 끝(번호와 두 칸 띄운 자리)에 붙인다
+            elif opts.footer_align == "left":
+                start = lo                         # 왼쪽 끝(원본 번호와 두 칸 띄운 자리)에서 시작한다
             else:
                 start = (n - len(f) + 1) // 2      # ★ 올림 — 지침 실물로 확정
             start = min(max(start, lo), hi - len(f))
@@ -510,85 +516,85 @@ def build_pages(
         if not on_cover:
             bpn += 1                      # 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
         pages.append(body)
+    if opts.pad_to_even and len(pages) % 2 == 1:
+        # 빈 면 하나. 페이지행은 다른 면과 같은 규칙이고, 원본 번호는 마지막 면의 원본 쪽을 잇는다.
+        head_page = flat[last][1] if last >= 0 else 0
+        has_row = last >= 0 and _has_page_row(bpn, opts.page_row_on) and not flat[last][2]
+        body = [""] * (opts.rows - (1 if has_row else 0))
+        if has_row:
+            body.append(page_row(head_page, len(pages) - first_seen.get(head_page, len(pages)), bpn,
+                                 fmap.get(bpn, footer), opts))
+        pages.append(body)
     return pages
 
 
-# ── BE 조립 JSON 진입점 (2026-08-06) ────────────────────────────────────────
-# BE가 편집 최종본을 모아 넘기는 형식. BE·FE가 조판 규칙을 다시 짜지 않게 여기서 받는다.
+# ── 조판 job 진입점 (V4 엔진 가이드 build_brf, 2026-10-14) ─────────────────────────
 #
-#   {"job_id": "...",
-#    "options": {"include_page_number": bool, "page_row_on": "odd|every|even|none",
-#                "cols": 32, "rows": 26,
-#                "show_orig_page": bool, "show_braille_page": bool,
-#                "cover_pages": 0, "orig_page_start": null,
-#                "show_change_line": bool, "footer_align": "center|right",
-#                "wrap": "syllable|word"},
-#    "footer_braille": "…",              # 문서 기본 꼬리말(이미 점역됨, 선택)
-#    "footers_braille": {"3": "…"},      # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
-#    "start_braille_page": 1,            # 첫 면 번호(선택, 기본 1)
-#    "pages": [{"orig_page_no": 1,
-#               "elements": [{"id","type","heading_level","text","breaks"}, …]}]}
+#   {"sources": [{"orig_page": 1,
+#                 "blocks": [{"order": 0, "braille": "…", "breaks": [int, …]}, …]}, …],
+#    "footer": "…",                 # 문서 기본 꼬리말(이미 점역됨, 선택)
+#    "footers": {"3": "…"},         # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
+#    "opts": {"cols": 32, "rows": 26, "wrap": "syllable|word", "footer_align": "left|center|right",
+#             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
+#             "page_row_pages": "odd|every", "show_orig_page": true, "show_braille_page": true,
+#             "pad_to_even": false}}
 #
-# ★ `elements` 배열 **순서가 읽기 순서**다. `order` 필드는 없다(BE가 정렬해 담는다).
-# ★ 들여쓰기·가운데 정렬·구조적 빈 줄은 AI가 이미 `text`에 넣어 보낸다(점자 공백 셀·`\n`).
-#   여기서 또 넣지 않는다. `type`은 쓰지 않는다. `heading_level`은 **1단계 제목이 32칸을 넘어
-#   접힐 때만** 조각을 가운데에 놓는 데 쓴다(사이드카 문서 §5 규칙 4).
-# ★ `breaks`(선택)는 응답 `TextElement.breaks` 그대로다. `text` 를 고치면(앞뒤 빈 줄을 떼는 등)
-#   오프셋이 어긋나므로 응답 `contents[0]` 를 그대로 넣는다.
+# ★ `blocks` 는 `order` 로 정렬한다(없으면 배열 순서). `braille` 은 translate 의 `cells` 그대로,
+#   `breaks` 는 translate 의 `breaks` 그대로다. 없으면 그 블록은 빈칸에서 접는다.
+# ★ 들여쓰기 · 가운데 정렬 · 구조적 빈 줄은 이미 `braille` 에 들어 있다. 여기서 또 넣지 않는다.
+#   `heading_level`(가이드 밖, 받기는 한다)이 1이면 32칸을 넘어 접힌 1단계 제목 조각을 가운데에 놓는다.
+# ★ 원본 페이지 변경선은 `show_orig_page` 를 따른다(끄면 같이 꺼진다).
+# ★ 종전 꼴(`pages` · `elements` · `options` · `footer_braille` · `start_braille_page`)은 받지 않는다.
+_PAGE_ROW_PAGES = ("odd", "every")
+
+
 def options_from_job(job: dict) -> Options:
-    """BE 조립 JSON의 `options` → `Options`.
-
-    2026-09-01 개편 전에는 `cols·rows·include_page_number` 셋만 읽었다. Options에 있어도
-    Job에서 안 읽히면 죽은 값이라, 조판 설정 화면이 쓰는 항목을 전부 여기로 연결했다.
-
-    page_row_on — `include_page_number`(켜기·끄기)와 `page_row_on`(어느 면)이 **같은 스위치**다.
-      끄면 `none`, 켜면 `page_row_on`(기본 `odd`). 화면에서도 토글 하나로 합친다(결정 B).
-    """
-    o = job.get("options") or {}
-    on = str(o.get("page_row_on") or "odd")
-    if not bool(o.get("include_page_number", True)):
-        on = "none"
-    start = o.get("orig_page_start")
+    """조판 job 의 `opts` → `Options`(V4 가이드 이름)."""
+    o = job.get("opts") or {}
+    rows_on = str(o.get("page_row_pages") or "odd")
+    if rows_on not in _PAGE_ROW_PAGES:
+        raise ValueError(f"page_row_pages는 odd|every: {rows_on!r}")
+    start = o.get("orig_page_first_no")
     return Options(
         cols=int(o.get("cols") or 32),
         rows=int(o.get("rows") or 26),
         show_orig_page=bool(o.get("show_orig_page", True)),
         show_braille_page=bool(o.get("show_braille_page", True)),
-        page_row_on=on,
-        cover_pages=int(o.get("cover_pages") or 0),
+        page_row_on=rows_on,
+        cover_pages=int(o.get("cover_orig_page_count") or 0),
         orig_page_start=None if start in (None, "") else int(start),
-        show_change_line=bool(o.get("show_change_line", True)),
         footer_align=str(o.get("footer_align") or "center"),
         wrap=str(o.get("wrap") or "syllable"),
+        pad_to_even=bool(o.get("pad_to_even", False)),
     )
 
 
 def build_pages_from_job(job: dict) -> list:
-    """BE 조립 JSON → 점자 면 배열. `build_pages`의 얇은 어댑터다."""
+    """조판 job → 점자 면 배열. `build_pages`의 얇은 어댑터다."""
     sources = [
         {
-            "orig_page": int(pg.get("orig_page_no", i + 1)),
-            # 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
-            "blocks": [{"order": k, "text": el.get("text", ""), "breaks": el.get("breaks") or [],
-                        "heading_level": el.get("heading_level") or 0}
-                       for k, el in enumerate(pg.get("elements") or [])],
+            "orig_page": int(src.get("orig_page", i + 1)),
+            "blocks": [{"order": b.get("order", k), "text": b.get("braille", ""), "breaks": b.get("breaks") or [],
+                        "heading_level": b.get("heading_level") or 0}
+                       for k, b in enumerate(src.get("blocks") or [])],
         }
-        for i, pg in enumerate(job.get("pages") or [])
+        for i, src in enumerate(job.get("sources") or [])
     ]
     # 면별 꼬리말 — 키가 문자열로 올 수 있어(JSON) 정수로 맞춘다.
-    raw = job.get("footers_braille") or {}
+    raw = job.get("footers") or {}
     footers = {int(k): v for k, v in raw.items()} if raw else None
+    o = job.get("opts") or {}
     return build_pages(
         sources,
-        footer=job.get("footer_braille", "") or "",
-        start_braille_page=int(job.get("start_braille_page") or 1),
+        footer=job.get("footer", "") or "",
+        start_braille_page=int(o.get("first_braille_page") or 1),
         opts=options_from_job(job),
         footers=footers,
     )
 
 
 def build_brf(job: dict) -> str:
-    """BE 조립 JSON → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
+    """조판 job → **.brf 파일 내용**(BRF Braille ASCII, 줄바꿈 `\n`).
 
     BE는 이 문자열을 그대로 파일로 쓰면 된다. 점역은 하지 않는다 — 이미 점역된
     통 문자열을 조판만 한다.
@@ -599,7 +605,7 @@ def build_brf(job: dict) -> str:
 
 
 def build_brf_file(job: dict) -> bytes:
-    """BE 조립 JSON → **.brf 파일 바이트**(현장 꼴: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII).
+    """조판 job → **.brf 파일 바이트**(현장 꼴: 줄 끝 `\r\n`, 쪽마다 끝에 `\x0c`, 소문자 BRF ASCII).
 
     면 나누기는 `build_pages_from_job` 과 같고, 바이트 꼴만 `semojum_braille.brf.serialize_brf` 를 따른다.
     """

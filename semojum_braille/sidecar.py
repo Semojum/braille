@@ -274,7 +274,7 @@ def handle(req: dict) -> dict:
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=_flag(req, "english"),
                                korean_grade1=_grade_arg(req, "korean_grade") == 1)}
-    if op == "brf":
+    if op == "build_brf":
         return {"brf": build_brf_file(req.get("job") or {}).decode("ascii")}
     if op == "read_brf":
         try:

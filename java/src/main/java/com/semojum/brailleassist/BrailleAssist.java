@@ -50,20 +50,23 @@ public final class BrailleAssist {
         public final Integer origPageStart;
         /** 원본 페이지 변경선을 넣을지. showOrigPage가 꺼지면 함께 꺼진다(결정 D). */
         public final boolean showChangeLine;
-        /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다. */
+        /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝, left는 원본 번호에서 두 칸 띄운 자리가 시작이다. */
         public final String footerAlign;
         /** 32칸을 넘는 줄을 접는 갈래. syllable(기본) | word. 블록에 breaks 가 없으면 syllable 이어도 word. */
         public final String wrap;
+        /** 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드). 더한 면도 같은 페이지행 규칙을 따른다. */
+        public final boolean padToEven;
 
         public Options(int cols, int rows, boolean showOrigPage, boolean showBraillePage,
                        String pageRowOn, int coverPages,
-                       Integer origPageStart, boolean showChangeLine, String footerAlign, String wrap) {
+                       Integer origPageStart, boolean showChangeLine, String footerAlign, String wrap,
+                       boolean padToEven) {
             if (cols < 8) throw new IllegalArgumentException("cols는 8 이상이어야 한다: " + cols);
             if (!pageRowOn.equals("every") && !pageRowOn.equals("odd")
                     && !pageRowOn.equals("even") && !pageRowOn.equals("none"))
                 throw new IllegalArgumentException("pageRowOn은 odd|every|even|none: " + pageRowOn);
-            if (!footerAlign.equals("center") && !footerAlign.equals("right"))
-                throw new IllegalArgumentException("footerAlign은 center|right: " + footerAlign);
+            if (!footerAlign.equals("center") && !footerAlign.equals("right") && !footerAlign.equals("left"))
+                throw new IllegalArgumentException("footerAlign은 center|right|left: " + footerAlign);
             if (coverPages < 0)
                 throw new IllegalArgumentException("coverPages는 0 이상이어야 한다: " + coverPages);
             if (!WRAP_MODES.contains(wrap))
@@ -78,6 +81,15 @@ public final class BrailleAssist {
             this.showChangeLine = showChangeLine;
             this.footerAlign = footerAlign;
             this.wrap = wrap;
+            this.padToEven = padToEven;
+        }
+
+        /** 종전 10인자 형태 — 짝수 면 채우기는 끈다. */
+        public Options(int cols, int rows, boolean showOrigPage, boolean showBraillePage,
+                       String pageRowOn, int coverPages,
+                       Integer origPageStart, boolean showChangeLine, String footerAlign, String wrap) {
+            this(cols, rows, showOrigPage, showBraillePage, pageRowOn, coverPages,
+                 origPageStart, showChangeLine, footerAlign, wrap, false);
         }
 
         /** 종전 9인자 형태(BE `JobDownloadService` 가 쓴다) — 줄바꿈은 기본값 syllable. */
@@ -160,7 +172,9 @@ public final class BrailleAssist {
                 // 우측 정렬이면 번호와 두 칸 띄운 자리가 오른쪽 끝이다.
                 int start = "right".equals(opts.footerAlign)
                         ? hi - f.length()
-                        : (n - f.length() + 1) / 2;   // ★ 올림 — 지침 실물로 확정
+                        : "left".equals(opts.footerAlign)
+                                ? lo
+                                : (n - f.length() + 1) / 2;   // ★ 올림 — 지침 실물로 확정
                 start = Math.min(Math.max(start, lo), hi - f.length());
                 for (int i = 0; i < f.length(); i++) cells[start + i] = f.charAt(i);
             }
@@ -552,6 +566,18 @@ public final class BrailleAssist {
             if (!onCover) bpn++;   // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
             pages.add(body);
         }
+        if (opts.padToEven && pages.size() % 2 == 1) {
+            // 빈 면 하나. 페이지행은 다른 면과 같은 규칙이고, 원본 번호는 마지막 면의 원본 쪽을 잇는다.
+            int head = last >= 0 ? owner.get(last) : 0;
+            boolean hasRow = last >= 0 && hasPageRow(bpn, opts.pageRowOn) && !coverOf.get(last);
+            java.util.List<String> body = new java.util.ArrayList<>();
+            while (body.size() < opts.rows - (hasRow ? 1 : 0)) body.add("");
+            if (hasRow) {
+                String f = fmap.getOrDefault(bpn, footer);
+                body.add(pageRow(head, pages.size() - firstSeen.getOrDefault(head, pages.size()), bpn, f, opts));
+            }
+            pages.add(body);
+        }
         return pages;
     }
 
@@ -628,12 +654,14 @@ public final class BrailleAssist {
         public final java.util.List<JobPage> pages;
         /** 줄바꿈 갈래. syllable(기본) | word. */
         public final String wrap;
+        /** 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드 pad_to_even). */
+        public final boolean padToEven;
 
         public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
                    boolean showOrigPage, boolean showBraillePage, int coverPages,
                    Integer origPageStart, boolean showChangeLine, String footerAlign,
                    String footerBraille, java.util.Map<Integer, String> footersBraille,
-                   int startBraillePage, java.util.List<JobPage> pages, String wrap) {
+                   int startBraillePage, java.util.List<JobPage> pages, String wrap, boolean padToEven) {
             this.jobId = jobId;
             this.includePageNumber = includePageNumber;
             this.pageRowOn = pageRowOn == null || pageRowOn.isEmpty() ? "odd" : pageRowOn;
@@ -651,6 +679,18 @@ public final class BrailleAssist {
             this.startBraillePage = startBraillePage <= 0 ? 1 : startBraillePage;
             this.pages = pages == null ? java.util.Collections.emptyList() : pages;
             this.wrap = wrap == null || wrap.isEmpty() ? "syllable" : wrap;
+            this.padToEven = padToEven;
+        }
+
+        /** 종전 16인자 형태 — 짝수 면 채우기는 끈다. */
+        public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
+                   boolean showOrigPage, boolean showBraillePage, int coverPages,
+                   Integer origPageStart, boolean showChangeLine, String footerAlign,
+                   String footerBraille, java.util.Map<Integer, String> footersBraille,
+                   int startBraillePage, java.util.List<JobPage> pages, String wrap) {
+            this(jobId, includePageNumber, pageRowOn, rows, cols, showOrigPage, showBraillePage,
+                 coverPages, origPageStart, showChangeLine, footerAlign, footerBraille,
+                 footersBraille, startBraillePage, pages, wrap, false);
         }
 
         /** 종전 15인자 형태 — 줄바꿈은 기본값 syllable. */
@@ -684,7 +724,7 @@ public final class BrailleAssist {
         String on = job.includePageNumber ? job.pageRowOn : "none";
         return new Options(job.cols, job.rows, job.showOrigPage, job.showBraillePage,
                            on, job.coverPages,
-                           job.origPageStart, job.showChangeLine, job.footerAlign, job.wrap);
+                           job.origPageStart, job.showChangeLine, job.footerAlign, job.wrap, job.padToEven);
     }
 
     /** 조립 JSON → 점자 면 배열. buildPages의 얇은 어댑터다. */

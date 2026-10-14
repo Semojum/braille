@@ -1,5 +1,5 @@
 {
-  "version": "0.5.2",
+  "version": "0.6.0",
   "cases": {
     "page_row": [
       {
@@ -325,6 +325,50 @@
         },
         "expect": "⠼⠛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠃",
         "source": "조판 옵션 §5 — 면 규격 변경"
+      },
+      {
+        "name": "꼬리말 왼쪽 정렬",
+        "args": {
+          "orig_page": 10,
+          "cont_idx": 0,
+          "braille_page": 5,
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 26,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "left"
+          }
+        },
+        "expect": "⠼⠁⠚⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠑",
+        "source": "V4 엔진 가이드 footer_align left — 원본 번호에서 두 칸 띈 자리"
+      },
+      {
+        "name": "꼬리말 왼쪽 정렬 · 원본 번호 끔",
+        "args": {
+          "orig_page": 10,
+          "cont_idx": 0,
+          "braille_page": 5,
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 26,
+            "show_orig_page": false,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "left"
+          }
+        },
+        "expect": "⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠑",
+        "source": "번호가 없으면 첫 칸에서"
       }
     ],
     "page_change_line": [
@@ -2158,104 +2202,390 @@
           ]
         ],
         "source": "설계 §6-1"
+      },
+      {
+        "name": "짝수 면 채우기 · 홀수 면에서 끝남",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 7,
+              "blocks": [
+                {
+                  "order": 1,
+                  "text": "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁\n"
+                }
+              ]
+            },
+            {
+              "orig_page": 8,
+              "blocks": [
+                {
+                  "order": 1,
+                  "text": "\n⠃⠃⠃\n\n⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center",
+            "pad_to_even": true
+          }
+        },
+        "expect": [
+          [
+            "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁",
+            "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁",
+            "⠁⠁⠁⠁⠁⠁",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠓",
+            "",
+            "⠼⠛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "⠃⠃⠃",
+            "",
+            "⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉",
+            "⠉⠉⠉⠉⠉⠉⠉⠉",
+            "",
+            "⠼⠓⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠃"
+          ]
+        ],
+        "source": "V4 엔진 가이드 — 빈 면 하나를 더하고 페이지행 규칙은 같다"
+      },
+      {
+        "name": "짝수 면 채우기 · 홀수 면만 페이지행",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 7,
+              "blocks": [
+                {
+                  "order": 1,
+                  "text": "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁\n"
+                }
+              ]
+            },
+            {
+              "orig_page": 8,
+              "blocks": [
+                {
+                  "order": 1,
+                  "text": "\n⠃⠃⠃\n\n⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉\n"
+                }
+              ]
+            }
+          ],
+          "footer": "⠑⠎⠐⠕⠑⠂",
+          "opts": {
+            "cols": 32,
+            "rows": 6,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "odd",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center",
+            "pad_to_even": true
+          }
+        },
+        "expect": [
+          [
+            "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁",
+            "⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁⠁",
+            "⠁⠁⠁⠁⠁⠁",
+            "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠓",
+            "",
+            "⠼⠛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠎⠐⠕⠑⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "⠃⠃⠃",
+            "",
+            "⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉",
+            "⠉⠉⠉⠉⠉⠉⠉⠉",
+            "",
+            ""
+          ]
+        ]
+      },
+      {
+        "name": "짝수 면 채우기 · 이미 짝수",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 3,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n⠁⠃⠉\n"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 8,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "every",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center",
+            "pad_to_even": true
+          }
+        },
+        "expect": [
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠃"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠃⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠉"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠉⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠙"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠙⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠑"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠑⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠋"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠋⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠛"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠛⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠓"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠓⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠊"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠊⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠚"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠚⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠁"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠅⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠃"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠇⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠉"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠍⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠙"
+          ],
+          [
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "⠁⠃⠉",
+            "",
+            "",
+            "⠝⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠑"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "⠕⠼⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠋"
+          ]
+        ]
       }
     ],
     "build_brf": [
       {
-        "name": "조립 JSON 기본(페이지행 켬)",
+        "name": "조판 job 기본(홀수 면 페이지행)",
         "args": {
           "job": {
-            "job_id": "j1",
-            "options": {
-              "include_page_number": true,
-              "rows": 26,
-              "cols": 32
-            },
-            "footer_braille": "",
-            "start_braille_page": 1,
-            "pages": [
+            "sources": [
               {
-                "orig_page_no": 7,
-                "elements": [
+                "orig_page": 7,
+                "blocks": [
                   {
-                    "id": "e1",
-                    "type": "title",
+                    "order": 0,
                     "heading_level": 1,
-                    "text": "  ⠠⠕⠂⠠⠪⠃\n"
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
                   },
                   {
-                    "id": "e2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
                   }
                 ]
               },
               {
-                "orig_page_no": 8,
-                "elements": [
+                "orig_page": 8,
+                "blocks": [
                   {
-                    "id": "e3",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠼⠃⠌⠼⠁\n"
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
                   }
                 ]
               }
-            ]
+            ],
+            "opts": {
+              "rows": 26,
+              "cols": 32
+            }
           }
         },
         "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#g                            #a",
-        "source": "기본 page_row_on=odd — 지침 1장2절2-1·원장 C-11"
+        "source": "기본 page_row_pages=odd — 지침 1장2절2-1·원장 C-11"
       },
       {
-        "name": "조립 JSON 새 조판 옵션 전부",
+        "name": "조판 job 옵션 전부",
         "args": {
           "job": {
-            "job_id": "j2",
-            "options": {
-              "include_page_number": true,
-              "page_row_on": "every",
+            "opts": {
+              "page_row_pages": "every",
               "rows": 6,
               "cols": 32,
               "show_orig_page": true,
               "show_braille_page": true,
-              "cover_pages": 1,
-              "orig_page_start": 20,
-              "show_change_line": true,
-              "footer_align": "right"
+              "cover_orig_page_count": 1,
+              "orig_page_first_no": 20,
+              "footer_align": "right",
+              "first_braille_page": 1
             },
-            "footer_braille": "⠑⠎⠐⠕⠑⠂",
-            "footers_braille": {
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "footers": {
               "2": "⠴⠠⠊⠲⠀⠉⠣⠺⠀⠘⠂⠈⠡"
             },
-            "start_braille_page": 1,
-            "pages": [
+            "sources": [
               {
-                "orig_page_no": 7,
-                "elements": [
+                "orig_page": 7,
+                "blocks": [
                   {
-                    "id": "e1",
-                    "type": "title",
+                    "order": 0,
                     "heading_level": 1,
-                    "text": "  ⠠⠕⠂⠠⠪⠃\n"
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
                   },
                   {
-                    "id": "e2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
                   }
                 ]
               },
               {
-                "orig_page_no": 8,
-                "elements": [
+                "orig_page": 8,
+                "blocks": [
                   {
-                    "id": "e3",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠼⠃⠌⠼⠁\n"
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
                   }
                 ]
               }
@@ -2263,139 +2593,79 @@
           }
         },
         "expect": "  ,o1,{b\n  o;raz d<o\n-----------------------------#bj\n  #b/#a\n\n",
-        "source": "2026-09-01 결정 B·C·D·E — 표지 순번·번호 재매김·우측 정렬·면별 꼬리말"
+        "source": "표지 순번·번호 재매김·우측 정렬·면별 꼬리말(2026-09-01 결정 B·C·D·E)"
       },
       {
-        "name": "조립 JSON 변경선 끔",
+        "name": "조판 job 원본 번호 끔(변경선도 꺼짐)",
         "args": {
           "job": {
-            "options": {
-              "include_page_number": true,
+            "opts": {
               "rows": 6,
               "cols": 32,
-              "show_change_line": false
+              "show_orig_page": false
             },
-            "footer_braille": "",
-            "start_braille_page": 1,
-            "pages": [
+            "footer": "",
+            "sources": [
               {
-                "orig_page_no": 7,
-                "elements": [
+                "orig_page": 7,
+                "blocks": [
                   {
-                    "id": "e1",
-                    "type": "title",
+                    "order": 0,
                     "heading_level": 1,
-                    "text": "  ⠠⠕⠂⠠⠪⠃\n"
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
                   },
                   {
-                    "id": "e2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
                   }
                 ]
               },
               {
-                "orig_page_no": 8,
-                "elements": [
+                "orig_page": 8,
+                "blocks": [
                   {
-                    "id": "e3",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠼⠃⠌⠼⠁\n"
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
                   }
                 ]
               }
             ]
           }
         },
-        "expect": "  ,o1,{b\n  o;raz d<o\n  #b/#a\n\n\n#g                            #a",
-        "source": "show_change_line=false → 원본 페이지 변경선 생략(결정 D)"
+        "expect": "  ,o1,{b\n  o;raz d<o\n  #b/#a\n\n\n                              #a",
+        "source": "show_orig_page=false → 원본 페이지 변경선도 함께 꺼진다(결정 D, V4 가이드)"
       },
       {
-        "name": "조립 JSON 페이지행 끔",
+        "name": "조판 job 꼬리말·첫 면 번호",
         "args": {
           "job": {
-            "job_id": "j1",
-            "options": {
-              "include_page_number": false,
-              "rows": 26,
-              "cols": 32
-            },
-            "footer_braille": "",
-            "start_braille_page": 1,
-            "pages": [
-              {
-                "orig_page_no": 7,
-                "elements": [
-                  {
-                    "id": "e1",
-                    "type": "title",
-                    "heading_level": 1,
-                    "text": "  ⠠⠕⠂⠠⠪⠃\n"
-                  },
-                  {
-                    "id": "e2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
-                  }
-                ]
-              },
-              {
-                "orig_page_no": 8,
-                "elements": [
-                  {
-                    "id": "e3",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠼⠃⠌⠼⠁\n"
-                  }
-                ]
-              }
-            ]
-          }
-        },
-        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
-        "source": "include_page_number=false → 페이지행 생략(변경선은 유지)"
-      },
-      {
-        "name": "조립 JSON 꼬리말·시작 면 지정",
-        "args": {
-          "job": {
-            "options": {
-              "include_page_number": true,
+            "opts": {
               "rows": 6,
-              "cols": 32
+              "cols": 32,
+              "first_braille_page": 105
             },
-            "footer_braille": "⠑⠎⠐⠕⠑⠂",
-            "start_braille_page": 105,
-            "pages": [
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "sources": [
               {
-                "orig_page_no": 7,
-                "elements": [
+                "orig_page": 7,
+                "blocks": [
                   {
-                    "id": "e1",
-                    "type": "title",
+                    "order": 0,
                     "heading_level": 1,
-                    "text": "  ⠠⠕⠂⠠⠪⠃\n"
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
                   },
                   {
-                    "id": "e2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
                   }
                 ]
               },
               {
-                "orig_page_no": 8,
-                "elements": [
+                "orig_page": 8,
+                "blocks": [
                   {
-                    "id": "e3",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠼⠃⠌⠼⠁\n"
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
                   }
                 ]
               }
@@ -2405,44 +2675,39 @@
         "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n#g           es\"oe1         #aje"
       },
       {
-        "name": "조립 JSON 빈 입력",
+        "name": "조판 job 빈 입력",
         "args": {
           "job": {
-            "pages": []
+            "sources": []
           }
         },
         "expect": ""
       },
       {
-        "name": "조립 JSON options 생략(기본값)",
+        "name": "조판 job opts 생략(기본값)",
         "args": {
           "job": {
-            "pages": [
+            "sources": [
               {
-                "orig_page_no": 7,
-                "elements": [
+                "orig_page": 7,
+                "blocks": [
                   {
-                    "id": "e1",
-                    "type": "title",
+                    "order": 0,
                     "heading_level": 1,
-                    "text": "  ⠠⠕⠂⠠⠪⠃\n"
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
                   },
                   {
-                    "id": "e2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
                   }
                 ]
               },
               {
-                "orig_page_no": 8,
-                "elements": [
+                "orig_page": 8,
+                "blocks": [
                   {
-                    "id": "e3",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "  ⠼⠃⠌⠼⠁\n"
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
                   }
                 ]
               }
@@ -2452,24 +2717,22 @@
         "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#g                            #a"
       },
       {
-        "name": "조립 JSON 줄바꿈 음절 · 요소 breaks · 1단계 제목",
+        "name": "조판 job 줄바꿈 음절 · 블록 breaks · 1단계 제목",
         "args": {
           "job": {
-            "options": {
-              "include_page_number": true,
+            "opts": {
               "rows": 12,
               "cols": 32,
               "wrap": "syllable"
             },
-            "pages": [
+            "sources": [
               {
-                "orig_page_no": 3,
-                "elements": [
+                "orig_page": 3,
+                "blocks": [
                   {
-                    "id": "w1",
-                    "type": "title",
+                    "order": 0,
                     "heading_level": 1,
-                    "text": "⠈⠧⠶⠚⠃⠠⠻⠵⠀⠘⠕⠆⠝⠉⠎⠨⠕⠐⠮⠀⠚⠧⠚⠁⠝⠉⠎⠨⠕⠐⠥⠨⠾⠚⠧⠒⠚⠉⠵⠈⠧⠨⠻⠕⠊\n",
+                    "braille": "⠈⠧⠶⠚⠃⠠⠻⠵⠀⠘⠕⠆⠝⠉⠎⠨⠕⠐⠮⠀⠚⠧⠚⠁⠝⠉⠎⠨⠕⠐⠥⠨⠾⠚⠧⠒⠚⠉⠵⠈⠧⠨⠻⠕⠊\n",
                     "breaks": [
                       3,
                       5,
@@ -2498,10 +2761,8 @@
                     ]
                   },
                   {
-                    "id": "w2",
-                    "type": "text",
-                    "heading_level": 0,
-                    "text": "⠀⠀⠨⠥⠠⠾⠀⠚⠍⠈⠕⠝⠉⠵⠀⠇⠶⠙⠍⠢⠀⠚⠧⠙⠌⠀⠈⠻⠨⠝⠫⠀⠘⠂⠊⠂⠚⠑⠡⠠⠎⠀⠨⠶⠠⠕⠫⠀⠋⠪⠈⠝⠀⠉⠮⠎⠉⠌⠈⠥⠀⠘⠥⠘⠍⠇⠶⠺⠀⠚⠧⠂⠊⠿⠊⠥⠀⠚⠧⠂⠘⠂⠚⠗⠨⠱⠌⠊⠲\n",
+                    "order": 1,
+                    "braille": "⠀⠀⠨⠥⠠⠾⠀⠚⠍⠈⠕⠝⠉⠵⠀⠇⠶⠙⠍⠢⠀⠚⠧⠙⠌⠀⠈⠻⠨⠝⠫⠀⠘⠂⠊⠂⠚⠑⠡⠠⠎⠀⠨⠶⠠⠕⠫⠀⠋⠪⠈⠝⠀⠉⠮⠎⠉⠌⠈⠥⠀⠘⠥⠘⠍⠇⠶⠺⠀⠚⠧⠂⠊⠿⠊⠥⠀⠚⠧⠂⠘⠂⠚⠗⠨⠱⠌⠊⠲\n",
                     "breaks": [
                       4,
                       6,
@@ -2560,36 +2821,104 @@
           }
         },
         "expect": "@v7jb,}z ~o2ncs.o\"! jvjancs.o\"u\n         .)jv3jcz@v.}oi\n  .u,) jm@oncz l7dm5 jvd/ @}.n$ \n~1i1je*,s .7,o$ f{@n c!sc/@u ~u\n~ml7w jv1i=iu jv1~1jr.:/i4\n\n\n\n\n\n\n#c                            #a",
-        "source": "응답 TextElement.breaks 를 요소에 그대로 싣는다(Semojum/AI #1241)"
+        "source": "translate 의 breaks 를 블록에 그대로 싣는다(V4 가이드 blocks[].breaks)"
       },
       {
-        "name": "조립 JSON 요소 글 끝 개행 없음(#40)",
+        "name": "조판 job 블록 글 끝 개행 없음(#40)",
         "args": {
           "job": {
-            "options": {
-              "include_page_number": false,
+            "opts": {
               "rows": 6,
               "cols": 32
             },
-            "pages": [
+            "sources": [
               {
-                "orig_page_no": 1,
-                "elements": [
+                "orig_page": 1,
+                "blocks": [
                   {
-                    "id": "e1",
-                    "text": "⠀⠀⠁⠃⠉"
+                    "order": 0,
+                    "braille": "⠀⠀⠁⠃⠉"
                   },
                   {
-                    "id": "e2",
-                    "text": "⠀⠀⠙⠑⠋"
+                    "order": 1,
+                    "braille": "⠀⠀⠙⠑⠋"
                   }
                 ]
               }
             ]
           }
         },
-        "expect": "  abc\n  def\n\n\n\n",
-        "source": "웹에서 저장한 쪽 — 요소마다 줄이 갈린다"
+        "expect": "  abc\n  def\n\n\n\n#a                            #a",
+        "source": "블록마다 줄이 갈린다"
+      },
+      {
+        "name": "조판 job 블록 order 로 정렬",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32
+            },
+            "sources": [
+              {
+                "orig_page": 1,
+                "blocks": [
+                  {
+                    "order": 2,
+                    "braille": "⠀⠀⠙⠑⠋\n"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "⠀⠀⠁⠃⠉\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  abc\n  def\n\n\n\n#a                            #a"
+      },
+      {
+        "name": "조판 job 꼬리말 왼쪽 · 짝수 면 채우기",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32,
+              "footer_align": "left",
+              "page_row_pages": "every",
+              "pad_to_even": true
+            },
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "sources": [
+              {
+                "orig_page": 7,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "heading_level": 1,
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                  }
+                ]
+              },
+              {
+                "orig_page": 8,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n#g  es\"oe1                    #a\n\n\n\n\n\n#h  es\"oe1                    #b",
+        "source": "V4 엔진 가이드 footer_align left · pad_to_even"
       }
     ],
     "wrap": [

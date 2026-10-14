@@ -51,7 +51,7 @@ String brf = BrailleAssist.buildBrf(job);
 List<List<String>> pages = BrailleAssist.buildPagesFromJob(job);
 ```
 
-FE와 BE가 같은 Job으로 같은 결과를 얻는다. 화면과 다운로드가 갈라지지 않는다.
+세 구현이 같은 입력으로 같은 결과를 낸다(`vectors.json`). JSON job 꼴(V4 엔진 가이드, 아래 '조판 job')은 파이썬 · ts 가 받는다. java 의 `Job` 은 BE 용 옛 필드 이름 그대로다 — V4 에서 java 조판은 BE 와 함께 빠지므로 꼴은 안 바꾸고 규칙(왼쪽 꼬리말 · 짝수 면 채우기)만 맞췄다.
 
 ---
 
@@ -223,86 +223,87 @@ Options(
 
 ---
 
-## Job JSON
+## 조판 job(V4 엔진 가이드 build_brf)
 
-BE가 편집 최종본을 모아 넘기는 형식. `build_brf`와 `build_pages_from_job`이 이걸 받는다.
+앱이 사이드카 `build_brf` 로 넘기는 형식(`docs/spec_v4/점역엔진_함수가이드.md`, 2026-10-14 정본). `build_brf`와
+`build_pages_from_job`이 이걸 받는다. 종전 꼴(`pages` · `elements` · `options` · `footer_braille` ·
+`start_braille_page`)은 받지 않는다(3.4.20).
 
 ```jsonc
 {
-  "job_id": "j1",
-  "options": {
-    "include_page_number": true,   // 페이지행 켜기·끄기. 끄면 page_row_on 을 무시한다
-    "page_row_on": "odd",
+  "sources": [
+    { "orig_page": 7,
+      "blocks": [
+        { "order": 0, "braille": "⠀⠀⠠⠕⠂⠠⠪⠃\n", "heading_level": 1 },
+        { "order": 1, "braille": "⠀⠀⠕⠰⠗⠁⠵⠀⠙⠣⠕\n",
+          "breaks": [3, 5, 7] }           // translate 의 breaks 그대로(선택)
+      ] }
+  ],
+  "footer": "⠎⠣⠞⠕⠛⠕⠈⠮",           // 문서 전체 기본 꼬리말(이미 점역됨)
+  "footers": { "3": "⠈⠮" },          // 면별 꼬리말 (선택)
+  "opts": {
     "cols": 32,
     "rows": 26,
-    "show_orig_page": true,
+    "wrap": "syllable",             // 줄바꿈 갈래: syllable | word
+    "footer_align": "center",       // left | center | right
+    "first_braille_page": 1,        // 첫 면의 점자 면 번호
+    "cover_orig_page_count": 0,     // 표지가 차지하는 원본 쪽 수
+    "orig_page_first_no": null,     // 표지 뒤 첫 원본 쪽 번호
+    "page_row_pages": "odd",        // odd | every
+    "show_orig_page": true,         // 끄면 원본 페이지 변경선도 함께 꺼진다
     "show_braille_page": true,
-    "cover_pages": 0,
-    "orig_page_start": null,
-    "show_change_line": true,
-    "footer_align": "center",
-    "wrap": "syllable"              // 줄바꿈 갈래: syllable | word
-  },
-  "footer_braille": "⠎⠣⠞⠕⠛⠕⠈⠮",       // 문서 전체 기본 꼬리말
-  "footers_braille": { "3": "⠈⠮" },   // 면별 꼬리말 (선택)
-  "start_braille_page": 1,
-  "pages": [
-    { "orig_page_no": 7,
-      "elements": [
-        { "id": "e1", "type": "title", "heading_level": 1, "text": "⠀⠀⠠⠕⠂⠠⠪⠃\n" },
-        { "id": "e2", "type": "text",  "heading_level": 0, "text": "⠀⠀⠕⠰⠗⠁⠵⠀⠙⠣⠕\n",
-          "breaks": [3, 5, 7] }           // 응답 TextElement.breaks 그대로(선택)
-      ] }
-  ]
+    "pad_to_even": false            // 홀수 면에서 끝나면 빈 면 하나를 더한다
+  }
 }
 ```
 
-`options`의 항목은 전부 선택이다. 빠지면 위 기본값이 쓰인다.
+`opts`의 항목은 전부 선택이다. 빠지면 위 기본값이 쓰인다. `page_row_pages` 가 `odd` · `every` 가 아니면 오류다.
 
-**`elements` 배열 순서가 읽기 순서다.** `order` 필드는 없다.
+**`blocks` 는 `order` 로 정렬한다**(없으면 배열 순서). `braille` 은 translate 의 `cells` 를 그대로 넣는다.
 
-**들여쓰기 · 가운데 정렬 · 구조적 빈 줄은 AI가 이미 `text` 안에 넣어 보낸다.** 여기서 또 넣지 않는다.
-`type` 은 쓰지 않는다. `heading_level` 은 **1단계 제목이 32칸을 넘어 접힐 때만** 조각을 가운데에 놓는 데 쓴다.
+**들여쓰기 · 가운데 정렬 · 구조적 빈 줄은 이미 `braille` 안에 들어 있다.** 여기서 또 넣지 않는다.
+`heading_level`(가이드 밖, 받기는 한다)은 **1단계 제목이 32칸을 넘어 접힐 때만** 조각을 가운데에 놓는 데 쓴다.
 
-**`breaks`(선택)는 AI 응답 `TextElement.breaks` 를 그대로 넣는다.** 오프셋은 `text` 기준이라, 응답
-`contents[0]` 를 고치지 않고 `text` 에 넣어야 한다(앞뒤 빈 줄을 떼면 어긋난다). 점역사가 점자를 직접 고친 요소는
-`breaks` 를 비우고, 그 요소는 `word` 로 접힌다.
+**`breaks`(선택)는 translate 의 `breaks` 를 그대로 넣는다.** 오프셋은 `braille` 기준이라 `cells` 를 고치지 않고
+넣어야 한다. 점역사가 점자를 직접 고친 블록은 `breaks` 를 비우고, 그 블록은 빈칸에서 접힌다(`wrap: "syllable"` 이어도).
+
+**짝수 면 채우기(`pad_to_even`)** 로 더한 빈 면도 다른 면과 같은 페이지행 규칙을 따른다(원본 번호는 마지막 면의 원본 쪽).
 
 ---
 
 ## 조판 설정 화면과의 대응
 
-| 설정 화면 | Job |
+| 설정 화면 | job |
 |---|---|
-| 페이지행 넣기 | `options.include_page_number` |
-| 넣을 페이지 (홀수 · 모든) | `options.page_row_on` |
-| 원본 페이지 번호 · 점자 페이지 번호 | `options.show_orig_page` · `options.show_braille_page` |
-| 꼬리말 | `footer_braille` |
-| 꼬리말 정렬 | `options.footer_align` |
-| 꼬리말 수정 범위 | `footers_braille` |
-| 원본 페이지 변경선 | `options.show_change_line` |
-| 표지 페이지 수 | `options.cover_pages` |
-| 원본 페이지 번호 시작 | `options.orig_page_start` |
-| 점자 페이지 번호 시작 | `start_braille_page` |
-| 한 줄 칸 수 · 한 페이지 줄 수 | `options.cols` · `options.rows` |
+| 넣을 페이지 (홀수 · 모든) | `opts.page_row_pages` |
+| 원본 페이지 번호 · 점자 페이지 번호 | `opts.show_orig_page` · `opts.show_braille_page` |
+| 꼬리말 | `footer` |
+| 꼬리말 정렬 | `opts.footer_align` |
+| 꼬리말 수정 범위 | `footers` |
+| 표지 페이지 수 | `opts.cover_orig_page_count` |
+| 원본 페이지 번호 시작 | `opts.orig_page_first_no` |
+| 점자 페이지 번호 시작 | `opts.first_braille_page` |
+| 홀수 면에서 끝나면 한 면 더하기 | `opts.pad_to_even` |
+| 한 줄 칸 수 · 한 페이지 줄 수 · 줄바꿈 | `opts.cols` · `opts.rows` · `opts.wrap` |
 
-### 꼬리말 범위는 FE가 푼다
+### 꼬리말 범위는 앱이 푼다
 
 "이 면부터 끝까지 / 이 면만"은 편집 시점의 뜻이지 조판 규칙이 아니다. 이 라이브러리가
-그걸 알려면 편집 이력을 들고 있어야 한다. FE가 범위를 풀어 면별 값으로 넘긴다.
+그걸 알려면 편집 이력을 들고 있어야 한다. 앱이 범위를 풀어 면별 값으로 넘긴다.
+**`page_row_pages` 가 만들지 않는 면에 지정하면 출력되지 않고 오류도 나지 않는다.**
 
 ```
 5면 꼬리말을 "부록"으로 바꾸고 [이 면부터 끝까지], 문서가 8면이면
-  footers_braille = { "5": "⠘⠮", "6": "⠘⠮", "7": "⠘⠮", "8": "⠘⠮" }
+  footers = { "5": "⠘⠮", "6": "⠘⠮", "7": "⠘⠮", "8": "⠘⠮" }
 
 [이 면만]이면
-  footers_braille = { "5": "⠘⠮" }
+  footers = { "5": "⠘⠮" }
 ```
 
 ### 꼬리말은 어디서 오나
 
-이 라이브러리는 점역하지 않는다. 점역사가 묵자로 적으면 BE가 AI 서버의 `TranslateText`로
-보내(200자 초과는 거절된다) 점자 문자열을 받고, 그걸 `footer_braille`에 넣는다.
+이 라이브러리는 점역하지 않는다. 점역사가 묵자로 적은 꼬리말은 사이드카 `translate` 에
+`type: "header_footer"` 로 넣어(로마자표가 저절로 붙는다) 점자 문자열을 받고, 그걸 `footer` 에 넣는다.
 
 ---
 
