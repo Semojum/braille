@@ -305,7 +305,7 @@ def wrap(line: str, cols: int = 32, mode: str = "syllable",
 
     syllable — `breaks`(그 셀 앞에서 끊어도 되는 자리, **이 줄 기준** 오프셋) 가운데 `cols` 칸 안에서 가장 먼
       자리에서 끊는다. 그런 자리가 없으면 `cols` 칸째에서 강제로 자르되 점역자 주 표 `⠠⠄` 는 가르지 않는다.
-      이어지는 줄 머리의 빈칸은 버린다. `docs/sidecar.md` §5 `fold` 와 같은 셈이다(엔진 조판과 39,562요소 같음).
+      끊은 자리 앞뒤 빈칸(줄 끝 · 이어지는 줄 머리)은 버린다. `docs/sidecar.md` §5 `fold` 와 같은 셈이다(엔진 조판과 39,562요소 같음).
       `breaks` 가 비면(옛 응답 · 점자를 직접 고친 요소 · 끊을 자리가 없는 줄) `word` 로 접는다(설계 §6-1).
     word — 빈칸(어절) 자리에서 자른다(`_wrap`, #9 · 원장 C-83).
     center — 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.
@@ -322,7 +322,8 @@ def wrap(line: str, cols: int = 32, mode: str = "syllable",
             cut = max(ok) if ok else start + cols
             if not ok and line[cut - 1:cut + 1] == _TN_MARK:
                 cut -= 1
-            out.append(line[start:cut])
+            piece = line[start:cut]
+            out.append(piece.rstrip(SPACE + " ") or piece)    # 줄 끝 빈칸도 걷는다(어절 갈래 `_wrap` 과 같다, #72 E)
             start = cut
             while start < len(line) and line[start] in (SPACE, " "):
                 start += 1
