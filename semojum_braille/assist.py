@@ -634,6 +634,26 @@ def build_pages(
 _PAGE_ROW_PAGES = ("odd", "every")
 
 
+def _opt_flag(o: dict, key: str, default: bool) -> bool:
+    """참거짓 옵션. 없거나 null 이면 기본값. 문자열 `"false"` 는 `bool()` 로 켜지므로 받지 않는다(#73, 사이드카 `BAD_FIELD`)."""
+    v = o.get(key)
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    raise ValueError(f"{key} 는 true · false 여야 한다: {v!r}")
+
+
+def _opt_size(o: dict, key: str, default: int) -> int:
+    """칸 · 줄 수. 없거나 null 이면 기본값. 정수가 아니거나 1 보다 작으면 받지 않는다(#73, 종전 `rows: 0` 은 조용히 26줄)."""
+    v = o.get(key)
+    if v is None:
+        return default
+    if isinstance(v, int) and not isinstance(v, bool) and v >= 1:
+        return v
+    raise ValueError(f"{key} 는 1 이상의 정수여야 한다: {v!r}")
+
+
 def options_from_job(job: dict) -> Options:
     """조판 job 의 `opts` → `Options`(V4 가이드 이름)."""
     o = job.get("opts") or {}
@@ -642,16 +662,16 @@ def options_from_job(job: dict) -> Options:
         raise ValueError(f"page_row_pages는 odd|every: {rows_on!r}")
     start = o.get("orig_page_first_no")
     return Options(
-        cols=int(o.get("cols") or 32),
-        rows=int(o.get("rows") or 26),
-        show_orig_page=bool(o.get("show_orig_page", True)),
-        show_braille_page=bool(o.get("show_braille_page", True)),
+        cols=_opt_size(o, "cols", 32),
+        rows=_opt_size(o, "rows", 26),
+        show_orig_page=_opt_flag(o, "show_orig_page", True),
+        show_braille_page=_opt_flag(o, "show_braille_page", True),
         page_row_on=rows_on,
         cover_pages=int(o.get("cover_orig_page_count") or 0),
         orig_page_start=None if start in (None, "") else int(start),
         footer_align=str(o.get("footer_align") or "center"),
         wrap=str(o.get("wrap") or "syllable"),
-        pad_to_even=bool(o.get("pad_to_even", False)),
+        pad_to_even=_opt_flag(o, "pad_to_even", False),
     )
 
 

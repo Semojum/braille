@@ -444,6 +444,31 @@ def test_build_brf_옛_op_와_잘못된_옵션은_BAD_FIELD():
     assert r["code"] == "BAD_FIELD" and "page_row_pages" in r["error"]
 
 
+def test_참거짓_옵션_셋에_문자열을_주면_켜지지_않고_BAD_FIELD():
+    """#73. `bool("false")` 가 참이라 끄려고 보낸 문자열이 켰다(show_orig_page · show_braille_page · pad_to_even).
+    가이드 오류표(268행) "필드 타입이나 값 범위가 맞지 않음 → BAD_FIELD"."""
+    src = [{"orig_page": 3, "blocks": [{"order": 0, "braille": "⠀⠀⠁⠃⠉"}]}]
+    for key in ("show_orig_page", "show_braille_page", "pad_to_even"):
+        r = sidecar._answer(json.dumps({"id": 5, "op": "build_brf", "job": {"sources": src, "opts": {key: "false"}}}).encode())
+        assert r["code"] == "BAD_FIELD" and key in r["error"] and r["id"] == 5, key
+        assert "brf" in sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {key: False}}})
+    off = sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {"rows": 4, "pad_to_even": False}}})["brf"]
+    on = sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {"rows": 4, "pad_to_even": True}}})["brf"]
+    assert on.count("\f") == off.count("\f") + 1        # 참거짓 값은 종전대로 듣는다
+
+
+def test_정수_옵션은_타입과_범위를_본다():
+    """#73. `heading_level: "1"` · `cols: "32"` 를 조용히 받고 `rows: 0` 을 조용히 26줄로 했다."""
+    src = [{"orig_page": 1, "blocks": [{"order": 0, "braille": "⠀⠀⠁⠃⠉"}]}]
+    r = sidecar._answer(json.dumps({"id": 2, "op": "translate", "text": "가", "heading_level": "1"}).encode())
+    assert r["code"] == "BAD_FIELD" and "heading_level" in r["error"]
+    assert sidecar.handle({"op": "translate", "text": "가", "heading_level": 1})["cells"]
+    for opts in ({"cols": "32"}, {"rows": 0}, {"rows": True}):
+        r = sidecar._answer(json.dumps({"id": 3, "op": "build_brf", "job": {"sources": src, "opts": opts}}).encode())
+        assert r["code"] == "BAD_FIELD" and next(iter(opts)) in r["error"], opts
+    assert sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {"cols": 32, "rows": 26}}})["brf"]
+
+
 def test_조판_태그는_아는_태그이고_translate_가_맡을_몫만_한다():
     """#66 — 조판 태그(목록표). 줄 태그만 든 요소는 32칸 미리보기, 면 넘김 표식은 빈 점자(종전엔 '점역 못 함' 주가
     나갔다), 정렬 · 머리말은 글에서 뺀다(앱이 블록 align · job.header(s) 로 옮긴다)."""

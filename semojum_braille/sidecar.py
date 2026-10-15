@@ -249,6 +249,14 @@ def _flag(req: dict, key: str) -> bool:
     raise SidecarError("BAD_FIELD", f"{key} 는 true · false 여야 한다: {v!r}")
 
 
+def _level_arg(req: dict, key: str) -> int:
+    """제목 단계. 없거나 null 이면 0. 문자열 `"1"` 같은 값은 조용히 받지 않고 `BAD_FIELD`(#73)."""
+    v = req.get(key)
+    if v is None or (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+        return int(v or 0)
+    raise SidecarError("BAD_FIELD", f"{key} 는 0 이상의 정수여야 한다: {v!r}")
+
+
 def _grade_arg(req: dict, key: str) -> int:
     """급수. 1 정자 · 2 약자, 없거나 0 이면 2(V4 가이드 · proto 10 · 11). 그 밖은 `BAD_FIELD`."""
     v = req.get(key)
@@ -310,7 +318,7 @@ def handle(req: dict) -> dict:
             raise SidecarError("BAD_FIELD", f"{old} 는 받지 않는다. {new}(1 정자 · 2 약자)를 쓴다")
     op = req.get("op")
     if op == "translate":
-        return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
+        return translate(req.get("text", ""), req.get("type") or "text", _level_arg(req, "heading_level"),
                          _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"), _flag(req, "math_page"),
                          _flag(req, "split_choices"), req.get("render_mode") or "", req.get("tn_text") or "",
                          int(req.get("box_level") or 0), _flag(req, "force_roman"))
