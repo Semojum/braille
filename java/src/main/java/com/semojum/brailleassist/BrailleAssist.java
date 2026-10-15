@@ -380,7 +380,9 @@ public final class BrailleAssist {
                     cut = start + cols;
                     if (line.startsWith(TN_MARK, cut - 1)) cut -= 1;
                 }
-                out.add(line.substring(start, cut));
+                String piece = line.substring(start, cut);
+                String trimmed = piece.replaceAll("[\u2800 ]+$", "");   // 줄 끝 빈칸도 걷는다(어절 갈래와 같다, #72 E)
+                out.add(trimmed.isEmpty() ? piece : trimmed);
                 start = cut;
                 while (start < line.length() && (line.charAt(start) == SPACE || line.charAt(start) == ' ')) start++;
             }

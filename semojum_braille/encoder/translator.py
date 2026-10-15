@@ -3516,7 +3516,11 @@ _PAREN_HEAD_RE = re.compile(rf"^(\s*(?:<!\d+칸>)?\s*(?:{_LINE_HEAD}))[ \t]+")
 #     반올림 이하(~416셀)라 이번엔 보류.
 # ⚠ _SPECIAL_MAP(sanitize)와 분리한 전용 경로 — 병합 충돌 회피.
 _LEGACY_CIRCLED_BLACK = {"❶": "①", "❷": "②", "❸": "③", "❹": "④", "❺": "⑤", "❻": "⑥"}
-_LEGACY_CIRCLED_RE = re.compile(r"[❶-❻]")
+# #1423 — 딩뱃 동그라미 숫자 ➀–➉ · ➊–➓(U+2780–2793)도 ①–⑩ 으로 맡긴다. braillify 도 기호표도 몰라
+#   점자 없이 빠졌다(`➊ 가` → `⠫`). 「한국 점자 규정」 제64항(재추출 2566행) 동그라미 숫자 = 수표 + 한 단 내린 숫자.
+#   gold 014 body p0010 표 ➊–➍ = `⠼⠂ ⠼⠆ ⠼⠒ ⠼⠲`. 위 `[` 앞 지우기는 ❶ 언어 콜아웃 관행이라 이 갈래엔 안 넓힌다.
+_DINGBAT_CIRCLED = {chr(0x2780 + i): chr(0x2460 + i % 10) for i in range(20)}
+_LEGACY_CIRCLED_RE = re.compile(r"[❶-❻➀-➓]")
 
 
 def _restore_circled_black(text: str) -> str:
@@ -3524,6 +3528,8 @@ def _restore_circled_black(text: str) -> str:
     # ⚠ _restore_legacy_glyphs(:800)와 이름·정규식을 반드시 분리할 것 — 한때 양쪽이
     #   같은 이름을 써서 나중 정의가 5자 복원을 통째로 가리는 사고가 있었다.
     def _rep(m: re.Match) -> str:
+        if m.group() in _DINGBAT_CIRCLED:
+            return _DINGBAT_CIRCLED[m.group()]
         return "" if text[m.end():m.end() + 1] == "[" else _LEGACY_CIRCLED_BLACK[m.group()]
     return _LEGACY_CIRCLED_RE.sub(_rep, text)
 
@@ -3620,7 +3626,7 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     text = _restore_legacy_glyphs(text)     # 오디코딩 5자(⇂¤‹˘⇨)
     text = _restore_broken_subscripts(text)  # 깨진 아래첨자 ¡™£¢§ → ₁₂₃₄₆ (수식 라우팅 전, r16)
     text = _restore_ion_signs(text)         # 이온 전하 ±— → ⁺⁻ (과학점자 제2항, 아래첨자 복원 뒤)
-    text = _restore_circled_black(text)     # 검은 원문자 ❶-❻ (선지머리 정규화보다 먼저)
+    text = _restore_circled_black(text)     # 검은 원문자 ❶-❻ · 딩뱃 ➀-➓ (선지머리 정규화보다 먼저)
     text = _normalize_araea_middot(text)    # 아래아 ㆍ → 가운뎃점 ·(제50항, 수표 혼입 차단)
     text = _CHOICE_HEAD_RE.sub(r"\1 ", text)
     text = _PAREN_HEAD_RE.sub(r"\1 ", text)
@@ -3707,9 +3713,15 @@ _NO_BREAK_BEFORE_ANY = frozenset(".,?!:;，．？！：；")
 #   근거: 「한국 점자 규정」 제54항(재추출 2406행) 여는 따옴표와 여는 괄호 뒤, 닫는 따옴표와 닫는 괄호 앞은 붙여 쓴다.
 #   #1240 이 문장 부호 앞을 막자 종전부터 있던 자리가 골라졌다(dev · val 응답 접기에서 처음 갈린 46곳 중
 #   `되었다(1861‖).` · `들리시나요?‖’,` 같은 꼴 6 · `영상(‖https://…` 같은 여는 괄호 줄 끝 3).
-#   닫는 부호 앞 전부를 막지 않는 것은 위 `_NO_BREAK_BEFORE` 의 까닭(수식 줄 `cos2α)` 강제분리) 때문이다.
-#   부호가 붙은 닫는 부호는 어차피 부호가 줄머리로 가므로 막아도 그 까닭에 안 걸린다.
+#   그때 닫는 부호 앞 전부를 막지 않은 것은 위 `_NO_BREAK_BEFORE` 의 까닭(수식 줄 `cos2α)` 강제분리) 때문이었다.
+#   부호가 붙은 닫는 부호는 어차피 부호가 줄머리로 가므로 막아도 그 까닭에 안 걸렸다.
 #   ASCII `"` `'` 는 여닫이를 못 가려 뺀다.
+# #1385 — 닫는 부호 뒤가 빈칸이 아니면(줄 끝 포함) 앞 글자가 무엇이든 그 앞을 막는다(`다.‖’라고` · `(㉠‖)은` · `‘1‖’`).
+#   제54항(2406행)이 닫는 부호를 앞말에 붙이고, 줄 첫머리에 와도 된다고 따로 둔 부호는 제55항(2422행) 빗금 · 줄표 · 물결표다.
+#   제55항을 '셋 말고는 줄 머리 금지'로 읽으면 여는 부호까지 막혀 틀린다. gold dev · val 1,746쪽 줄 머리: 닫는 부호(’ ) ] } 」
+#   』 〉 》) 0 · 쌍점 0 · 가운뎃점 0, 여는 부호 13,641, 물결표 19 · 빗금 5. 앞말에 붙은 닫는 부호는 31,349다.
+#   #1400 — 뒤가 빈칸인 닫는 부호 앞(`(1861‖) 한편`)도 막는다. #1243 이 걱정한 수식 줄 강제분리는 #1397(글 안 수식 구간에
+#   제66항 자리) 뒤로 dev · val 제품 흉내 접기에서 늘지 않는다(새 팔 출력 위 모의 강제 자름 43 → 43).
 _OPENERS = frozenset("([{「『‘“〈《")
 _SCRIPT_CHARS = frozenset("₀₁₂₃₄₅₆₇₈₉₊₋⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")      # 첨자 · 위첨자(화학식 · 이온 토큰 끝, #1377)
 
@@ -3796,8 +3808,7 @@ def _break_offsets_in(src: str, braille: str) -> list[int]:
             if head[-1:] in _OPENERS:
                 continue
             rest = _TAG_RE.sub("", src[sp:])
-            if (rest[:1] and rest[0] in _CLOSERS and head[-1:].strip()
-                    and rest.lstrip(_CLOSERS)[:1] in _NO_BREAK_BEFORE_ANY):
+            if rest[:1] and rest[0] in _CLOSERS and head[-1:].strip():
                 continue
         if nxt in _NO_BREAK_BEFORE and _HANGUL_OR_JAMO_RE.search(head.rstrip(_CLOSERS)):
             continue
@@ -3824,11 +3835,34 @@ def _break_offsets_in(src: str, braille: str) -> list[int]:
         # #1377 — 화학식 토큰 바로 뒤 글 닫는 괄호 앞은 끊지 않는다(제54항 재추출 2406행). 첨자 토큰이 수식 구간에서 나오며
         #   (`_unwrap_token_punct`) 접두 `O₂` 가 전체와 맞게 되자 `O₂‖)를` = `⠰⠼⠃|⠠⠴⠐⠮` 에 후보가 섰다. 그 꼴로만 좁힌다:
         #   앞 글자가 첨자 · 위첨자이고, 그 자리 셀이 글 괄호 `⠠⠴` 이고, 묵자에서 괄호 뒤가 빈칸이 아니다. 수식 괄호 `⠴` ·
-        #   닫는 따옴표 · 뒤가 빈칸인 자리(#1243)와 닫는 괄호 앞 전체(#1385)는 이 PR 범위 밖이다.
+        #   닫는 따옴표 · 뒤가 빈칸인 자리(#1243)는 이 PR 범위 밖이다(닫는 부호 앞 전체는 #1385 가 위 `_bracket_attach_on` 에서 막는다).
         if (head[-1:] in _SCRIPT_CHARS and braille.startswith("⠠⠴", n)
                 and _TAG_RE.sub("", src[sp:])[1:2] not in ("", " ", "\n", "\t")):
             continue
+        # #1385 — 앞 셀에 붙은 ⠲ 앞은 끊지 않는다. 묵자에 없는 셀이라 위 묵자 거름(`_NO_BREAK_BEFORE_ANY`)에 안 걸린다:
+        #   로마자 종료표(`기자: A가` = `⠴⠠⠁‖⠲⠫`, 제29항 재추출 1496행 — 마지막 로마자 뒤에 적는다) · 문항 번호 뒤 마침표
+        #   (`1 (가)` = `⠼⠁‖⠲⠀`) · 줄임표 뒤 마침표(`어…….` = `⠠⠠⠠‖⠲`). gold dev · val 1,746쪽에 앞 셀에 붙은 ⠲ 64,762 ·
+        #   줄 머리 ⠲ 1(⠲⠲⠲ 홀로 선 줄).
+        if _punct_any_on() and braille.startswith("⠲", n) and braille[n - 1] not in " ⠀":
+            continue
         offs.add(n)
+    # #1400 — 빈칸 뒤 닫는 부호(빈 괄호 `( )` · `( ㄴ )`) 앞 빈칸과 그 부호 앞에서 끊지 않는다. 위 바닥선이 출력 빈칸마다
+    #   끊을 자리를 내서, 빈 괄호 안 빈칸에서 접으면 닫는 괄호가 줄 머리로 갔다(`⠦⠄⠀‖⠠⠴⠵`). 셀 꼴로는 못 가린다(영어 2급
+    #   `⠠⠴` Was · `⠶⠂` were,). 묵자에서 빈칸 뒤 닫는 부호를 찾고 그 앞까지 다시 점역해 점자 자리를 잡는다. 제54항(2406행) ·
+    #   gold dev · val 줄 머리 닫는 부호 0(#1398).
+    if _bracket_attach_on():
+        for sp in range(1, len(src)):
+            if src[sp] not in _CLOSERS or not _TAG_RE.sub("", src[:sp])[-1:].isspace():
+                continue
+            pre = translate_tagged_text(src[:sp].rstrip())
+            if not (pre and braille.startswith(pre)):
+                continue
+            j = k = len(pre)
+            while j > 0 and braille[j - 1] in " ⠀":
+                j -= 1
+            while k < len(braille) and braille[k] in " ⠀":
+                k += 1
+            offs -= set(range(j, k + 1))
     return sorted(offs)
 
 

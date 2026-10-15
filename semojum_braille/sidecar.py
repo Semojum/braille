@@ -96,7 +96,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     같았다(표 아닌 요소 43,772개 중 0).
 
     꼬리말(`etype="header_footer"`)은 로마자 강제(`force_roman`)를 저절로 켠다(#60). 쓰는 자리가 꼬리말뿐이라
-    앱이 따로 켤 일이 없다. `force_roman` 은 옛 호출을 위해 그대로 받는다.
+    앱이 따로 켤 일이 없다. `force_roman` 은 옛 호출을 위해 그대로 받는다. V4 가이드에는 적지 않고 프로토콜 판을
+    올릴 때(2) 뺀다(같은 일을 하는 길이 둘이면 앱이 헷갈린다. 들여쓰기도 2칸 대 0칸으로 다르다, #72).
 
     `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
@@ -248,6 +249,14 @@ def _flag(req: dict, key: str) -> bool:
     raise SidecarError("BAD_FIELD", f"{key} 는 true · false 여야 한다: {v!r}")
 
 
+def _level_arg(req: dict, key: str) -> int:
+    """제목 단계. 없거나 null 이면 0. 문자열 `"1"` 같은 값은 조용히 받지 않고 `BAD_FIELD`(#73)."""
+    v = req.get(key)
+    if v is None or (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+        return int(v or 0)
+    raise SidecarError("BAD_FIELD", f"{key} 는 0 이상의 정수여야 한다: {v!r}")
+
+
 def _grade_arg(req: dict, key: str) -> int:
     """급수. 1 정자 · 2 약자, 없거나 0 이면 2(V4 가이드 · proto 10 · 11). 그 밖은 `BAD_FIELD`."""
     v = req.get(key)
@@ -297,10 +306,19 @@ def grade(braille: str, source: str, etype: str = "text", ocr_confidence: float 
     return {"grade": el["review_grade"], "round_trip": el.get("round_trip")}
 
 
+# 앱이 보내던 옛 급수 이름(bool). 엔진은 `korean_grade` · `english_grade`(1 · 2)만 읽어 옛 이름은 오류 없이 무시됐다.
+#   `korean_grade1: true` 응답이 기본(약자)과 바이트로 같았다(10-14 실측, 정자를 골라도 약자로 나감). 콕 집어 `BAD_FIELD` 로
+#   돌려준다. 모르는 필드 전부를 거절하는 것은 프로토콜 2 로 미룬다(앱이 보내는 필드를 다 모른다, #72).
+_OLD_GRADE_FIELDS = {"korean_grade1": "korean_grade", "english_grade1": "english_grade"}
+
+
 def handle(req: dict) -> dict:
+    for old, new in _OLD_GRADE_FIELDS.items():
+        if old in req:
+            raise SidecarError("BAD_FIELD", f"{old} 는 받지 않는다. {new}(1 정자 · 2 약자)를 쓴다")
     op = req.get("op")
     if op == "translate":
-        return translate(req.get("text", ""), req.get("type") or "text", int(req.get("heading_level") or 0),
+        return translate(req.get("text", ""), req.get("type") or "text", _level_arg(req, "heading_level"),
                          _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"), _flag(req, "math_page"),
                          _flag(req, "split_choices"), req.get("render_mode") or "", req.get("tn_text") or "",
                          int(req.get("box_level") or 0), _flag(req, "force_roman"))

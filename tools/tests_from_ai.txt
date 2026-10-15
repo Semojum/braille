@@ -18,14 +18,17 @@ test/unit_test/braille/test_bold_emphasis_b05.py
 test/unit_test/braille/test_box_body_title_t27.py
 test/unit_test/braille/test_box_label_and_title.py
 test/unit_test/braille/test_brace_residue.py
+test/unit_test/braille/test_bracket_break_1243.py
 test/unit_test/braille/test_braille_ascii.py
 test/unit_test/braille/test_bullet_reg72.py
 test/unit_test/braille/test_caps_phrase_chem.py
 test/unit_test/braille/test_chain_isolation.py
+test/unit_test/braille/test_circled_dingbat_1423.py
 test/unit_test/braille/test_circled_simple_num_spacing.py
 test/unit_test/braille/test_coef_fn_join.py
 test/unit_test/braille/test_context_split_c19.py
 test/unit_test/braille/test_dash_roman_colon.py
+test/unit_test/braille/test_derivation_rows_c171.py
 test/unit_test/braille/test_dropped_symbols_frame_1280.py
 test/unit_test/braille/test_element_caps_t27.py
 test/unit_test/braille/test_eng_apostrophe_cell.py

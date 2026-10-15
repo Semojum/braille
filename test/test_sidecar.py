@@ -165,6 +165,14 @@ def test_옵션은_정해진_꼴만_받는다():
     assert d["code"] == "BAD_FIELD" and d["id"] == 4
 
 
+def test_옛_급수_이름은_조용히_무시하지_않고_돌려준다():
+    """#72. 앱이 보내던 `korean_grade1` · `english_grade1`(bool)은 엔진이 안 읽어 오류 없이 무시됐다(정자를 골라도 약자)."""
+    for old in ("korean_grade1", "english_grade1"):
+        r = sidecar._answer(json.dumps({"id": 7, "op": "translate", "text": "가", old: True}).encode())
+        assert r["code"] == "BAD_FIELD" and old in r["error"] and r["id"] == 7
+    assert sidecar.handle({"op": "translate", "text": "가", "korean_grade": 1})["cells"].lstrip("⠀") == "⠈⠣"
+
+
 def test_정자로_점역하고_역점역_등급까지_한_바퀴_돈다():
     """#36 · AI#1276. 정자 점자를 2급 역맵으로 읽으면 왕복이 깨져 정자 문서의 등급이 거의 다 low 가 됐다.
     옵션이 translate 에만 가고 decode · grade 에 안 가면 앱에서 같은 일이 난다. 문장은 「한국 점자 규정」 제18항 예(909행)."""
@@ -434,6 +442,31 @@ def test_build_brf_옛_op_와_잘못된_옵션은_BAD_FIELD():
     assert e.value.code == "BAD_FIELD"
     r = sidecar._answer(json.dumps({"id": 1, "op": "build_brf", "job": {"sources": [], "opts": {"page_row_pages": "even"}}}).encode())
     assert r["code"] == "BAD_FIELD" and "page_row_pages" in r["error"]
+
+
+def test_참거짓_옵션_셋에_문자열을_주면_켜지지_않고_BAD_FIELD():
+    """#73. `bool("false")` 가 참이라 끄려고 보낸 문자열이 켰다(show_orig_page · show_braille_page · pad_to_even).
+    가이드 오류표(268행) "필드 타입이나 값 범위가 맞지 않음 → BAD_FIELD"."""
+    src = [{"orig_page": 3, "blocks": [{"order": 0, "braille": "⠀⠀⠁⠃⠉"}]}]
+    for key in ("show_orig_page", "show_braille_page", "pad_to_even"):
+        r = sidecar._answer(json.dumps({"id": 5, "op": "build_brf", "job": {"sources": src, "opts": {key: "false"}}}).encode())
+        assert r["code"] == "BAD_FIELD" and key in r["error"] and r["id"] == 5, key
+        assert "brf" in sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {key: False}}})
+    off = sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {"rows": 4, "pad_to_even": False}}})["brf"]
+    on = sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {"rows": 4, "pad_to_even": True}}})["brf"]
+    assert on.count("\f") == off.count("\f") + 1        # 참거짓 값은 종전대로 듣는다
+
+
+def test_정수_옵션은_타입과_범위를_본다():
+    """#73. `heading_level: "1"` · `cols: "32"` 를 조용히 받고 `rows: 0` 을 조용히 26줄로 했다."""
+    src = [{"orig_page": 1, "blocks": [{"order": 0, "braille": "⠀⠀⠁⠃⠉"}]}]
+    r = sidecar._answer(json.dumps({"id": 2, "op": "translate", "text": "가", "heading_level": "1"}).encode())
+    assert r["code"] == "BAD_FIELD" and "heading_level" in r["error"]
+    assert sidecar.handle({"op": "translate", "text": "가", "heading_level": 1})["cells"]
+    for opts in ({"cols": "32"}, {"rows": 0}, {"rows": True}):
+        r = sidecar._answer(json.dumps({"id": 3, "op": "build_brf", "job": {"sources": src, "opts": opts}}).encode())
+        assert r["code"] == "BAD_FIELD" and next(iter(opts)) in r["error"], opts
+    assert sidecar.handle({"op": "build_brf", "job": {"sources": src, "opts": {"cols": 32, "rows": 26}}})["brf"]
 
 
 def test_조판_태그는_아는_태그이고_translate_가_맡을_몫만_한다():

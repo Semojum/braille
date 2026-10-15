@@ -264,7 +264,8 @@ export function wrap(line: string, cols = 32, mode: WrapMode = 'syllable',
       const ok = breaks.filter((b) => start < b && b <= start + cols);
       let cut = ok.length ? Math.max(...ok) : start + cols;
       if (!ok.length && line.slice(cut - 1, cut + 1) === TN_MARK) cut -= 1;
-      out.push(line.slice(start, cut));
+      const piece = line.slice(start, cut);
+      out.push(piece.replace(/[⠀ ]+$/u, '') || piece);   // 줄 끝 빈칸도 걷는다(어절 갈래와 같다, #72 E)
       start = cut;
       while (start < line.length && (line[start] === SPACE || line[start] === ' ')) start++;
     }

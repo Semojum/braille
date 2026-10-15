@@ -305,7 +305,7 @@ def wrap(line: str, cols: int = 32, mode: str = "syllable",
 
     syllable — `breaks`(그 셀 앞에서 끊어도 되는 자리, **이 줄 기준** 오프셋) 가운데 `cols` 칸 안에서 가장 먼
       자리에서 끊는다. 그런 자리가 없으면 `cols` 칸째에서 강제로 자르되 점역자 주 표 `⠠⠄` 는 가르지 않는다.
-      이어지는 줄 머리의 빈칸은 버린다. `docs/sidecar.md` §5 `fold` 와 같은 셈이다(엔진 조판과 39,562요소 같음).
+      끊은 자리 앞뒤 빈칸(줄 끝 · 이어지는 줄 머리)은 버린다. `docs/sidecar.md` §5 `fold` 와 같은 셈이다(엔진 조판과 39,562요소 같음).
       `breaks` 가 비면(옛 응답 · 점자를 직접 고친 요소 · 끊을 자리가 없는 줄) `word` 로 접는다(설계 §6-1).
     word — 빈칸(어절) 자리에서 자른다(`_wrap`, #9 · 원장 C-83).
     center — 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.
@@ -322,7 +322,8 @@ def wrap(line: str, cols: int = 32, mode: str = "syllable",
             cut = max(ok) if ok else start + cols
             if not ok and line[cut - 1:cut + 1] == _TN_MARK:
                 cut -= 1
-            out.append(line[start:cut])
+            piece = line[start:cut]
+            out.append(piece.rstrip(SPACE + " ") or piece)    # 줄 끝 빈칸도 걷는다(어절 갈래 `_wrap` 과 같다, #72 E)
             start = cut
             while start < len(line) and line[start] in (SPACE, " "):
                 start += 1
@@ -633,6 +634,26 @@ def build_pages(
 _PAGE_ROW_PAGES = ("odd", "every")
 
 
+def _opt_flag(o: dict, key: str, default: bool) -> bool:
+    """참거짓 옵션. 없거나 null 이면 기본값. 문자열 `"false"` 는 `bool()` 로 켜지므로 받지 않는다(#73, 사이드카 `BAD_FIELD`)."""
+    v = o.get(key)
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    raise ValueError(f"{key} 는 true · false 여야 한다: {v!r}")
+
+
+def _opt_size(o: dict, key: str, default: int) -> int:
+    """칸 · 줄 수. 없거나 null 이면 기본값. 정수가 아니거나 1 보다 작으면 받지 않는다(#73, 종전 `rows: 0` 은 조용히 26줄)."""
+    v = o.get(key)
+    if v is None:
+        return default
+    if isinstance(v, int) and not isinstance(v, bool) and v >= 1:
+        return v
+    raise ValueError(f"{key} 는 1 이상의 정수여야 한다: {v!r}")
+
+
 def options_from_job(job: dict) -> Options:
     """조판 job 의 `opts` → `Options`(V4 가이드 이름)."""
     o = job.get("opts") or {}
@@ -641,16 +662,16 @@ def options_from_job(job: dict) -> Options:
         raise ValueError(f"page_row_pages는 odd|every: {rows_on!r}")
     start = o.get("orig_page_first_no")
     return Options(
-        cols=int(o.get("cols") or 32),
-        rows=int(o.get("rows") or 26),
-        show_orig_page=bool(o.get("show_orig_page", True)),
-        show_braille_page=bool(o.get("show_braille_page", True)),
+        cols=_opt_size(o, "cols", 32),
+        rows=_opt_size(o, "rows", 26),
+        show_orig_page=_opt_flag(o, "show_orig_page", True),
+        show_braille_page=_opt_flag(o, "show_braille_page", True),
         page_row_on=rows_on,
         cover_pages=int(o.get("cover_orig_page_count") or 0),
         orig_page_start=None if start in (None, "") else int(start),
         footer_align=str(o.get("footer_align") or "center"),
         wrap=str(o.get("wrap") or "syllable"),
-        pad_to_even=bool(o.get("pad_to_even", False)),
+        pad_to_even=_opt_flag(o, "pad_to_even", False),
     )
 
 

@@ -129,7 +129,7 @@ python -m semojum_braille.sidecar
 | 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `build_brf` · `read_brf` · `grade` · `symbols` · `ping` | `"translate"` |
 | translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` · `header_footer` · `table` 중 하나. 들여쓰기가 이것에 따라 달라진다. `table` 이면 표 길로 간다(아래 '표도 `translate` 로'). `header_footer` 면 로마자 강제(`force_roman`)가 저절로 켜진다(#60) | `"title"` |
-| translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다 | `2` |
+| translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다. 문자열 `"1"` 같은 값은 `BAD_FIELD` | `2` |
 | translate | `korean_grade` | 정수 | `2` | 한글 급수. `1` 정자(약자 · 약어「한국 점자 규정」 제13~18항을 쓰지 않는다. 받침 ㅆ `⠌` 는 자모 규정 제4항이라 그대로) · `2` 약자. `0` 은 안 보낸 것으로 보고 `2` 다. 그 밖은 `BAD_FIELD`. AI proto `korean_grade`(10)와 같다 | `1` |
 | translate | `english_grade` | 정수 | `2` | 영어 급수. `1` 정자(약자 없이 글자대로, 문단 전체가 영어여도 로마자표 `⠴` · 종료표 `⠲` 를 생략하지 않는다) · `2` 약자. `0` 은 `2`. AI proto `english_grade`(11)와 같다 | `1` |
 | translate | `math_page` | 참거짓 | `false` | 그 요소가 든 쪽이 **수식 쪽**이면 `true`. 평문 속 `(1, 0)` · `p-q` 를 수식으로 적는다(수식 소괄호 `⠦…⠴`). AI 서버는 쪽 PDF 의 한컴 수식 글꼴 비율로 정한다. 서버가 낸 점자와 같게 다시 점역하려면 그 쪽의 값을 넘긴다(아래 '수식 쪽 값') | `true` |
@@ -159,7 +159,7 @@ python -m semojum_braille.sidecar
 |---|---|---|---|
 | 모두 | `id` | 요청과 같음 | 요청의 `id`. JSON 이 아닌 줄을 받으면 `null`. UTF-8 로 못 푸는 줄은 `id` 를 읽을 수 있으면 그 값, 아니면 `null` |
 | translate | `cells` | 문자열 | 점역 결과. `flatten_elements` 가 내는 요소 통 문자열([encoder.md](encoder.md) 1.7)에서 앞뒤 빈 줄(`prefix`·`suffix`)을 뺀 본문과 같다. 들여쓰기 칸과 가운데 여백이 들어 있고, 논리 줄은 `\n` 으로 잇는다. **32칸으로 접지 않았다.** 제목·표 둘레의 앞뒤 빈 줄은 이웃 요소에 따라 정해지므로 부르는 쪽의 조판이 넣는다 |
-| translate | `breaks` | 정수 배열 | `cells` 안에서 줄을 바꿔도 되는 자리. 값 `b` 는 "`cells[b]` 앞에서 끊어도 된다" 는 뜻이다. 음절 경계와 빈칸 자리가 모두 들어 있다. 오름차순이고 겹치지 않는다. `flatten_elements` 의 `breaks`(AI 응답 `TextElement.breaks` 와 같은 함수)에서 `prefix` 길이만큼 뺀 값이라 따로 세지 않는다(#30). 여는 괄호 · 따옴표 바로 뒤는 들지 않는다(AI #1245). 수식 구간(`<!수식>…<!/수식>` · `$…$`) 안 자리는 「한국 점자 규정」 수학 점자 제66항대로 사칙연산 · 등호 · 분수표 뒤다(AI #1393 · #1396 · #1397, 3.4.24 부터). 수식 요소는 `type` 을 `"text"` 로 두고 `<!수식>LaTeX<!/수식>` 를 넣으면 셀과 자리가 AI 수식 요소와 같다 |
+| translate | `breaks` | 정수 배열 | `cells` 안에서 줄을 바꿔도 되는 자리. 값 `b` 는 "`cells[b]` 앞에서 끊어도 된다" 는 뜻이다. 음절 경계와 빈칸 자리가 모두 들어 있다. 오름차순이고 겹치지 않는다. `flatten_elements` 의 `breaks`(AI 응답 `TextElement.breaks` 와 같은 함수)에서 `prefix` 길이만큼 뺀 값이라 따로 세지 않는다(#30). 여는 괄호 · 따옴표 바로 뒤는 들지 않는다(AI #1245). 닫는 따옴표 · 괄호 · 로마자 종료표 바로 앞과 빈 괄호 `( )` 안 빈칸도 들지 않는다(「한국 점자 규정」 제54항 · 제55항, AI #1398 · #1402 · #1405, 3.4.25 부터). 수식 구간(`<!수식>…<!/수식>` · `$…$`) 안 자리는 「한국 점자 규정」 수학 점자 제66항대로 사칙연산 · 등호 · 분수표 뒤다(AI #1393 · #1396 · #1397, 3.4.24 부터). 수식 요소는 `type` 을 `"text"` 로 두고 `<!수식>LaTeX<!/수식>` 를 넣으면 셀과 자리가 AI 수식 요소와 같다 |
 | translate | `dropped` | 객체 배열 | 점자 기호가 없어 `cells` 에서 **조용히 빠진 글자**. `[{"text": 글자, "count": 횟수, "flag": 갈래}]`. 갈래는 AI 서버 검수 플래그와 같은 이름이다. `R15` 글꼴 사설영역(PUA) 글리프 · `R17` 기호표에 없는 기호 · `R18` 규정에 점형이 없는 옛한글 음절(이때 `text` 는 자모 여럿으로 된 음절 하나). 빠진 것이 없으면 `[]`. 앱은 이 배열이 빈 배열이 아닌 요소에 검토 표시를 띄운다. AI 서버가 쪽 플래그를 세는 함수를 그대로 써서 같은 원문이면 같은 결과다 |
 | translate | `blocked` | 참거짓 | 점역 못 한 요소면 `true`. 원문은 있는데 점자가 0셀이 되거나(점자로 옮길 글자가 없는 요소: 이모지 · 아랍 문자의 숫자(١٢٣) · 다른 문자권 글자 등) 엔진이 예외를 던지면, `cells` 가 점역자 주 꼴 '점역 못 함'이 되고 이 값이 `true` 다. AI 서버의 점역 체인(`isolation.safe_translate`)과 검토 표시(C2 · R1, `is_blocked_braille`)와 같은 판정이다. 한자만 있는 요소는 빈 `cells` 가 정답이라(도서 관행) `false` 다. 앱은 `true` 인 요소에 검토 표시를 띄운다 |
 | translate | `unknown_tags` | 문자열 배열 | 엔진이 모르는 태그 이름(나온 차례, 겹침 없이). 예 `<!없는태그>` → `"없는태그"`. 목록표 글자 태그 넷(색강조 · 취소선 · 밑줄빈칸 · 네모빈칸)은 3.4.22 부터 아는 태그다. 점역에서는 지우고 나머지를 점역한다. 앱은 이 배열이 비지 않은 요소에 검토 표시를 띄운다 |
@@ -189,7 +189,7 @@ python -m semojum_braille.sidecar
 - **오류 코드**(V4 엔진 가이드 오류 표): `BAD_JSON` JSON 이 아닌 줄(UTF-8 이 아닌 줄 포함, `id` 가 `null` 일 수 있다) · `BAD_FIELD` 필드 타입 · 값 범위가 맞지 않음(모르는 op 포함, 그 밖의 예외도 요청 값 탓으로 이 코드) · `TOO_LONG` translate 묵자 1,000자 초과(**태그를 뺀 글자 수**. 태그째 세면 2027 dev · val 표 2개가 걸리는데 표는 문장으로 못 쪼갠다) · `BAD_LATEX` `<!수식>…<!/수식>` 안 LaTeX 가 중괄호 10중첩 또는 1,000자 초과(묵자 상한보다 먼저 본다) · `BAD_BRF` `read_brf` 입력에 BRF ASCII 가 아닌 글자.
 - `decode` 는 `math` 를 받지 않는다. 수식 요소를 수식으로 되돌리려면 파이썬에서 `decode(…, math=True)` 를 부른다([decoder.md](decoder.md) 2.1).
 
-`build_brf` 의 `job`: `{"sources": [{"orig_page": 정수, "blocks": [{"order": 정수, "braille": 점자, "breaks": [정수, …]}, …]}, …], "footer": 점자, "footers": {면 번호: 점자}, "opts": {…}}`(V4 엔진 가이드). `footer` 는 이미 점역된 꼬리말이다. 꼬리말 글은 `translate` 에 `type: "header_footer"` 로 넣어 받은 `cells` 를 넘긴다(로마자 강제가 저절로 켜진다). `blocks` 는 `order` 로 정렬하고, `breaks` 는 그 블록의 translate `breaks` 그대로다(없으면 그 블록은 빈칸에서 접는다). `opts` 는 `cols` · `rows` · `wrap`(`syllable` · `word`) · `footer_align`(`left` · `center` · `right`) · `first_braille_page` · `cover_orig_page_count` · `orig_page_first_no` · `page_row_pages`(`odd` · `every`) · `show_orig_page`(끄면 원본 페이지 변경선도 꺼진다) · `show_braille_page` · `pad_to_even` 이고 모두 생략할 수 있다. 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`, [assist.md](assist.md)).
+`build_brf` 의 `job`: `{"sources": [{"orig_page": 정수, "blocks": [{"order": 정수, "braille": 점자, "breaks": [정수, …]}, …]}, …], "footer": 점자, "footers": {면 번호: 점자}, "opts": {…}}`(V4 엔진 가이드). `footer` 는 이미 점역된 꼬리말이다. 꼬리말 글은 `translate` 에 `type: "header_footer"` 로 넣어 받은 `cells` 를 넘긴다(로마자 강제가 저절로 켜진다). `blocks` 는 `order` 로 정렬하고, `breaks` 는 그 블록의 translate `breaks` 그대로다(없으면 그 블록은 빈칸에서 접는다). `opts` 는 `cols` · `rows` · `wrap`(`syllable` · `word`) · `footer_align`(`left` · `center` · `right`) · `first_braille_page` · `cover_orig_page_count` · `orig_page_first_no` · `page_row_pages`(`odd` · `every`) · `show_orig_page`(끄면 원본 페이지 변경선도 꺼진다) · `show_braille_page` · `pad_to_even` 이고 모두 생략할 수 있다. 참거짓 칸 셋(`show_orig_page` · `show_braille_page` · `pad_to_even`)은 `true` · `false` · `null`(= 기본값)만, `cols` · `rows` 는 1 이상의 정수와 `null`(= 기본값)만 받고 그 밖은 `BAD_FIELD` 다(3.4.25부터. 종전에는 문자열 `"false"` 가 켜고 `rows: 0` 은 26줄이 됐다). 면 나누기와 페이지행은 「점자 도서 제작 지침」 1장 2절 2를 따른다(`semojum_braille.assist`, [assist.md](assist.md)).
 
 **파이썬에서 같은 일을 하는 함수**: `semojum_braille.sidecar` 의 `translate(text, etype="text", hlevel=0, korean_grade=2, english_grade=2, math_page=False, split_choices=False, render_mode="", tn_text="", box_level=0, force_roman=False) -> dict`(`{"cells", "breaks", "dropped", "blocked", "unknown_tags"}` 를 내고, 표면 `table` 과 같은 것을 낸다) · `table(source, render_mode="", tn_text="", box_level=0, korean_grade=2, english_grade=2, math_page=False) -> dict`(`{"cells", "breaks", "render_mode", "drafts", "dropped", "blocked"}` 를 낸다) · `handle(req: dict) -> dict`(요청 하나를 처리한다) · `main() -> None`(표준입출력 고리). 판 번호는 `semojum_braille.__version__` · `semojum_braille.sidecar.PROTOCOL` 이다. `build_brf` 는 `semojum_braille.assist.build_brf_file(job, replaced=None) -> bytes`(`replaced` 에 `Counter` 를 주면 빈칸으로 바꾼 글자를 채운다), `read_brf` 는 `semojum_braille.brf.parse_brf(data) -> list[list[str]]` 다.
 
@@ -205,7 +205,7 @@ def fold(cells, breaks, center=False, cuts=None):
     """cells(논리 줄을 \\n 으로 이은 통 문자열)를 32칸 줄로 접는다. 부르는 쪽이 할 몫이다.
 
     breaks 자리(그 셀 앞)에서만 끊고, 32칸 안에 자리가 없을 때만 32칸째에서 강제로 자른다.
-    자리 목록이 없는 줄(사람이 점자를 직접 고친 요소 등)은 빈칸 자리에서 끊는다. 이어지는 줄 머리 빈칸은 버린다.
+    자리 목록이 없는 줄(사람이 점자를 직접 고친 요소 등)은 빈칸 자리에서 끊는다. 끊은 자리 앞뒤 빈칸(줄 끝 · 이어지는 줄 머리)은 버린다.
     center: 1단계 제목이면 32칸을 넘어 접힌 줄만 조각마다 가운데로 놓는다(안 접힌 줄은 cells 에 이미 가운데 여백이 있다).
     cuts: 넘기면 끊은 자리마다 '음절'·'빈칸'·'강제'를 적는다(검증용).
     """
@@ -223,7 +223,7 @@ def fold(cells, breaks, center=False, cuts=None):
                 b -= 1
             if cuts is not None:
                 cuts.append("강제" if not ok else "빈칸" if line[b] in (" ", BLANK) else "음절")
-            seg.append(line[start:b])
+            seg.append(line[start:b].rstrip(" " + BLANK) or line[start:b])   # 줄 끝 빈칸은 걷는다
             start = b
             while start < len(line) and line[start] in (" ", BLANK):
                 start += 1
@@ -239,16 +239,16 @@ def fold(cells, breaks, center=False, cuts=None):
 
 ```
 ⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝| 32칸
-⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀ | 31칸
+⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬   | 30칸
 ⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲         | 23칸
 ```
 
-둘째 줄 끝의 `⠀` 는 빈칸 자리에서 끊은 흔적이다. 엔진 조판([encoder.md](encoder.md) 1.7)도 똑같이 끊는다.
+둘째 줄은 빈칸 바로 뒤 자리에서 끊었고, 줄 끝에 남은 빈칸 `⠀` 는 걷었다(3.4.25부터). 끊는 자리는 엔진 조판([encoder.md](encoder.md) 1.7)과 같다. 엔진 조판은 줄 끝 빈칸을 그대로 둔다.
 
 **다른 언어로 옮길 때 지킬 것**
 
 1. 32칸 안에서 **가장 먼** `breaks` 자리에서 끊는다. 그런 자리가 없을 때만 32칸째에서 강제로 자른다. 강제로 자를 때 점역자 주 표 `⠠⠄`(두 칸)는 가르지 않고 한 칸 앞에서 자른다.
-2. 이어지는 줄의 머리에 오는 빈칸(`⠀`, 공백)은 버린다.
+2. 끊은 자리의 빈칸(`⠀`, 공백)은 버린다. 줄 끝에 남는 빈칸도, 이어지는 줄의 머리에 오는 빈칸도 남기지 않는다.
 3. `breaks` 가 하나도 없는 줄은 빈칸 무리의 첫 자리에서 끊는다. **이때도 줄 머리 들여쓰기는 지킨다.** 줄 맨 앞의 빈칸 무리는 끊는 자리로 치지 않는다.
 4. 1단계 제목(`heading_level` 1)은 32칸을 넘어 접힌 줄만 조각마다 가운데로 놓는다. 안 접힌 줄은 `cells` 에 이미 가운데 여백이 있다.
 5. `breaks` 값은 `cells` 전체 기준이다. 줄마다 그 줄의 시작 오프셋을 빼서 쓴다.
