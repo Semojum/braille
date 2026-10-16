@@ -310,6 +310,12 @@ def wrap(line: str, cols: int = 32, mode: str = "syllable",
     word — 빈칸(어절) 자리에서 자른다(`_wrap`, #9 · 원장 C-83).
     center — 1단계 제목. `cols` 를 넘어 접힌 줄만 조각마다 가운데에 놓는다.
       안 접힌 줄은 AI 가 이미 가운데 여백을 넣어 보낸다.
+
+    원장 M-12(2026-10-16 등재, 미구현): 「수학 점자」 제66항(재추출 4287~4288행)은 긴 수식을 사칙연산 · 등호 ·
+      분수표 뒤에서 끊고, 그 밖 자리에서 끊으면 줄 끝에 식의 연결표 `⠠` 를 적으라고 한다. 끊을 자리는 AI
+      `formula_breaks` 가 `breaks` 로 주지만 연결표는 셀을 더해야 해 `breaks` 로는 못 주고, 이 함수는 셀을 더하지
+      않는다. `breaks` 가 없으면(지금 BE 다운로드) 어절 접기라 끊을 자리도 안 닿는다. 2027 gold 는 규정대로
+      줄 끝에 `⠠` 를 둔다(수학Ⅰ 해설 51 · 52쪽).
     """
     if mode not in WRAP_MODES:
         raise ValueError(f"wrap은 syllable|word: {mode!r}")
