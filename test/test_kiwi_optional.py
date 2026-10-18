@@ -1,7 +1,7 @@
 """kiwipiepy 는 선택 의존이다(`pip install semojum-braille[kiwi]`). 있을 때와 없을 때를 둘 다 본다.
 
 없으면 역점역의 한국어 낱말 판정이 낱말 목록(`decoder/kor_words.json`)으로 간다. 그 차이를
-영어 교과 책의 실물 줄 셋으로 고정한다(점자 코퍼스 EBS-E26-008 · HS-REF-007 · EBS-E26-006).
+영어 교과 책의 실물 줄 둘(점자 코퍼스 EBS-E26-008 · HS-REF-007)과 같은 꼴로 지은 줄 하나로 고정한다.
 kiwi 가 없는 환경은 `kiwipiepy` 임포트를 막아 만든다(깔리지 않은 것과 같은 ImportError).
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from semojum_braille.decoder import back, decode, wordlist
 
 YOUR = "⠀⠀⠰⠠⠍⠒⠀⠠⠞⠄⠎⠀⠝⠕⠗⠍⠁⠇⠲⠀⠠⠽⠗⠀⠃⠕⠙⠽"          # 영어 Your 를 kiwi 가 한국어 `쇠애` 로 본다
 SSEOYA = "⠴⠞⠕⠲⠀⠘⠍⠨⠻⠇⠐⠮⠀⠠⠠⠎⠜⠀⠚⠑⠪⠐⠥⠀⠦⠴⠡⠕⠕⠎⠑⠴"   # 한국어 `써야` 는 목록도 안다
-SHAKESPEARE = "⠀⠀⠼⠁⠲⠀⠴⠥⠝⠊⠧⠻⠎⠁⠇⠲⠀⠸⠌⠀⠠⠌⠕⠁⠠⠪⠙⠕⠎"     # `셰익스피어` 는 목록이 모른다
+SCHUMANN = "⠀⠀⠼⠉⠲⠀⠴⠍⠥⠎⠊⠉⠀⠸⠌⠀⠠⠩⠑⠒"     # 지은 줄. `슈만` 은 목록이 모른다(⠠ 가 대문자표와 ㅅ 둘 다라 판정이 불린다)
 
 
 @pytest.fixture
@@ -42,14 +42,14 @@ def test_kiwi_없으면_목록으로_가른다(no_kiwi: None) -> None:
 def test_kiwi_없을_때_실물_줄(no_kiwi: None) -> None:
     assert decode(YOUR, english=True) == "  M= 섨어 에이애욱사. Your b이푀"
     assert decode(SSEOYA, english=True) == "to 부정사를 써야 하므로 \"choose”"
-    assert decode(SHAKESPEARE, english=True) == "  1. universal / StoaOwdos"
+    assert decode(SCHUMANN, english=True) == "  3. music / She:"
 
 
 def test_kiwi_있을_때_실물_줄() -> None:
     pytest.importorskip("kiwipiepy")
     assert decode(YOUR, english=True) == "  M= 섨어 에이애욱사. 쇠애 b이푀"
     assert decode(SSEOYA, english=True) == "to 부정사를 써야 하므로 \"choose”"
-    assert decode(SHAKESPEARE, english=True) == "  1. universal / 셰익스피어"
+    assert decode(SCHUMANN, english=True) == "  3. music / 슈만"
 
 
 def test_kiwi_없어도_한글만_있는_점자는_같다(no_kiwi: None) -> None:
