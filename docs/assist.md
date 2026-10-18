@@ -86,7 +86,7 @@ build_brf(job)   # '#gb         s<togo@!        #aje\n...'
 `.brf`와 `.txt`는 같은 조판 결과의 다른 표기다. 면 사이에 구분자를 넣지 않는다.
 점자 프린터가 면마다 폼피드를 요구하면 `"\f".join("\n".join(p) for p in pages)`처럼 호출부에서 넣는다.
 
-## build_pages(sources, footer, start_braille_page, opts, footers)
+## build_pages(sources, footer, start_braille_page, opts, footers, header, headers, footers_by_orig_page)
 
 Job 형식을 쓰지 않을 때의 저수준 진입점. 원본 쪽별 통 문자열을 받아 면 배열을 만든다.
 
@@ -97,6 +97,7 @@ Job 형식을 쓰지 않을 때의 저수준 진입점. 원본 쪽별 통 문자
 | `start_braille_page` | int | `1` | 첫 면의 점자 면 번호 |
 | `opts` | Options | 기본값 | [Options](#options) |
 | `footers` | dict | `None` | `{점자 면 번호: 꼬리말}`. 그 면만 다르게. 없는 면은 `footer`를 쓴다 |
+| `footers_by_orig_page` | dict | `None` | `{원본 쪽 번호: 꼬리말}`. 점역사가 묵자 쪽에 꽂은 꼬리말(2026-10-19 대표 결정 ②, #78). 번호는 페이지행에 찍히는 원본 번호(`orig_page_start` 로 다시 매겼으면 그 번호)다. 범위는 `opts.footer_mode`: `carry`(기본)는 그 쪽이 처음 나오는 면(변경선 한 줄만 걸려도)부터 다음 꽂은 쪽이 처음 나오는 면 앞까지, `page` 는 그 쪽 줄이 실린 면에만. 한 면에 꽂은 쪽이 둘 이상이면 뒤의 것이고, `footers` 가 있는 면은 그 값이 이긴다 |
 
 **반환** `list[list[str]]`
 
@@ -205,6 +206,7 @@ Options(
     orig_page_start=None,     # 표지 다음 첫 본문 페이지에 붙일 번호
     show_change_line=True,    # 원본 페이지 변경선
     footer_align="center",    # 꼬리말 정렬: center | right
+    footer_mode="carry",      # 원본 쪽에 꽂은 꼬리말의 범위: carry(이어가기) | page(그 쪽만)
     wrap="syllable",          # 줄바꿈: syllable | word
 )
 ```
@@ -219,6 +221,7 @@ Options(
 | `orig_page_start` | `None`이면 `sources`가 준 `orig_page`를 그대로 쓴다. 값을 주면 표지 뒤 n번째 = `orig_page_start + n` |
 | `show_change_line` | 변경선 켜기·끄기 |
 | `footer_align` | `right`면 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다 |
+| `footer_mode` | `footers_by_orig_page` 의 범위. `carry`(기본, 이어가기) · `page`(그 쪽만). 그 밖은 예외(사이드카 `BAD_FIELD`). 면 번호 키 `footers` 와는 상관없다 |
 | `wrap` | 32칸을 넘는 줄을 접는 갈래([wrap](#wraplinecolsmodebreakscenter)). 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다 |
 
 ---
@@ -242,7 +245,8 @@ Options(
       ] }
   ],
   "footer": "⠎⠣⠞⠕⠛⠕⠈⠮",           // 문서 전체 기본 꼬리말(이미 점역됨)
-  "footers": { "3": "⠈⠮" },          // 면별 꼬리말 (선택)
+  "footers": { "3": "⠈⠮" },          // 면별 꼬리말 (선택, 그 면만)
+  "footers_by_orig_page": { "7": "⠈⠮" },   // 원본 쪽에 꽂은 꼬리말 (선택, 범위는 opts.footer_mode, #78)
   "header": "",                      // 문서 전체 기본 머리말(이미 점역됨, 선택)
   "headers": { "5": "⠨⠝⠼⠁⠨⠶" },     // 면별 머리말 (선택)
   "opts": {
@@ -250,6 +254,7 @@ Options(
     "rows": 26,
     "wrap": "syllable",             // 줄바꿈 갈래: syllable | word
     "footer_align": "center",       // left | center | right
+    "footer_mode": "carry",         // 원본 쪽 꼬리말 범위: carry(이어가기, 기본) | page(그 쪽만)
     "first_braille_page": 1,        // 첫 면의 점자 면 번호
     "cover_orig_page_count": 0,     // 표지가 차지하는 원본 쪽 수
     "orig_page_first_no": null,     // 표지 뒤 첫 원본 쪽 번호
@@ -299,6 +304,7 @@ Options(
 | 꼬리말 | `footer` |
 | 꼬리말 정렬 | `opts.footer_align` |
 | 꼬리말 수정 범위 | `footers` |
+| 쪽에 꽂은 꼬리말 · 적용 방식(이어가기 · 그 쪽만) | `footers_by_orig_page` · `opts.footer_mode` |
 | 표지 페이지 수 | `opts.cover_orig_page_count` |
 | 원본 페이지 번호 시작 | `opts.orig_page_first_no` |
 | 점자 페이지 번호 시작 | `opts.first_braille_page` |

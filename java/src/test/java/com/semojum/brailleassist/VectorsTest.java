@@ -111,7 +111,9 @@ class VectorsTest {
                         a.has("footer") ? a.get("footer").asText() : "",
                         a.has("start_braille_page") ? a.get("start_braille_page").asInt() : 1,
                         toOpts(a.get("opts")), footers,
-                        a.has("header") ? a.get("header").asText() : "", intMap(a.get("headers"))));
+                        a.has("header") ? a.get("header").asText() : "", intMap(a.get("headers")),
+                        intMap(a.get("footers_by_orig_page")),
+                        a.has("opts") && a.get("opts").has("footer_mode") ? a.get("opts").get("footer_mode").asText() : "carry"));
             }
             case "build_brf": {
                 // V4 엔진 가이드 job: sources[].blocks[].{order, braille, breaks} · footer · footers · opts.
@@ -168,7 +170,9 @@ class VectorsTest {
                         o != null && o.has("wrap") ? o.get("wrap").asText() : "syllable",
                         o != null && o.has("pad_to_even") && o.get("pad_to_even").asBoolean(),
                         j.has("header") ? j.get("header").asText() : "",
-                        intMap(j.get("headers")));
+                        intMap(j.get("headers")),
+                        intMap(j.get("footers_by_orig_page")),
+                        o != null && o.has("footer_mode") ? o.get("footer_mode").asText() : "carry");
                 return BrailleAssist.buildBrf(job);
             }
             case "wrap":

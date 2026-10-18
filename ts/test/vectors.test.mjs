@@ -15,6 +15,7 @@ const toOpts = (o) => o && {
   origPageStart: o.orig_page_start ?? null,
   showChangeLine: o.show_change_line ?? true,
   footerAlign: o.footer_align ?? 'center',
+  footerMode: o.footer_mode ?? 'carry',
   wrap: o.wrap ?? 'syllable',
   padToEven: o.pad_to_even ?? false,
 };
@@ -25,7 +26,8 @@ const call = {
   to_brf_ascii: (a) => toBrfAscii(a.braille),
   build_pages: (a) => buildPages(a.sources, a.footer ?? '',
                                  a.start_braille_page ?? 1, toOpts(a.opts),
-                                 a.footers ?? null, a.header ?? '', a.headers ?? null),
+                                 a.footers ?? null, a.header ?? '', a.headers ?? null,
+                                 a.footers_by_orig_page ?? null),
   build_brf: (a) => buildBrf(a.job),
   wrap: (a) => wrap(a.line, a.cols ?? 32, a.mode ?? 'syllable', a.breaks ?? null, a.center ?? false),
 };

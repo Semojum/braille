@@ -74,6 +74,10 @@ class Options:
       right는 점자 페이지 번호 왼쪽에 **두 칸을 띄운 자리**가 오른쪽 끝이다(항목 사이 두 칸 이상).
       left는 원본 페이지 번호 오른쪽에 두 칸을 띄운 자리(번호가 없으면 첫 칸)에서 시작한다.
 
+    footer_mode — 원본 쪽에 꽂은 꼬리말(`build_pages(footers_by_orig_page=…)`)을 쓰는 범위(2026-10-19 대표 결정 ②).
+      `carry`(기본, 이어가기)는 꽂은 쪽이 처음 나오는 면부터 다음 꽂은 쪽 앞 면까지 · `page`(그 쪽만)는
+      꽂은 쪽이 나오는 면에만 쓴다. 면 번호 키 `footers` 는 이 값과 상관없이 그 면만이다.
+
     pad_to_even — 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드). 더한 면도 다른 면과 같은 페이지행 규칙을 따른다.
 
     wrap — 32칸을 넘는 줄을 접는 갈래. `syllable`(기본) · `word` 두 갈래다(2026-10-10 대표 확정).
@@ -89,6 +93,7 @@ class Options:
     orig_page_start: int | None = None   # 본문 첫 원본 페이지에 붙일 번호. None이면 준 값 그대로
     show_change_line: bool = True    # 원본 페이지 변경선을 넣을지
     footer_align: str = "center"     # center | right | left
+    footer_mode: str = "carry"       # carry | page — 원본 쪽에 꽂은 꼬리말의 범위
     wrap: str = "syllable"           # syllable | word
     pad_to_even: bool = False        # 홀수 면에서 끝나면 빈 면 하나를 더한다
 
@@ -99,6 +104,8 @@ class Options:
             raise ValueError(f"page_row_on은 odd|every|even|none: {self.page_row_on!r}")
         if self.footer_align not in ("center", "right", "left"):
             raise ValueError(f"footer_align은 center|right|left: {self.footer_align!r}")
+        if self.footer_mode not in ("carry", "page"):
+            raise ValueError(f"footer_mode는 carry|page: {self.footer_mode!r}")
         if self.cover_pages < 0:
             raise ValueError(f"cover_pages는 0 이상이어야 한다: {self.cover_pages}")
         if self.wrap not in WRAP_MODES:
@@ -477,6 +484,7 @@ def build_pages(
     footers: dict | None = None,
     header: str = "",
     headers: dict | None = None,
+    footers_by_orig_page: dict | None = None,
 ) -> list:
     """원본 쪽별 통 문자열 → **완성된 점자 면 배열**. BRF 변환 직전 상태다.
 
@@ -489,6 +497,11 @@ def build_pages(
     footers — `{점자 면 번호: 꼬리말 점자}`. 그 면만 이 값을 쓰고, 없는 면은 `footer`를 쓴다.
       "이 면부터 끝까지 / 이 면만"은 **편집 시점의 뜻**이라 여기서 풀지 않는다.
       호출자(FE)가 범위를 해석해 면별 값으로 펼쳐 넘긴다(2026-09-01 결정 E).
+    footers_by_orig_page — `{원본 쪽 번호: 꼬리말 점자}`. 점역사가 묵자 쪽에 꽂은 꼬리말이다(2026-10-19 대표 결정 ②).
+      점자 면 번호는 조판 뒤에만 알므로 엔진이 원본 쪽 → 면을 푼다. 번호는 페이지행에 찍히는 원본 번호
+      (`orig_page_start` 로 다시 매겼으면 그 번호)다. 범위는 `opts.footer_mode`: `carry` 는 그 쪽이 처음 나오는 면
+      (변경선 한 줄만 걸려도)부터 다음 꽂은 쪽이 처음 나오는 면 앞까지, `page` 는 그 쪽 줄이 실린 면에만 쓴다.
+      한 면에 꽂은 쪽이 둘 이상 나오면 뒤의 것이다. 면 번호 키 `footers` 가 있는 면은 그 값이 이긴다.
     start_braille_page — 첫 면의 점자 면 번호. 표지 다음이 1이다(지침 1장2절2-3(1)).
     header · headers — 머리말(이미 점역됨). `footer` · `footers` 와 같은 꼴이다. 머리말이 있는 면은 첫 줄이
       머리말이고 본문이 한 줄 줄어든다. 표지 면과 장바꿈 · 짝수 면 채우기로 더한 빈 면에는 넣지 않는다.
@@ -511,6 +524,19 @@ def build_pages(
     # JSON을 거쳐 오면 키가 문자열이다("2"). 세 구현이 같게 굴도록 여기서 정수로 맞춘다.
     fmap = {int(k): v for k, v in (footers or {}).items()}
     hmap = {int(k): v for k, v in (headers or {}).items()}
+    omap = {int(k): v for k, v in (footers_by_orig_page or {}).items()}
+    carried: list = [footer]              # 이어가기 꼬리말(지금까지 실은 면에서 마지막으로 나온 꽂은 쪽의 것)
+
+    def face_footer(bp: int, ops: list) -> str:
+        """그 면 꼬리말: 면 키 `footers` > 원본 쪽 키(`footer_mode`) > 기본 `footer`. 이어가기 상태도 여기서 민다."""
+        pinned = [omap[o] for o in ops if o in omap]
+        if pinned:
+            carried[0] = pinned[-1]
+        if bp in fmap:
+            return fmap[bp]
+        if opts.footer_mode == "page":
+            return pinned[-1] if pinned else footer
+        return carried[0]
     # 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
     sources = _renumber(sources, opts)
     # 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
@@ -568,7 +594,7 @@ def build_pages(
         body = [""] * (opts.rows - (1 if has_row else 0))
         if has_row:
             idx = len(pages)
-            body.append(page_row(head_page, idx - first_seen.get(head_page, idx), bp, fmap.get(bp, footer), opts))
+            body.append(page_row(head_page, idx - first_seen.get(head_page, idx), bp, face_footer(bp, []), opts))
         return body
 
     bpn = start_braille_page              # 표지 면은 점자 면 번호를 소비하지 않는다
@@ -600,6 +626,7 @@ def build_pages(
             end += 1
         num = "" if on_cover else _number(bp)
         body = [_align(_fill_page_no(ln, num), opts.cols, al) for ln, _o, _c, al in flat[pos:end]]
+        ops = [o for _l, o, _c, _a in flat[pos:end]]
         prev_op = flat[end - 1][1]
         pos = end
         if pos < len(flat) and flat[pos][0] in _MARKS:
@@ -609,8 +636,8 @@ def build_pages(
         body += [""] * (cap - len(body))
         if head:
             body.insert(0, _header_line(head, head_page, num, opts.cols))
+        f = face_footer(bp, ops)              # 페이지행이 없는 면도 이어가기 상태는 민다
         if has_row:
-            f = fmap.get(bp, footer)
             body.append(page_row(head_page, idx - first_seen[head_page], bp, f, opts))
         if not on_cover:
             bpn += 1                      # 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
@@ -625,8 +652,10 @@ def build_pages(
 #   {"sources": [{"orig_page": 1,
 #                 "blocks": [{"order": 0, "braille": "…", "breaks": [int, …]}, …]}, …],
 #    "footer": "…",                 # 문서 기본 꼬리말(이미 점역됨, 선택)
-#    "footers": {"3": "…"},         # 면별 꼬리말(점자 면 번호 → 꼬리말, 선택)
+#    "footers": {"3": "…"},         # 면별 꼬리말(점자 면 번호 → 꼬리말, 그 면만, 선택)
+#    "footers_by_orig_page": {"7": "…"},   # 원본 쪽에 꽂은 꼬리말(범위는 opts.footer_mode, 선택, 2026-10-19)
 #    "opts": {"cols": 32, "rows": 26, "wrap": "syllable|word", "footer_align": "left|center|right",
+#             "footer_mode": "carry|page",
 #             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
 #             "page_row_pages": "odd|every", "show_orig_page": true, "show_braille_page": true,
 #             "pad_to_even": false}}
@@ -676,6 +705,7 @@ def options_from_job(job: dict) -> Options:
         cover_pages=int(o.get("cover_orig_page_count") or 0),
         orig_page_start=None if start in (None, "") else int(start),
         footer_align=str(o.get("footer_align") or "center"),
+        footer_mode=str(o.get("footer_mode") or "carry"),
         wrap=str(o.get("wrap") or "syllable"),
         pad_to_even=_opt_flag(o, "pad_to_even", False),
     )
@@ -697,6 +727,8 @@ def build_pages_from_job(job: dict) -> list:
     footers = {int(k): v for k, v in raw.items()} if raw else None
     rawh = job.get("headers") or {}
     headers = {int(k): v for k, v in rawh.items()} if rawh else None
+    rawo = job.get("footers_by_orig_page") or {}
+    footers_by_orig = {int(k): v for k, v in rawo.items()} if rawo else None
     o = job.get("opts") or {}
     return build_pages(
         sources,
@@ -706,6 +738,7 @@ def build_pages_from_job(job: dict) -> list:
         footers=footers,
         header=job.get("header", "") or "",
         headers=headers,
+        footers_by_orig_page=footers_by_orig,
     )
 
 
