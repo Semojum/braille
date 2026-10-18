@@ -175,3 +175,43 @@ test/unit_test/braille/test_kiwi_load_lock_1324.py
 
 # ── 검수 등급(confidence) ──
 test/unit_test/quality/test_page_content_risk.py
+
+# ── 2026-10-19 추가(#82): 경로 치환만으로 도는 36개(화학 · 과학 14 · 영어 13 · 글자 · 조판 8 · 한글 급수 1) ──
+# 안 옮긴 것: test_decode_eng_blank_ctx · test_decode_head_english(홀드아웃 권 gold 줄이 입력 · 주석에 있다.
+#   「한국 점자 규정」 [부록 1] 예문으로 다시 써서 따로 옮긴다).
+test/unit_test/braille/test_answer_pair_breaks.py
+test/unit_test/braille/test_be_syllable.py
+test/unit_test/braille/test_chem_bonds_t36.py
+test/unit_test/braille/test_chem_caps_word_t36.py
+test/unit_test/braille/test_chem_phrase_t36.py
+test/unit_test/braille/test_chem_roman_wrap_t36.py
+test/unit_test/braille/test_chem_spacing_t36.py
+test/unit_test/braille/test_decode_eng_hyphen_suffix.py
+test/unit_test/braille/test_decode_eng_label.py
+test/unit_test/braille/test_element_list_grade1_t36.py
+test/unit_test/braille/test_eng_blank_rule.py
+test/unit_test/braille/test_eng_colon_semicolon.py
+test/unit_test/braille/test_eng_initial_letter.py
+test/unit_test/braille/test_english_brackets.py
+test/unit_test/braille/test_english_grade1.py
+test/unit_test/braille/test_english_line_comma.py
+test/unit_test/braille/test_english_roman_reopen.py
+test/unit_test/braille/test_english_underline.py
+test/unit_test/braille/test_head_one_space_1338.py
+test/unit_test/braille/test_ion_roman_t36.py
+test/unit_test/braille/test_korean_grade1.py
+test/unit_test/braille/test_latex_chem_route.py
+test/unit_test/braille/test_leading_roman_tag_hangul.py
+test/unit_test/braille/test_lone_jamo_1326.py
+test/unit_test/braille/test_paren_digit_item_head_c84.py
+test/unit_test/braille/test_reaction_arrows_t36.py
+test/unit_test/braille/test_roman_first_word_t36.py
+test/unit_test/braille/test_roman_tilde_span_1329.py
+test/unit_test/braille/test_short_form_before.py
+test/unit_test/braille/test_square_units_t36.py
+test/unit_test/braille/test_symbol_forms_t30.py
+test/unit_test/braille/test_textcircled_jamo_wrap.py
+test/unit_test/braille/test_tn_head_indent_c139.py
+test/unit_test/braille/test_ueb_abolished_contractions.py
+test/unit_test/braille/test_unicode_sub_letters_t36.py
+test/unit_test/braille/test_url_email_t36.py
