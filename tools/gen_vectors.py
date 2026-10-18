@@ -125,6 +125,9 @@ _TWO_PAGES = [
     {"orig_page": 7, "blocks": [{"order": 1, "text": "⠁" * 70 + "\n"}]},
     {"orig_page": 8, "blocks": [{"order": 1, "text": "\n⠃⠃⠃\n\n" + "⠉" * 40 + "\n"}]},
 ]
+# 원본 쪽 꼬리말(#78)용 — 원본 넷이 일곱 줄씩이라 6줄 면(본문 5줄)에서 쪽마다 면 경계가 쪽 한가운데 온다.
+_FOUR_PAGES = [{"orig_page": n, "blocks": [{"order": 1, "text": "\n".join("⠁⠃" for _ in range(7)) + "\n"}]}
+               for n in (1, 2, 3, 4)]
 
 BUILD = [
     ("지침 [예 1-7] 걸침 — 72쪽이 105~109면", 
@@ -159,6 +162,18 @@ BUILD = [
                              opts=opt(rows=6, cover_pages=1, orig_page_start=20)), ""),
     ("면별 꼬리말", dict(sources=_TWO_PAGES, footer=FOOT_C, footers={2: FOOT_A},
                     opts=opt(rows=6)), ""),
+    # 원본 쪽에 꽂은 꼬리말(2026-10-19 대표 결정 ②, #78). 열쇠는 원본 쪽, 범위는 footer_mode.
+    ("원본 쪽 꼬리말 이어가기", dict(sources=_FOUR_PAGES, footer=FOOT_C,
+                             footers_by_orig_page={2: FOOT_A, 4: FOOT_B}, opts=opt(rows=6)),
+     "대표 결정 2026-10-19 ② — 꽂은 쪽이 처음 나오는 면부터 다음 꽂은 쪽이 처음 나오는 면 앞까지"),
+    ("원본 쪽 꼬리말 그 쪽만", dict(sources=_FOUR_PAGES, footer=FOOT_C,
+                             footers_by_orig_page={2: FOOT_A, 4: FOOT_B}, opts=opt(rows=6, footer_mode="page")),
+     "대표 결정 2026-10-19 ② — 꽂은 쪽 줄이 실린 면에만, 나머지 면은 기본 꼬리말"),
+    ("원본 쪽 꼬리말 · 면 키가 이긴다", dict(sources=_FOUR_PAGES, footer=FOOT_C, footers={4: FOOT_C},
+                                  footers_by_orig_page={2: FOOT_A}, opts=opt(rows=6)), ""),
+    ("원본 쪽 꼬리말 · 다시 매긴 번호로 꽂는다", dict(sources=_FOUR_PAGES, footer=FOOT_C,
+                                         footers_by_orig_page={22: FOOT_A},
+                                         opts=opt(rows=6, orig_page_start=20)), ""),
     ("페이지행 끔(짝수만)", dict(sources=_TWO_PAGES, footer=FOOT_C,
                         opts=opt(rows=6, page_row_on="even")), ""),
     ("빈 입력", dict(sources=[], opts=opt(rows=6)), ""),
@@ -383,6 +398,17 @@ BRF_JOB = [
      {"opts": {"rows": 6, "cols": 32, "first_braille_page": 105},
       "footer": FOOT_C, "sources": _JOB_SOURCES}, ""),
     ("조판 job 빈 입력", {"sources": []}, ""),
+    ("조판 job 원본 페이지 변경선 끔(show_change_line, #78)",
+     {"opts": {"rows": 6, "cols": 32, "show_change_line": False}, "footer": FOOT_C, "sources": _JOB_SOURCES},
+     "BE 업로드 옵션의 변경선 끄기를 job 이 받는다(종전엔 늘 켜짐)"),
+    ("조판 job 원본 쪽 꼬리말 그 쪽만(#78)",
+     {"opts": {"page_row_pages": "every", "rows": 6, "cols": 32, "footer_mode": "page"},
+      "footer": FOOT_C, "footers_by_orig_page": {"8": FOOT_A}, "sources": _JOB_SOURCES},
+     "대표 결정 2026-10-19 ② — 원본 쪽 열쇠(JSON 문자열 키)"),
+    ("조판 job 원본 쪽 꼬리말 이어가기(#78)",
+     {"opts": {"page_row_pages": "every", "rows": 6, "cols": 32},
+      "footer": FOOT_C, "footers_by_orig_page": {"7": FOOT_A, "8": FOOT_B}, "sources": _JOB_SOURCES},
+     "대표 결정 2026-10-19 ② — footer_mode 생략 = carry"),
     ("조판 job opts 생략(기본값)", {"sources": _JOB_SOURCES}, ""),
     ("조판 job 줄바꿈 음절 · 블록 breaks · 1단계 제목",
      {"opts": {"rows": 12, "cols": 32, "wrap": "syllable"},

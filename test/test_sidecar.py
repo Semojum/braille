@@ -490,3 +490,20 @@ def test_쪽_번호_자리표시는_점역을_그대로_지나가고_그_안에�
         a = cells.index(tag)
         assert not [b for b in r["breaks"] if a < b < a + len(tag)]
     assert cells.replace("<!점자면번호>", "").replace("<!묵자쪽번호>", "") == sidecar.translate("제쪽, 원본 쪽")["cells"]
+
+
+def test_원본_쪽_꼬리말은_footer_mode_두_값만_받고_없으면_종전과_같다():
+    """#78(대표 결정 2026-10-19 ②). 원본 쪽 열쇠 `footers_by_orig_page` · 범위 `opts.footer_mode`(carry · page).
+    새 입력을 안 쓰면 출력이 바이트로 같고, 모르는 범위 값은 `BAD_FIELD` 다."""
+    src = [{"orig_page": n, "blocks": [{"order": 0, "braille": "\n".join("⠁⠃" for _ in range(7))}]} for n in (1, 2, 3)]
+    base = {"sources": src, "footer": "⠋", "opts": {"rows": 6, "page_row_pages": "every"}}
+    old = sidecar.handle({"op": "build_brf", "job": base})["brf"]
+    assert sidecar.handle({"op": "build_brf", "job": {**base, "footers_by_orig_page": {}}})["brf"] == old
+    carry = sidecar.handle({"op": "build_brf", "job": {**base, "footers_by_orig_page": {"2": "⠛"}}})["brf"]
+    page = sidecar.handle({"op": "build_brf", "job": {**base, "footers_by_orig_page": {"2": "⠛"},
+                                                       "opts": {**base["opts"], "footer_mode": "page"}}})["brf"]
+    rows = lambda brf: [p.splitlines()[-1] for p in brf.split("\f") if p.strip()]   # 면마다 마지막 줄(페이지행)
+    assert "g" in rows(carry)[-1] and "g" not in rows(page)[-1]       # 3쪽만 실린 마지막 면: 이어가기만 2쪽 꼬리말(⠛ = g)
+    r = sidecar._answer(json.dumps({"id": 4, "op": "build_brf",
+                                    "job": {**base, "opts": {"footer_mode": "through"}}}).encode())
+    assert r["code"] == "BAD_FIELD" and "footer_mode" in r["error"]

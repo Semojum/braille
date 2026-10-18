@@ -45,6 +45,11 @@ export interface Options {
   showChangeLine: boolean;
   /** 꼬리말 정렬. right는 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝, left는 원본 번호에서 두 칸 띄운 자리가 시작이다. */
   footerAlign: 'center' | 'right' | 'left';
+  /**
+   * 원본 쪽에 꽂은 꼬리말(`footersByOrigPage`)을 쓰는 범위(2026-10-19 대표 결정 ②). carry(기본, 이어가기)는 꽂은 쪽이
+   * 처음 나오는 면부터 다음 꽂은 쪽 앞 면까지, page(그 쪽만)는 꽂은 쪽이 나오는 면에만. 면 번호 키 footers 와는 상관없다.
+   */
+  footerMode: 'carry' | 'page';
   /** 32칸을 넘는 줄을 접는 갈래. 블록에 breaks 가 없으면 syllable 이어도 word 로 접는다. */
   wrap: WrapMode;
   /** 홀수 면에서 끝나면 빈 면 하나를 더한다(V4 가이드). 더한 면도 같은 페이지행 규칙을 따른다. */
@@ -62,6 +67,7 @@ export const DEFAULT_OPTIONS: Options = {
   origPageStart: null,
   showChangeLine: true,
   footerAlign: 'center',
+  footerMode: 'carry',
   wrap: 'syllable',
   padToEven: false,
 };
@@ -72,6 +78,7 @@ function resolve(opts?: Partial<Options>): Options {
   if (!['every', 'odd', 'even', 'none'].includes(o.pageRowOn))
     throw new Error(`pageRowOn은 odd|every|even|none: ${o.pageRowOn}`);
   if (!WRAP_MODES.includes(o.wrap)) throw new Error(`wrap은 syllable|word: ${o.wrap}`);
+  if (o.footerMode !== 'carry' && o.footerMode !== 'page') throw new Error(`footerMode는 carry|page: ${o.footerMode}`);
   return o;
 }
 
@@ -398,6 +405,12 @@ export function buildPages(
   /** 머리말(이미 점역됨). footer · footers 와 같은 꼴. 머리말이 있는 면은 첫 줄을 먹는다. 표지 · 더한 빈 면에는 없다. */
   header = '',
   headers?: Record<number | string, string> | null,
+  /**
+   * `{원본 쪽 번호: 꼬리말 점자}`. 점역사가 묵자 쪽에 꽂은 꼬리말(2026-10-19 대표 결정 ②). 번호는 페이지행에 찍히는 원본
+   * 번호(origPageStart 로 다시 매겼으면 그 번호)다. 범위는 footerMode. 한 면에 꽂은 쪽이 둘 이상 나오면 뒤의 것이고,
+   * 면 번호 키 footers 가 있는 면은 그 값이 이긴다.
+   */
+  footersByOrigPage?: Record<number | string, string> | null,
 ): string[][] {
   const o = resolve(opts);
   // JSON을 거쳐 오면 키가 문자열이다 — 세 구현이 같게 굴도록 정수로 맞춘다.
@@ -405,6 +418,18 @@ export function buildPages(
   for (const [k, v] of Object.entries(footers ?? {})) fmap.set(Number(k), v);
   const hmap = new Map<number, string>();
   for (const [k, v] of Object.entries(headers ?? {})) hmap.set(Number(k), v);
+  const omap = new Map<number, string>();
+  for (const [k, v] of Object.entries(footersByOrigPage ?? {})) omap.set(Number(k), v);
+  let carried = footer;                           // 이어가기 꼬리말(지금까지 실은 면에서 마지막으로 나온 꽂은 쪽의 것)
+  /** 그 면 꼬리말: 면 키 footers > 원본 쪽 키(footerMode) > 기본 footer. 이어가기 상태도 여기서 민다. */
+  const faceFooter = (bp: number, ops: number[]): string => {
+    const pinned = ops.filter((x) => omap.has(x)).map((x) => omap.get(x) as string);
+    if (pinned.length) carried = pinned[pinned.length - 1];
+    const own = fmap.get(bp);
+    if (own !== undefined) return own;
+    if (o.footerMode === 'page') return pinned.length ? pinned[pinned.length - 1] : footer;
+    return carried;
+  };
   // 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
   const withChange = o.showChangeLine && o.showOrigPage;
   // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
@@ -450,7 +475,7 @@ export function buildPages(
     const body: string[] = new Array(o.rows - (hasRow ? 1 : 0)).fill('');
     if (hasRow) {
       const idx = pages.length;
-      body.push(pageRow(head, idx - (firstSeen.get(head) ?? idx), bp, fmap.get(bp) ?? footer, opts));
+      body.push(pageRow(head, idx - (firstSeen.get(head) ?? idx), bp, faceFooter(bp, []), opts));
     }
     return body;
   };
@@ -481,6 +506,7 @@ export function buildPages(
     while (end < flat.length && end - pos < cap && !MARKS.includes(flat[end][0])) end++;
     const n = onCover ? '' : num(bp);
     const body = flat.slice(pos, end).map(([ln, , , al]) => alignLine(fillPageNo(ln, n), o.cols, al));
+    const ops = flat.slice(pos, end).map(([, x]) => x);
     prevOp = flat[end - 1][1];
     pos = end;
     if (pos < flat.length && MARKS.includes(flat[pos][0])) {   // 표식 자체는 본문에 안 싣는다
@@ -490,10 +516,8 @@ export function buildPages(
     if (!firstSeen.has(head)) firstSeen.set(head, idx);
     while (body.length < cap) body.push('');
     if (hd) body.unshift(headerLine(hd, head, n, o.cols));
-    if (hasRow) {
-      const f = fmap.get(bp) ?? footer;
-      body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, f, opts));
-    }
+    const f = faceFooter(bp, ops);                 // 페이지행이 없는 면도 이어가기 상태는 민다
+    if (hasRow) body.push(pageRow(head, idx - (firstSeen.get(head) as number), bp, f, opts));
     if (!onCover) bpn++;                          // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
     pages.push(body);
   }
@@ -525,12 +549,16 @@ export interface JobOptions {
   rows?: number;
   wrap?: WrapMode;
   footer_align?: 'left' | 'center' | 'right';
+  /** 원본 쪽에 꽂은 꼬리말의 범위. carry(기본, 이어가기) · page(그 쪽만). */
+  footer_mode?: 'carry' | 'page';
   first_braille_page?: number;
   cover_orig_page_count?: number;
   orig_page_first_no?: number | null;
   page_row_pages?: 'odd' | 'every';
   show_orig_page?: boolean;
   show_braille_page?: boolean;
+  /** 원본 페이지 변경선. 끄면 넣지 않는다(show_orig_page 를 끄면 이 값과 상관없이 꺼진다). */
+  show_change_line?: boolean;
   pad_to_even?: boolean;
 }
 
@@ -544,6 +572,8 @@ export interface Job {
   header?: string;
   /** 면별 머리말. `{점자 면 번호: 머리말 점자}` — 없는 면은 header를 쓴다. */
   headers?: Record<string, string> | null;
+  /** 원본 쪽에 꽂은 꼬리말. `{원본 쪽 번호: 꼬리말 점자}` — 범위는 opts.footer_mode(2026-10-19). */
+  footers_by_orig_page?: Record<string, string> | null;
   opts?: JobOptions;
 }
 
@@ -560,8 +590,9 @@ export function optionsFromJob(job: Job): Partial<Options> {
     pageRowOn: rowsOn,
     coverPages: o.cover_orig_page_count ?? 0,
     origPageStart: o.orig_page_first_no ?? null,
-    showChangeLine: true,
+    showChangeLine: o.show_change_line ?? true,
     footerAlign: o.footer_align ?? 'center',
+    footerMode: o.footer_mode ?? 'carry',
     wrap: o.wrap ?? 'syllable',
     padToEven: o.pad_to_even ?? false,
   };
@@ -577,7 +608,8 @@ export function buildPagesFromJob(job: Job): string[][] {
     })),
   }));
   return buildPages(sources, job.footer ?? '', job.opts?.first_braille_page ?? 1,
-                    optionsFromJob(job), job.footers ?? null, job.header ?? '', job.headers ?? null);
+                    optionsFromJob(job), job.footers ?? null, job.header ?? '', job.headers ?? null,
+                    job.footers_by_orig_page ?? null);
 }
 
 /**

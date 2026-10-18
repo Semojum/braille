@@ -557,6 +557,25 @@ public final class BrailleAssist {
     public static java.util.List<java.util.List<String>> buildPages(
             java.util.List<Source> sources, String footer, int startBraillePage, Options opts,
             java.util.Map<Integer, String> footers, String header, java.util.Map<Integer, String> headers) {
+        return buildPages(sources, footer, startBraillePage, opts, footers, header, headers, null, "carry");
+    }
+
+    /**
+     * footersByOrigPage — {원본 쪽 번호: 꼬리말 점자}. 점역사가 묵자 쪽에 꽂은 꼬리말(2026-10-19 대표 결정 ②).
+     * 번호는 페이지행에 찍히는 원본 번호(origPageStart 로 다시 매겼으면 그 번호)다. footerMode 가 범위다:
+     * carry(기본, 이어가기)는 그 쪽이 처음 나오는 면부터 다음 꽂은 쪽이 처음 나오는 면 앞까지, page(그 쪽만)는
+     * 그 쪽 줄이 실린 면에만. 한 면에 꽂은 쪽이 둘 이상 나오면 뒤의 것이고, 면 번호 키 footers 가 있는 면은 그 값이 이긴다.
+     */
+    public static java.util.List<java.util.List<String>> buildPages(
+            java.util.List<Source> sources, String footer, int startBraillePage, Options opts,
+            java.util.Map<Integer, String> footers, String header, java.util.Map<Integer, String> headers,
+            java.util.Map<Integer, String> footersByOrigPage, String footerMode) {
+        String fmode = footerMode == null || footerMode.isEmpty() ? "carry" : footerMode;
+        if (!fmode.equals("carry") && !fmode.equals("page"))
+            throw new IllegalArgumentException("footerMode는 carry|page: " + footerMode);
+        java.util.Map<Integer, String> omap =
+                footersByOrigPage == null ? java.util.Collections.emptyMap() : footersByOrigPage;
+        String[] carried = {footer};   // 이어가기 꼬리말(지금까지 실은 면에서 마지막으로 나온 꽂은 쪽의 것)
         java.util.Map<Integer, String> fmap =
                 footers == null ? java.util.Collections.emptyMap() : footers;
         java.util.Map<Integer, String> hmap =
@@ -645,7 +664,8 @@ public final class BrailleAssist {
             boolean onCover = coverOf.get(pos);           // 표지 범위는 페이지행 생략
             if (needOdd && !onCover && bpn % 2 == 0) {
                 pages.add(blankPage(bpn, prevOp == null ? owner.get(pos) : prevOp, false, pages.size(),
-                                    firstSeen, fmap, footer, opts));
+                                    firstSeen, faceFooter(bpn, java.util.Collections.emptyList(),
+                                                          fmap, omap, footer, fmode, carried), opts));
                 bpn++;
             }
             needOdd = false;
@@ -664,6 +684,7 @@ public final class BrailleAssist {
             String n = onCover ? "" : num(bp);
             java.util.List<String> body = new java.util.ArrayList<>();
             for (int k = pos; k < end; k++) body.add(alignLine(fillPageNo(lines.get(k), n), opts.cols, alignOf.get(k)));
+            java.util.List<Integer> ops = new java.util.ArrayList<>(owner.subList(pos, end));
             prevOp = owner.get(end - 1);
             pos = end;
             if (pos < lines.size() && isMark(lines.get(pos))) {   // 표식은 본문에 안 싣는다
@@ -673,16 +694,28 @@ public final class BrailleAssist {
             firstSeen.putIfAbsent(head, idx);
             while (body.size() < cap) body.add("");
             if (!hd.isEmpty()) body.add(0, headerLine(hd, head, n, opts.cols));
-            if (hasRow) {
-                String f = fmap.getOrDefault(bp, footer);
-                body.add(pageRow(head, idx - firstSeen.get(head), bp, f, opts));
-            }
+            String f = faceFooter(bp, ops, fmap, omap, footer, fmode, carried);   // 페이지행이 없는 면도 이어가기 상태는 민다
+            if (hasRow) body.add(pageRow(head, idx - firstSeen.get(head), bp, f, opts));
             if (!onCover) bpn++;   // 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
             pages.add(body);
         }
         if (opts.padToEven && pages.size() % 2 == 1)
-            pages.add(blankPage(bpn, owner.get(last), coverOf.get(last), pages.size(), firstSeen, fmap, footer, opts));
+            pages.add(blankPage(bpn, owner.get(last), coverOf.get(last), pages.size(), firstSeen,
+                                faceFooter(bpn, java.util.Collections.emptyList(), fmap, omap, footer, fmode, carried),
+                                opts));
         return pages;
+    }
+
+    /** 그 면 꼬리말: 면 키 footers > 원본 쪽 키(footerMode) > 기본 footer. 이어가기 상태(carried[0])도 여기서 민다. */
+    private static String faceFooter(int bp, java.util.List<Integer> ops, java.util.Map<Integer, String> fmap,
+                                     java.util.Map<Integer, String> omap, String footer, String fmode,
+                                     String[] carried) {
+        String pinned = null;
+        for (int o : ops) if (omap.containsKey(o)) pinned = omap.get(o);
+        if (pinned != null) carried[0] = pinned;
+        if (fmap.containsKey(bp)) return fmap.get(bp);
+        if (fmode.equals("page")) return pinned != null ? pinned : footer;
+        return carried[0];
     }
 
     private static boolean isMark(String s) {
@@ -692,11 +725,11 @@ public final class BrailleAssist {
     /** 빈 면(장바꿈 · 짝수 면 채우기). 페이지행은 다른 면과 같은 규칙이고 원본 번호는 앞 내용의 원본 쪽을 잇는다. */
     private static java.util.List<String> blankPage(int bp, int head, boolean cover, int idx,
                                                     java.util.Map<Integer, Integer> firstSeen,
-                                                    java.util.Map<Integer, String> fmap, String footer, Options opts) {
+                                                    String f, Options opts) {
         boolean hasRow = hasPageRow(bp, opts.pageRowOn) && !cover;
         java.util.List<String> body = new java.util.ArrayList<>();
         while (body.size() < opts.rows - (hasRow ? 1 : 0)) body.add("");
-        if (hasRow) body.add(pageRow(head, idx - firstSeen.getOrDefault(head, idx), bp, fmap.getOrDefault(bp, footer), opts));
+        if (hasRow) body.add(pageRow(head, idx - firstSeen.getOrDefault(head, idx), bp, f, opts));
         return body;
     }
 
@@ -786,13 +819,18 @@ public final class BrailleAssist {
         public final String headerBraille;
         /** 면별 머리말. {점자 면 번호: 머리말 점자} — 없는 면은 headerBraille를 쓴다. */
         public final java.util.Map<Integer, String> headersBraille;
+        /** 원본 쪽에 꽂은 꼬리말. {원본 쪽 번호: 꼬리말 점자} — 범위는 footerMode(2026-10-19 대표 결정 ②). */
+        public final java.util.Map<Integer, String> footersByOrigPage;
+        /** 원본 쪽 꼬리말의 범위. carry(기본, 이어가기) | page(그 쪽만). */
+        public final String footerMode;
 
         public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
                    boolean showOrigPage, boolean showBraillePage, int coverPages,
                    Integer origPageStart, boolean showChangeLine, String footerAlign,
                    String footerBraille, java.util.Map<Integer, String> footersBraille,
                    int startBraillePage, java.util.List<JobPage> pages, String wrap, boolean padToEven,
-                   String headerBraille, java.util.Map<Integer, String> headersBraille) {
+                   String headerBraille, java.util.Map<Integer, String> headersBraille,
+                   java.util.Map<Integer, String> footersByOrigPage, String footerMode) {
             this.jobId = jobId;
             this.includePageNumber = includePageNumber;
             this.pageRowOn = pageRowOn == null || pageRowOn.isEmpty() ? "odd" : pageRowOn;
@@ -814,6 +852,22 @@ public final class BrailleAssist {
             this.headerBraille = headerBraille == null ? "" : headerBraille;
             this.headersBraille = headersBraille == null
                     ? java.util.Collections.emptyMap() : headersBraille;
+            this.footersByOrigPage = footersByOrigPage == null
+                    ? java.util.Collections.emptyMap() : footersByOrigPage;
+            this.footerMode = footerMode == null || footerMode.isEmpty() ? "carry" : footerMode;
+        }
+
+        /** 종전 19인자 형태 — 원본 쪽 꼬리말 없음. */
+        public Job(String jobId, boolean includePageNumber, String pageRowOn, int rows, int cols,
+                   boolean showOrigPage, boolean showBraillePage, int coverPages,
+                   Integer origPageStart, boolean showChangeLine, String footerAlign,
+                   String footerBraille, java.util.Map<Integer, String> footersBraille,
+                   int startBraillePage, java.util.List<JobPage> pages, String wrap, boolean padToEven,
+                   String headerBraille, java.util.Map<Integer, String> headersBraille) {
+            this(jobId, includePageNumber, pageRowOn, rows, cols, showOrigPage, showBraillePage,
+                 coverPages, origPageStart, showChangeLine, footerAlign, footerBraille,
+                 footersBraille, startBraillePage, pages, wrap, padToEven, headerBraille, headersBraille,
+                 null, "carry");
         }
 
         /** 종전 17인자 형태 — 머리말 없음. */
@@ -886,7 +940,8 @@ public final class BrailleAssist {
             sources.add(new Source(pg.origPageNo > 0 ? pg.origPageNo : i + 1, blocks));
         }
         return buildPages(sources, job.footerBraille, job.startBraillePage, optionsFromJob(job),
-                          job.footersBraille, job.headerBraille, job.headersBraille);
+                          job.footersBraille, job.headerBraille, job.headersBraille,
+                          job.footersByOrigPage, job.footerMode);
     }
 
     /**
