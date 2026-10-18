@@ -81,14 +81,14 @@ python -m semojum_braille.sidecar
 ← {"text": "  대한민국의 모든 국민은 법 앞에 평등하며, 누구든지 성별이나 종교 때문에 차별받지 아니한다.", "id": 4}
 ```
 
-**decode**, 영어 교과 책의 한 줄:
+**decode**, 영어 책 꼴의 한 줄(지은 줄):
 
 ```
-→ {"id": 5, "op": "decode", "braille": "⠀⠀⠼⠁⠲⠀⠴⠥⠝⠊⠧⠻⠎⠁⠇⠲⠀⠸⠌⠀⠠⠌⠕⠁⠠⠪⠙⠕⠎", "english": true}
-← {"text": "  1. universal / 셰익스피어", "id": 5}
+→ {"id": 5, "op": "decode", "braille": "⠀⠀⠼⠉⠲⠀⠴⠍⠥⠎⠊⠉⠀⠸⠌⠀⠠⠩⠑⠒", "english": true}
+← {"text": "  3. music / 슈만", "id": 5}
 ```
 
-`[kiwi]` 를 깐 환경의 결과다. 기본 설치(낱말 목록)에서는 이 줄이 `  1. universal / StoaOwdos` 로 온다([decoder.md](decoder.md) 1절).
+`[kiwi]` 를 깐 환경의 결과다. 기본 설치(낱말 목록)에서는 이 줄이 `  3. music / She:` 로 온다([decoder.md](decoder.md) 1절).
 
 **translate**, 한글 정자로 · 점자 기호가 없는 글자가 섞인 요소:
 
