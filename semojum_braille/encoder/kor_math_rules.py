@@ -184,10 +184,14 @@ _SQRT_RE   = re.compile(r"\\sqrt\{([^{}]*)\}")
 # HCO_{3}^{-}·[Fe(CN)6]^{4-}는 ^ 앞이 닫는 괄호라 구판이 못 잡고 ^가 symbol_table의
 # 캐럿(⠈⠑)으로 샜다. 지수에 부호를 허용하는 것도 같은 이유 — 화학 제2항은 이온을
 # "위첨자 기호 ^ 뒤에 + 는 5(⠢), - 는 9(⠔)"로 적는다(규정 예시 H+ = ,h^5).
-_SUP_RE    = re.compile(r"([A-Za-z0-9⠁-⠿})\]])\^\{((?:[^{}]|\{[^{}]*\})*)\}"
-                        r"|([A-Za-z0-9⠁-⠿})\]])\^([+\-−][A-Za-z0-9]*|[A-Za-z0-9])")
+# ★ 밑이 유니코드 그리스 글자인 첨자도 받는다. 수식 요소는 `formula_opt._normalize` 가 `\alpha` 를 `α` 로 펴서
+#   들어오는데 밑 글자 묶음에 그리스가 없어 `α^{2}` 의 ^ 가 기호표 캐럿 ⠈⠢ 로, `α_{1}` 의 _ 가 밑줄 ⠸⠤ 로 샜다.
+#   명령 꼴(`\alpha^{2}`)은 이름 끝 글자 a 가 밑으로 잡혀 우연히 맞았다. 규정 제18항 1호(재추출 3528행) 지수는
+#   ^ 뒤, 제19항 1호(3566행) 아래첨자는 ; 뒤다. gold 수학 Ⅰ 해설 52 `@a~#b`(α²) · 45 `@b~#b`(β²).
+_SUP_RE    = re.compile(r"([A-Za-z0-9α-ωΑ-Ω⠁-⠿})\]])\^\{((?:[^{}]|\{[^{}]*\})*)\}"
+                        r"|([A-Za-z0-9α-ωΑ-Ω⠁-⠿})\]])\^([+\-−][A-Za-z0-9]*|[A-Za-z0-9])")
 # 아래첨자: base_{sub} 또는 base_x
-_SUB_RE    = re.compile(r"([A-Za-z0-9⠁-⠿])_\{([^{}]*)\}|([A-Za-z0-9])_([A-Za-z0-9])")
+_SUB_RE    = re.compile(r"([A-Za-z0-9α-ωΑ-Ω⠁-⠿])_\{([^{}]*)\}|([A-Za-z0-9α-ωΑ-Ω])_([A-Za-z0-9])")
 # 숫자 (음수 포함, 소수 포함). 쉼표는 **3자리 자릿점만** 수 내부로 본다(제41항 "자릿점").
 # {2,4,6} 같은 나열 쉼표를 자릿점 ⠂로 삼키던 버그 정정(2026-07-19, 규정 집합 예시
 # ,a337#b"#d"#f7 — 나열 쉼표는 문장부호 ⠐·다음 수에 수표 재삽입).
@@ -196,8 +200,14 @@ _NUM_RE    = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
 _TO_RE     = re.compile(r"\\(?:to|rightarrow)")
 # \lim_{var \to val} 또는 \lim_{var→val}
 _LIM_SUBSTACK_RE = re.compile(r"\\lim_\{\\substack\{(.*?)\}\}", re.DOTALL)
+# 범위 화살표는 `\longrightarrow` 로도 온다(MinerU 글 속 수식 `\operatorname*{lim}_{x \longrightarrow \infty}`).
+#   종전에는 이 꼴이 3단계를 비켜 아래첨자 단계로 가서 제51항(재추출 3908~3910행) "본 식은 점근값 뒤에 한 칸을
+#   띄어 쓴다"의 빈칸이 빠졌다(`lim;x`3o`=f8x0`, 규정 예문 3918행 `LIM;X`3o`=`F8X0`).
+_LIM_ARROW = r"(?:\\to|→|⟶|\\(?:long)?rightarrow)"
+# 범위 안 중괄호 한 겹(`x_{1}` · `0^{-}` · `\frac{3}{4}`)까지 받는다. 종전 `(.*?)\}` 는 첫 `}` 에서 끊겨 `t \to x_{1} -` 의
+#   점근값이 `x_{1` 이 되고 부호 `-` 가 본 식으로 넘어갔다(수학 II 해설 19쪽 `lim;t`3o`x;#a9g8t0`).
 _LIM_RE    = re.compile(
-    r"\\lim_\{([^{}]*?)(?:\\to|→|\\rightarrow)(.*?)\}",
+    r"\\lim_\{((?:[^{}]|\{[^{}]*\})*?)" + _LIM_ARROW + r"((?:[^{}]|\{[^{}]*\})*)\}",
     re.DOTALL,
 )
 # \log_{base} 또는 \log_{base}(arg) — 괄호 진수는 제46항 [붙임2]·[다만] 분기용으로 캡처.
@@ -724,10 +734,25 @@ def _looks_chemical(latex: str) -> bool:
     return n >= 1 and bool(ionic) and bool(reactive or n >= 2)
 
 
-# 서식 래퍼: \boxed{…}·\mathrm{…} 등 → 내용만 남김(수식 식별자 보존). \text는 별도(P2 한글 점역).
+# 서식 래퍼: \mathrm{…} 등 → 내용만 남김(수식 식별자 보존). \text는 별도(P2 한글 점역). \boxed 는 아래 네모 묶음.
 _TEXT_WRAP_RE = re.compile(
-    r"\\(?:boxed|fbox|mbox|mathrm|mathbf|mathit|mathbb|mathcal|mathsf|operatorname)\s*\{([^{}]*)\}"
+    r"\\(?:fbox|mbox|mathrm|mathbf|mathit|mathbb|mathcal|mathsf|operatorname)\s*\{([^{}]*)\}"
 )
+# 네모 친 답 · 네모 빈칸(`\boxed{…}`)은 네모로 묶는다. 「한국 점자 규정」 제73항(재추출 2922~2930행) 네모 빈칸
+#   `_8`0l`, [붙임](2946~2947행) "네모 빈칸에 표시 문자가 있을 때에는 묵자를 따른다"(예 2951~2952행 `_88'$,00l` =
+#   네모 친 (가)), 제64항(2566~2567행) 네모 문자도 `_8 0l` 로 묶는다(글 쪽은 원장 C-16 · C-16-2 로 이미 이 꼴). 종전에는 위 서식 래퍼처럼 내용만 남겨
+#   테두리가 사라졌다(gold 수학 Ⅰ 본문 94 · 95 · 99 · 해설 50 · 51 · 54 의 20자리가 모두 ⠸⠦ … ⠴⠇).
+#   0a 에서 자리표시자로 두고 11a4 에서 편다. ⠦ · ⠴ 는 그 앞 단계들이 괄호로 읽는다(문맥 소실 1).
+_BOX_OPEN, _BOX_CLOSE = "⠸⠦", "⠴⠇"
+_BOX_OPEN_MARK, _BOX_CLOSE_MARK = "\ue90c", "\ue90d"
+_BOXED_HEAD_RE = re.compile(r"\\boxed\s*\{")
+
+
+def _mark_boxed(s: str) -> str:
+    while m := _BOXED_HEAD_RE.search(s):
+        inner, end = _extract_brace_content(s, m.end() - 1)
+        s = f"{s[:m.start()]}{_BOX_OPEN_MARK}{{{inner}}}{_BOX_CLOSE_MARK}{s[end:]}"
+    return s
 # \text·\textbf 등 자연어 래퍼 → 내용을 한글 점자 훅으로 변환(P2). 미등록 시 내용 보존.
 _TEXT_CMD_RE = re.compile(r"\\text(?:rm|bf|it|sf|tt|normal|md)?\s*\{([^{}]*)\}")
 # 식 번호 \tag{N} → (N), 배열 환경 \begin{array}{l}…\end{array} → 제거(행 \\는 공백)
@@ -999,6 +1024,14 @@ _SET_REL_TIGHT = {
 }
 _SET_REL_TIGHT_RE = re.compile(
     r"[ \t]*(" + "|".join(re.escape(k) for k in _SET_REL_TIGHT) + r")(?![a-zA-Z])[ \t]*")
+# 평행 ∥ 을 MinerU 가 빗금 둘(`\overline{BC} / / \overline{MN}` · `//`)로 읽는다. 「수학 점자」 제44항(재추출 3783~3785행)
+#   평행은 `;2` 이고 예문 `,,AB;2,,CD` 처럼 앞뒤를 붙인다. 두 피연산자 사이의 빗금 둘만 바꾼다(URL `https://` 은
+#   앞이 쌍점이라 안 걸린다). gold 수학 Ⅰ 해설 37 · 본문 37 · 55 · 63 의 7자리가 모두 `;2` 다.
+_SLASH2_PARALLEL_RE = re.compile(r"(?<=[A-Za-z0-9})])[ \t]*/[ \t]*/[ \t]*(?=[A-Za-z0-9\\(])")
+# 기울인 Δ(amsmath `\varDelta`)는 증분 Δ 와 같은 글자다. 종전에는 미지 명령으로 사라져 증분이 빈칸만 남았다
+#   (제52항 재추출 3936~3940행 `,.dy33f8x;#a5,.dx09f8x;#a0`, 수학 II 본문 32 · 36 · 88쪽 8자리). 다른 기울인 대문자
+#   그리스(`\varXi` · `\varPsi`)는 수학 II 에서 한글을 잘못 읽은 꼴에만 나와 그대로 둔다(되살리면 헛 글자가 는다).
+_VAR_DELTA_RE = re.compile(r"\\varDelta(?![A-Za-z])")
 
 
 def _normalize_latex_input(latex: str) -> str:
@@ -1021,6 +1054,8 @@ def _normalize_latex_input(latex: str) -> str:
     s = re.sub(r"[ \t]*⊇[ \t]*", "⊃", s)
     # ★ 다른 어떤 규칙보다 먼저 — 백슬래시가 없으면 아래 정규식이 하나도 안 걸린다.
     s = _restore_lost_backslash(s)
+    s = _SLASH2_PARALLEL_RE.sub("∥", s)
+    s = _VAR_DELTA_RE.sub(r"\\Delta", s)
     # 유니코드 첨자 → ^{}·_{} (QA 10번). 첨자 공백 정리(_SUBSUP_SP_RE)보다 먼저 와야
     # `Ca²⁺`가 한 첨자 덩이 `Ca^{2+}`로 묶인다. 프라임 ′는 제17항 ' 로 통일.
     s = unicode_scripts_to_latex(s).replace("′", "'").replace("″", "''")
@@ -1126,7 +1161,8 @@ def _normalize_latex_input(latex: str) -> str:
         lambda m: (" " + _TC_JAMO_CELLS[m.group(1).strip()]
                    if m.group(1).strip() in ("7", "T", "L", "E", "B", "\\neg")
                    else f"({m.group(1)})"), s)
-    # 서식 래퍼(\boxed{…} 등) → 내용만. 중첩 대응으로 안정될 때까지 반복.
+    s = _mark_boxed(s)
+    # 서식 래퍼(\mathrm{…} 등) → 내용만. 중첩 대응으로 안정될 때까지 반복.
     prev = None
     while prev != s:
         prev = s
@@ -1292,10 +1328,14 @@ _GREEK_CMD_TIGHT_RE = re.compile(
         [n for n in _GREEK_NAMES] + [n.capitalize() for n in _GREEK_NAMES],
         key=len, reverse=True)) + r"))[ \t]+(?=[A-Za-z])")
 # 수 뒤 칸 + 로마자·그리스 문자(유니코드·명령 꼴) — 곱 생략 인접 표기라 칸을 지운다.
+# ★ 원장 M-14 — 근호 · 함수 이름 앞(`2 \sqrt {6}` · `2 \sin x`)과 지수 뒤 그리스 글자(`\sin^ {2} \theta`)의 칸도
+#   같은 산물이다. 남으면 `⠼⠃⠀⠜⠼⠋` · `⠖⠎⠘⠼⠃⠀⠨⠹` 가 나갔다. 「수학 점자」 제12항 1호 [다만](재추출 3317~3318행)
+#   "곱셈 기호가 생략된 수식에서는 숫자와 로마자 사이에 칸을 띄지 않고"와 같은 꼴로 본다. 2027 수학 Ⅰ gold 는
+#   수 바로 뒤 근호 217 : 칸 낀 꼴 1, 지수 뒤 그리스 글자 60 : 0 이다.
+_GREEK_CMD_ALT = "|".join(sorted(_GREEK_NAMES + [n.capitalize() for n in _GREEK_NAMES], key=len, reverse=True))
 _DIGIT_GAP_RE = re.compile(
-    r"(?<=\d) +(?=[A-Za-zα-ωΑ-Ω]|\\(?:" + "|".join(sorted(
-        _GREEK_NAMES + [n.capitalize() for n in _GREEK_NAMES],
-        key=len, reverse=True)) + r")(?![a-zA-Z]))")
+    r"(?<=\d) +(?=[A-Za-zα-ωΑ-Ω]|\\(?:" + _GREEK_CMD_ALT + r"|sqrt|sin|cos|tan|cot|sec|csc|log|ln)(?![a-zA-Z]))"
+    r"|(?<=\}) +(?=[α-ωΑ-Ω]|\\(?:" + _GREEK_CMD_ALT + r")(?![a-zA-Z]))")
 
 
 def _collapse_redundant_braces(latex: str) -> str:
@@ -1593,33 +1633,44 @@ def _stage2c_sqrt(result: str) -> str:
     return "".join(out)
 
 
+# 점근값은 부호와 한 덩이로 붙여 적는다. 2027 gold(참고서 · 교과서 lim 232쪽) `LIM;X 3O 9#A` · `3O 9=` · `3O #J5` ·
+#   `3O A9`. MinerU 는 부호를 띄우거나(`- 2` · `0 -`) 올려(`0^{-}`) 낸다. 띄운 칸이 남으면 화살표 · 점근값 둘레 칸과 섞였다.
+#   올린 꼴은 0c 가 한 글자 묶음을 걷어 `0^-` 로 온다.
+_LIM_VALUE_SIGN_RE = re.compile(r"^([-+−±∓])\s+|\s*\^\s*\{?\s*([-+−])\s*\}?\s*$|\s+([-+−])\s*$")
+
+
+def _lim_value(raw: str) -> str:
+    return convert_latex(_LIM_VALUE_SIGN_RE.sub(lambda m: m.group(1) or m.group(2) or m.group(3), raw.strip()))
+
+
 def _stage3_limit(result: str) -> str:
     """3. 극한 \\lim_{x \\to val} → lim;x ` val ` 함수 (제51항) + 단독 화살표.
 
     [입력] \\lim_{…\\to…} 구조가 원형. 화살표가 아직 \\to/\\rightarrow 또는 →.
-    [출력] 극한 머리가 완성 점자. 구분 칸은 **일반 공백**(sentinel 아님)이라
-      11e 연산 붙임의 영향권에 들어간다 — 화살표 ⠒⠕를 11e 대상에서 뺀 이유다.
+    [출력] 극한 머리가 완성 점자. 구분 칸(화살표 양쪽 · 점근값 뒤)은 sentinel _SP 라 11e 연산 붙임에
+      안 지워진다(1e 적분 범위와 같다). 종전 일반 공백은 점근값이 음수(`x \to -2`)면 화살표 뒤 칸이,
+      한쪽 극한(`x \to 0-`)이면 점근값 뒤 칸이 뺄셈표 ⠔ 에 붙어 지워졌다(`lim;x`3o9#b` · `#j9f8x0`).
     """
     def _lim_replace(m: re.Match) -> str:
         var = convert_latex(m.group(1).strip())
-        val = convert_latex(m.group(2).strip())
+        val = _lim_value(m.group(2))
         # 원장 M-07 — **규정 채택**(2026-09-30 pm). 제51항(재추출 3902~3904행) "lim 으로 적은 다음
         # 범위의 시작(변수), 화살표, 점근값의 순으로 적는다" · 예문 `LIM;X`3o`B`G8X0`(3908행).
         # 종전 book 모드는 구판 gold lim 420건 0% 를 근거로 화살표를 뺐으나 2027 dev·val gold 에
         # lim 이 0건이라 관행 근거가 구판 하나뿐이다(판본 역전 꼴). 규정이 명확한 자리는 규정대로.
-        return f"{_LIM_BRAILLE}{_SUBSCRIPT_IND}{var} {_ARROW_RIGHT} {val} "
+        return f"{_LIM_BRAILLE}{_SUBSCRIPT_IND}{var}{_SP}{_ARROW_RIGHT}{_SP}{val}{_SP}"
 
     def _substack_replace(m: re.Match) -> str:
         # 제51항 [붙임](3931~3935행) 범위가 둘이면 변수마다 ⠰ — `LIM;X 3o`A`;Y`3o`B`F8X"`Y0`.
         #   종전에는 `\substack` 가 _LIM_RE 에 안 걸려 `_` 가 점자에 그대로 샜다.
         heads = []
         for part in re.split(r"\\\\|" + _W2R_ROW_SEP, m.group(1)):
-            mm = re.match(r"\s*(.*?)(?:\\to|→|\\rightarrow)(.*)$", part, re.DOTALL)
+            mm = re.match(r"\s*(.*?)" + _LIM_ARROW + r"(.*)$", part, re.DOTALL)
             if not mm:
                 return m.group()
-            heads.append(f"{_SUBSCRIPT_IND}{convert_latex(mm.group(1).strip())} {_ARROW_RIGHT} "
-                         f"{convert_latex(mm.group(2).strip())}")
-        return f"{_LIM_BRAILLE}{' '.join(heads)} "
+            heads.append(f"{_SUBSCRIPT_IND}{convert_latex(mm.group(1).strip())}{_SP}{_ARROW_RIGHT}{_SP}"
+                         f"{_lim_value(mm.group(2))}")
+        return f"{_LIM_BRAILLE}{_SP.join(heads)}{_SP}"
 
     result = _LIM_SUBSTACK_RE.sub(_substack_replace, result)
     result = _LIM_RE.sub(_lim_replace, result)
@@ -1662,7 +1713,8 @@ def _stage4_log(result: str) -> str:
         # 숫자 거듭제곱 밑(`\log_{2^2}`)은 조항이 없어 관행을 따라 묶는다(원장 C-149, #1143). 안 묶으면
         #   `_;#b~#b#c` 로 지수와 진수가 붙는다. gold 94권 묶음 11 : 안 묶음 0(전부 수학 Ⅰ EBS-E26-009,
         #   `_;(#b~#b)#c`). 문자 거듭제곱 밑(`_;a~m`)은 gold 4곳 모두 안 묶어 그대로 둔다.
-        if (_needs_wrap(base_raw) or re.fullmatch(r"\d+\.\d+", base_raw) or "⠌" in base_raw
+        # #1437: 밑은 곱을 안 묶는다(붙임 1 은 분수 · 소수만, 재추출 3820행) — `product=False`.
+        if (_needs_wrap(base_raw, product=False) or re.fullmatch(r"\d+\.\d+", base_raw) or "⠌" in base_raw
                 or re.fullmatch(r"\d+\^(?:\{[^{}]*\}|\d)", base_raw)):
             return f"{_LOG_IND}{_SUBSCRIPT_IND}{_wrap_ins(base)}{tail}"
         # [다만] 밑이 문자면 괄호 진수는 그대로 잇는다
@@ -1795,6 +1847,11 @@ def _stage9_subscript(result: str) -> str:
         #   규정 제19항 1호와 같은 형식이고 수학·화학 양쪽에서 일관된다 → 규정형으로 낸다.
         #   (내린 숫자 `_DROPPED_DIGIT`는 로그 밑 제46항 전용으로 남는다.)
         sub  = convert_latex(sub_raw)
+        # lim 범위는 ⠰ 뒤에 묶지 않고 적는다(제51항, 재추출 3908 · 3918행 `LIM;X`3o`=`F8X0`). 3단계 `_LIM_RE` 가
+        #   못 잡은 꼴(화살표를 잃은 MinerU 출력 `x  1 -`)이 여기로 온다 — 곱으로 세어 묶었다(#1437). `\longrightarrow` 은
+        #   이제 3단계가 받는다(`_LIM_ARROW`).
+        if base == "m" and m.string[:m.start()].endswith("\\li"):
+            return f"{base}{_SUBSCRIPT_IND}{sub}"
         sub_w = _wrap_ins(sub) if _needs_wrap_out(sub_raw, sub) else sub
         return f"{base}{_SUBSCRIPT_IND}{sub_w}"
 
@@ -2360,6 +2417,7 @@ def convert_latex(latex: str) -> str:
     result = _stage11_numbers(result)               # 11·11a. 숫자 + a~j 구분점
     result = _finish_recurring(result)              # 11a2. 순환마디 표(제8항 2호)
     result = result.replace(_NOT_MARK, _NOT_NEG)    # 11a3. \not → 부정표 ⠨
+    result = result.replace(_BOX_OPEN_MARK, _BOX_OPEN).replace(_BOX_CLOSE_MARK, _BOX_CLOSE)  # 11a4. 네모 묶음(제73항)
     result = _stage11b_arithmetic(result)           # 11b. + =
     result = _stage11c_math_context_symbols(result)  # 11c. 문맥 overload 분기
     result = _tighten_operator_spacing(result)      # 11e. 연산·비교 기호 앞뒤 붙임
@@ -2573,23 +2631,110 @@ _FUNC_APPLY_RE = re.compile(
 # `\pi x` 는 곱이라 접으면 안 된다.
 _FUNC_BARE_RE = re.compile(rf"{_FUNC_NAME}\s*(?:\d+(?:[.,]\d+)*|[A-Za-z]|\\[a-zA-Z]+)")
 
+# ── 곱 판정 전용 원자 접기(#1437, 원장 M-13) ──────────────────────────────────────
+# 묶음 판정은 **최상위 인수**를 센다. 그 전에 한 덩어리인 것을 원자 하나(\x00)로 접는다.
+#   · 함수 이름은 위 `_FUNC_NAME` 에 `\log` 를 더한다(판정 전용 — 위 두 정규식의 이름 목록은 그대로 둔다).
+#     `\log_{6} 2` 는 함수값 하나다. 안 접으면 분자 · 지수 자리에서 곱으로 잡힌다.
+#   · 인자는 1단계 뒤 소괄호 ⠦⠴ 와 삼각 · 로그 인수 묶음 ⠷⠾(1f · 1g 단계)까지 본다. 그리스 글자도 인자다(`\sin θ`).
+#   · 소문자 + 괄호는 함수 이름 f · g · h 일 때만 함수값이다. `n(n+1)` · `a(r^n-1)` 은 곱이다
+#     (2027 수학Ⅰ gold 가 분자에서 묶는다). 괄호 안이 대문자 하나면(`n(A)` · `n(A_4)` 원소 개수) 함수값이다.
+#   · 대문자 + 괄호는 함수값이다(`Q(x)` · `F(x)` · `P(B|A)`). 제64항(재추출 4262행) `√V(p̂)` → `>,V8p@@50` 은
+#     근호 안 대문자 함수값을 안 묶는다. 수학 II 몫 `(x-1)Q(x)` 의 Q(x) 를 곱으로 세어 분모에서 묶었다.
+_JUDGE_FN = rf"(?:{_FUNC_NAME}|\\log)(?![A-Za-z])"
+_JUDGE_ARGS = r"(?:\([^()]*\)|⠦[^⠦⠴]*⠴|⠷[^⠷⠾]*⠾)"
+_JUDGE_SET_APPLY_RE = re.compile(
+    r"[A-Za-z]\s*(?:\(|⠦)\s*[A-Z]\s*(?:_\s*(?:\{[^{}]*\}|[A-Za-z0-9]))?\s*(?:\)|⠴)")
+_JUDGE_APPLY_RE = re.compile(rf"(?:{_JUDGE_FN}|\\[a-zA-Z]+|[fghA-Z])\s*[′']*\s*{_JUDGE_ARGS}")
+_JUDGE_BARE_RE = re.compile(rf"{_JUDGE_FN}\s*(?:\x00|\d+(?:[.,]\d+)*|[A-Za-zα-ωΑ-Ω]|\\[a-zA-Z]+)")
+_JUDGE_GROUP_RE = re.compile(_JUDGE_ARGS)
+_JUDGE_SIZE_RE = re.compile(r"\\(?:left|right|big|Big|bigg|Bigg)(?![A-Za-z])")
+_OPEN_ALL, _CLOSE_ALL = "({[⠦⠷", ")}]⠴⠾"   # 깊이 셈: 1단계 뒤 소괄호 ⠦⠴ · 묶음 ⠷⠾ 도 괄호다
 
-def _needs_wrap(expr: str, *, radicand: bool = False) -> bool:
+
+def _top_level(expr: str) -> str:
+    """괄호(ASCII · ⠦⠴ · ⠷⠾ · 중괄호) 밖, 깊이 0 글자만 남긴 것."""
+    depth, out = 0, []
+    for ch in expr:
+        if ch in _OPEN_ALL:
+            depth += 1
+        elif ch in _CLOSE_ALL:
+            depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def _strip_scripts(expr: str) -> str:
+    """위 · 아래첨자를 지운다 — 중첩 중괄호(`^{\\sqrt{2} - 1}`)까지. 첨자는 인수 셈에 안 든다."""
+    out, i = [], 0
+    while i < len(expr):
+        if expr[i] in "^_":
+            j = i + 1
+            while j < len(expr) and expr[j] == " ":
+                j += 1
+            if j < len(expr) and expr[j] == "{":
+                i = _extract_brace_content(expr, j)[1]
+                continue
+            if j < len(expr) and (expr[j].isalnum() or expr[j] in "′'"):
+                i = j + 1
+                continue
+        out.append(expr[i])
+        i += 1
+    return "".join(out)
+
+
+def _fold_atoms(expr: str) -> str:
+    """`\\cmd{…}{…}`(중첩 중괄호) · 함수 적용 · 괄호 무리를 원자(\\x00) 하나로 접는다."""
+    s = _JUDGE_SIZE_RE.sub("", expr)
+    out, i = [], 0
+    while i < len(s):
+        m = re.match(r"\\[a-zA-Z]+", s[i:])
+        if not m:
+            out.append(s[i])
+            i += 1
+            continue
+        k = j = i + m.end()
+        while j < len(s) and s[j] == " ":
+            j += 1
+        if j >= len(s) or s[j] != "{":
+            out.append(s[i:k])
+            i = k
+            continue
+        while True:                                   # 인자 중괄호 여럿(`\frac{…}{…}`)도 한 덩어리
+            j = _extract_brace_content(s, j)[1]
+            nxt = j
+            while nxt < len(s) and s[nxt] == " ":
+                nxt += 1
+            if nxt < len(s) and s[nxt] == "{":
+                j = nxt
+                continue
+            break
+        out.append("\x00")
+        i = j
+    s = _JUDGE_SET_APPLY_RE.sub("\x00", "".join(out))
+    s = _JUDGE_APPLY_RE.sub("\x00", s)
+    s = _JUDGE_BARE_RE.sub("\x00", s)
+    return _JUDGE_GROUP_RE.sub("\x00", s)             # 남은 괄호 무리는 인수 하나
+
+
+def _needs_wrap(expr: str, *, radicand: bool = False, product: bool = True) -> bool:
     """점역자 삽입 묶음 괄호 필요 판정 (수학 제7항 3호·제18항 붙임·제22항 붙임2).
 
-    `radicand=True` 는 **근호 안** 자리다(제14항 [붙임 2]). 그 자리에서는 book 모드에서도
-    곱을 묶는다 — 아래 ⚠ 의 관행 해제가 닿지 않는 자리다. 근거는 그쪽 주석(#877).
+    `radicand=True` 는 **근호 안** 자리다(제22항 [붙임 2], 재추출 3615~3618행). 종전에는 book 모드에서도 곱을 묶는
+    유일한 자리였다(#877).
+    #1437 부터 곱은 어느 자리 · 어느 모드에서나 묶으므로 이 표시는 판정을 바꾸지 않는다(호출부 표시로 남긴다).
+    `product=False` 는 곱을 묶지 않는 자리다 — 로그 밑(제46항 [붙임 1], 재추출 3820행)은 분수 · 소수만 묶는다.
 
-    묶는다: 다항식(이항 +/−), 분수(/·\\frac), 곱(인수 2개 이상 — xy·2a·2(m+n)).
+    묶는다: 다항식(이항 +/−), 분수(\\frac · /), 곱(최상위 인수 2개 이상 — xy·2a·2(m+n)·2√6·2 sin α·2×x×2).
     안 묶는다: 단일 수(소수·자릿점 포함, 제18항 x^#j4c)·단일 문자·문자^단일첨자
     (제22항 #c]x^#c)·미분소 dx·d²y(제53항 dx/dy 실측)·앞뒤 부호뿐인 수(이온 2−)·
-    이미 완전히 괄호로 묶인 식(제53항 y^(4) — 이중 괄호 방지)·단일 명령(\\pi 등).
+    이미 완전히 괄호로 묶인 식(제53항 y^(4) — 이중 괄호 방지)·단일 명령(\\pi 등)·
+    함수값 하나(√3 · f(x) · sin 2x · log₂ 6 · n(A))·괄호의 거듭제곱((2k+1)²).
 
-    ⚠ 분수 분자·분모의 곱 묶음을 book 모드에서 되살리는 시도는 기각됐다(2026-07-22
-    A/B: 요소 win 4 vs lose 42). gold는 계수×함수(2cosθ, p044)만 묶고 √3·f(x)·
-    sin2x 같은 단일 함수값은 안 묶는데, 아래 인수 셈은 \\sqrt{3}·f(x)를 2인수로
-    세어 과잉 묶음이 텍스트 인라인 수식 38건을 깨뜨렸다. 되살리려면 함수 적용
-    경계를 아는 원자 파서가 먼저다.
+    ★ #1437(원장 M-13, 판본 역전): 종전에는 book 모드(기본)에서 곱 판정을 껐다. 근거는 2026-07-22 구판 A/B
+    ('정답 도서는 묶지 않는다' 곱 묶음 해제 유사도 +2.1p · 되살린 시도 요소 win 4 : lose 42)였다. 2027 gold 는
+    규정대로 곱을 묶는다 — 분수표 바로 뒤 '수 × 근호' 분자 묶음 : 안 묶음이 구판 수학2 0 : 25 에서 2027 수학Ⅰ
+    86 : 1 로 뒤집혔다. 7-22 기각의 원인(√3 · f(x) 를 2인수로 세어 과잉 묶음)은 아래 원자 접기(`_fold_atoms`)가 닫는다.
     """
     expr = expr.strip()
     if not expr:
@@ -2615,51 +2760,42 @@ def _needs_wrap(expr: str, *, radicand: bool = False) -> bool:
         return False
     if re.fullmatch(r"[A-Za-z](?:\^(?:\{[^{}]*\}|[A-Za-z0-9]))?", expr):
         return False
-    if re.fullmatch(r"[+-]?(?:d|\\Delta ?|Δ ?)(?:\^(?:\{[^{}]*\}|[A-Za-z0-9]))?[A-Za-z]", expr):
-        return False   # 미분소 dx·d²y·증분 Δx (제53항·p146 gold ⠨⠙⠞⠌⠨⠙⠭ — 곱으로 세지 않음)
-    if re.fullmatch(r"\\[a-zA-Z]+|[-]", expr):
+    # 미분소 dx·d²y·증분 Δx (제53항·p146 gold ⠨⠙⠞⠌⠨⠙⠭ — 곱으로 세지 않음). 미분소의 거듭제곱 dx² 도 하나다 —
+    #   제53항 2호 이계도함수 예문 `d^#by/dx^#b`(분모 안 묶음). #1437 로 곱 판정이 모드와 무관해지며 드러났다.
+    #   MinerU 띄어쓰기(`d x ^ {2}`)도 같은 꼴로 본다. 첨자 붙은 변수의 미분소 `dx₁`(수학 II 속도 `dx_1/dt`)와
+    #   `\varDelta` 도 하나다 — 제52항(재추출 3937~3938행) 변화율 Δy/Δx 는 `,.dx/,.dy` 로 안 묶는다.
+    if re.fullmatch(r"[+-]?(?:d|\\(?:var)?Delta|Δ)(?:\^(?:\{[^{}]*\}|[A-Za-z0-9]))?[A-Za-z]"
+                    r"(?:[_^](?:\{[^{}]*\}|[A-Za-z0-9]))*", re.sub(r"\s+", "", expr)):
         return False
-    # 분수 → 묶음 (제7항 3호·제46항 붙임)
-    if "\\frac" in expr or "/" in expr:
+    if re.fullmatch(r"\\[a-zA-Z]+|[-]", expr):
+        return False
+    # 분수 → 묶음 (제7항 3호·제46항 붙임). **최상위**에 있을 때만이다(#1437) — 함수 인수 · 근호 · 괄호 속 분수는
+    #   그 함수값 하나다. `\sin⠷\frac{π}{6}⠾` 을 분모에서 통째로 묶던 것(gold 는 sin 인수만 묶는다, 수학Ⅰ 해설 36쪽).
+    #   2c 단계(근호)에는 분수가 이미 점형이라 분수표 ⠌ 로도 본다(#1439) — 제22항 [붙임 2](재추출 3615행) "근호 안이 분수 … 일 때에는
+    #   묶음 괄호로". 못 보던 때는 `√(1/2)` 가 `>#b/#a` 로 나가 `1/√2` 와 같은 점형이 됐다(수학Ⅰ 해설 19쪽 gold `>(#d/#e)`).
+    top = _top_level(expr)
+    if re.search(r"\\[dt]?frac(?![A-Za-z])", top) or "/" in top or _FRACTION_MID in top:
         return True
-    # 이항 +/− (괄호 밖, 양쪽에 피연산자) → 다항식
+    # 이항 +/− (괄호 밖, 양쪽에 피연산자) → 다항식. 깊이는 1단계 뒤 소괄호 ⠦⠴ · 묶음 ⠷⠾ 까지 센다(#1437) —
+    #   ASCII 괄호만 세면 `⠦2k+1⠴^{2}` 의 + 가 깊이 0 이 되어 괄호의 거듭제곱을 다항식으로 묶었다.
     depth = 0
     for i, ch in enumerate(expr):
-        if ch in ("(", "{", "["):
+        if ch in _OPEN_ALL:
             depth += 1
-        elif ch in (")", "}", "]"):
+        elif ch in _CLOSE_ALL:
             depth -= 1
         elif ch in ("+", "-") and depth == 0 and 0 < i < len(expr) - 1:
             return True
-    # 곱 판정: 첨자 그룹 제거 후 인수(문자·수·명령·괄호군) 2개 이상.
-    # 규정은 곱도 묶으라 하지만(제7항 3호·제22항 [붙임2]) 정답 도서는 묶지 않는다 —
-    # A/B에서 곱 묶음 해제가 유사도 +2.1p(temp/wrap_variant_ab.py). 관행이라 book 모드
-    # 한정으로 해제하고, regulation 모드는 규정대로 묶는다.
-    #
-    # ★ #877 — **근호 안(`radicand`)은 이 해제가 닿지 않는다.**
-    #   규정이 그 자리를 따로 집어 말한다: 「수학 점자」 제14항 [붙임 2](규정 재추출
-    #   3615~3618행) "근호 안이 분수, 곱, 다항식 등일 때에는 묶음 괄호로 묶어 나타낸다"
-    #   + 보기 `√―xy → >(xy)`. 제6항 2호(3110행)도 같은 보기를 든다.
-    #   관행 쪽은 **증거가 없다** — 동결 코퍼스 gold 의 근호 중 묶음 괄호를 쓴 것은 4건인데
-    #   넷 다 다항식이고(`{f'(t)}²+{g'(t)}²` 꼴), 안 묶은 258건은 전부 `√3` 같은 **단항**이다.
-    #   즉 gold 에 근호 안 곱이 **0건**이라 위 A/B(+2.1p)가 이 자리를 잰 적이 없다.
-    #   규정만 있고 관행이 침묵하면 규정대로 간다(CLAUDE.md 판정표).
-    #   실측 규모: 추출물 근호 1,304건 중 곱은 11건(0.8%) — 작지만 규정이 요구하는 것을
-    #   빈도로 빼지 않는다.
-    if _IS_BOOK_STYLE and not radicand:
+    if not product:
         return False
-    flat = re.sub(r"[\^_](?:\{[^{}]*\}|[A-Za-z0-9])", "", expr)
-    # ★ #877 — 세기 전에 **함수 적용과 명령 인자를 원자 하나로 접는다.**
-    #   위 ⚠ 가 기각된 이유가 정확히 이것이다: `f(x)`를 `f`+`(x)` 로, `\sqrt{3}`을
-    #   `\sqrt`+`3` 으로 세면 **단일 함수값이 곱으로 잡혀** 과잉 묶음이 난다
-    #   (2026-07-22 A/B 에서 텍스트 인라인 수식 38건이 이렇게 깨졌다).
-    #   전면 원자 파서는 아직 없고, 여기서는 두 꼴만 접으면 그 함정이 닫힌다.
-    #   ⚠ 이 자리에 오는 `expr` 은 **1단계를 지난 반쯤 점자**다 — 소괄호가 이미 ⠦ ⠴ 로
-    #     바뀌어 있다(실측: `\sqrt{f(x)}` → `f⠦x⠴`). ASCII 괄호만 보면 안 걸린다.
-    #     위 "이미 완전 괄호" 검사가 두 꼴을 다 보는 이유와 같다.
-    flat = re.sub(_FUNC_APPLY_RE, "\x00", flat)   # f⠦x⠴ · \sin⠦x⠴ · \vec{a}
-    flat = re.sub(_FUNC_BARE_RE, "\x00", flat)    # \sin x · \ln 2
-    factors = re.findall(r"\x00|\\[a-zA-Z]+|\d+(?:[.,]\d+)*|[A-Za-z]|\([^()]*\)", flat)
+    # 부호 + 괄호 무리(`−(−2)`)는 식이다 — 종전(괄호 속 −를 깊이 0 으로 보던 판정)과 같게 묶는다.
+    if re.fullmatch(r"[+\-−]\s*(?:⠦.*⠴|\(.*\))", expr):
+        return True
+    # 곱 판정: 첨자를 지우고(중첩 중괄호까지) 원자를 접은 뒤 최상위 인수(문자·수·명령·원자) 2개 이상.
+    #   규정 제7항 3호(재추출 3149행) · 제6항 2호(3110행) · 지수 [붙임](3540행) · 아래첨자 [붙임](3573행).
+    flat = _fold_atoms(_strip_scripts(expr))
+    factors = [f for f in re.findall(r"\x00|\\[a-zA-Z]+|\d+(?:[.,]\d+)*|[A-Za-zα-ωΑ-Ω]", flat)
+               if f not in ("\\times", "\\cdot", "\\quad", "\\qquad")]
     return len(factors) >= 2
 
 
@@ -2753,8 +2889,10 @@ def _needs_wrap_out(raw: str, braille: str) -> bool:
     """
     if _already_wrapped(braille):
         return False
+    # 분수표는 **최상위**(⠷⠾ · ⠦⠴ 밖)일 때만 이 자리가 분수다(#1437). 로그 진수 · 함수 인수 속 분수표를 보고
+    #   `2^{\log_2 \frac{y}{3}}` 의 지수를 통째로 묶던 것(gold 안 묶음, 수학Ⅰ 해설 5쪽).
     return (_needs_wrap(raw) or _is_monomial_product(raw)
-            or _FRACTION_MID in braille)
+            or _FRACTION_MID in _top_level(braille))
 
 # 한글이 든 분자 · 분모는 한글표 ⠸⠷ · 한글 종료표 ⠸⠾ 로 묶고 분수표는 붙여 적는다(#1183 2차, 원장 B-26 관행 채택).
 # 「한국 점자 규정」 수학 제6항 [붙임](재추출본 3121~3124행): 한글이 포함된 수식에서 수식의 일부를 묶어야 할 경우
