@@ -261,6 +261,7 @@ Options(
     "page_row_pages": "odd",        // odd | every
     "show_orig_page": true,         // 끄면 원본 페이지 변경선도 함께 꺼진다
     "show_braille_page": true,
+    "show_change_line": true,       // 원본 페이지 변경선(끄면 안 넣는다, 3.4.27)
     "pad_to_even": false            // 홀수 면에서 끝나면 빈 면 하나를 더한다
   }
 }
@@ -301,6 +302,7 @@ Options(
 |---|---|
 | 넣을 페이지 (홀수 · 모든) | `opts.page_row_pages` |
 | 원본 페이지 번호 · 점자 페이지 번호 | `opts.show_orig_page` · `opts.show_braille_page` |
+| 원본 페이지 변경선 | `opts.show_change_line` |
 | 꼬리말 | `footer` |
 | 꼬리말 정렬 | `opts.footer_align` |
 | 꼬리말 수정 범위 | `footers` |

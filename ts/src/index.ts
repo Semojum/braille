@@ -557,6 +557,8 @@ export interface JobOptions {
   page_row_pages?: 'odd' | 'every';
   show_orig_page?: boolean;
   show_braille_page?: boolean;
+  /** 원본 페이지 변경선. 끄면 넣지 않는다(show_orig_page 를 끄면 이 값과 상관없이 꺼진다). */
+  show_change_line?: boolean;
   pad_to_even?: boolean;
 }
 
@@ -588,7 +590,7 @@ export function optionsFromJob(job: Job): Partial<Options> {
     pageRowOn: rowsOn,
     coverPages: o.cover_orig_page_count ?? 0,
     origPageStart: o.orig_page_first_no ?? null,
-    showChangeLine: true,
+    showChangeLine: o.show_change_line ?? true,
     footerAlign: o.footer_align ?? 'center',
     footerMode: o.footer_mode ?? 'carry',
     wrap: o.wrap ?? 'syllable',

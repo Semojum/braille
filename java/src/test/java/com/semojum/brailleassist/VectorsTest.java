@@ -161,7 +161,7 @@ class VectorsTest {
                         o != null && o.has("cover_orig_page_count") ? o.get("cover_orig_page_count").asInt() : 0,
                         o != null && o.has("orig_page_first_no") && !o.get("orig_page_first_no").isNull()
                                 ? o.get("orig_page_first_no").asInt() : null,
-                        true,
+                        o == null || !o.has("show_change_line") || o.get("show_change_line").asBoolean(),
                         o != null && o.has("footer_align") ? o.get("footer_align").asText() : "center",
                         j.has("footer") ? j.get("footer").asText() : "",
                         jf,

@@ -3926,6 +3926,46 @@
         "expect": ""
       },
       {
+        "name": "조판 job 원본 페이지 변경선 끔(show_change_line, #78)",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32,
+              "show_change_line": false
+            },
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "sources": [
+              {
+                "orig_page": 7,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "heading_level": 1,
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                  }
+                ]
+              },
+              {
+                "orig_page": 8,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  ,o1,{b\n  o;raz d<o\n  #b/#a\n\n\n#g           es\"oe1           #a",
+        "source": "BE 업로드 옵션의 변경선 끄기를 job 이 받는다(종전엔 늘 켜짐)"
+      },
+      {
         "name": "조판 job 원본 쪽 꼬리말 그 쪽만(#78)",
         "args": {
           "job": {

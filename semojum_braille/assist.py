@@ -655,7 +655,7 @@ def build_pages(
 #    "footers": {"3": "…"},         # 면별 꼬리말(점자 면 번호 → 꼬리말, 그 면만, 선택)
 #    "footers_by_orig_page": {"7": "…"},   # 원본 쪽에 꽂은 꼬리말(범위는 opts.footer_mode, 선택, 2026-10-19)
 #    "opts": {"cols": 32, "rows": 26, "wrap": "syllable|word", "footer_align": "left|center|right",
-#             "footer_mode": "carry|page",
+#             "footer_mode": "carry|page", "show_change_line": true,
 #             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
 #             "page_row_pages": "odd|every", "show_orig_page": true, "show_braille_page": true,
 #             "pad_to_even": false}}
@@ -704,6 +704,7 @@ def options_from_job(job: dict) -> Options:
         page_row_on=rows_on,
         cover_pages=int(o.get("cover_orig_page_count") or 0),
         orig_page_start=None if start in (None, "") else int(start),
+        show_change_line=_opt_flag(o, "show_change_line", True),   # 종전엔 job 이 못 끄던 값(BE 업로드 옵션에 있다, #78)
         footer_align=str(o.get("footer_align") or "center"),
         footer_mode=str(o.get("footer_mode") or "carry"),
         wrap=str(o.get("wrap") or "syllable"),
