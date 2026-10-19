@@ -215,7 +215,14 @@ _LIM_RE    = re.compile(
 _LOG_BASE_RE = re.compile(r"\\log_\{([^{}]*)\}")
 # 밑은 한 겹 중괄호까지(`\log_{2^{2}}`). 밑 뒤 공백도 먹는다 — `\log_{3} \sqrt{6}` 의 공백이 빈칸 셀로 남아 `_,3⠀>#f` 가 됐다(#1074,
 # 규정·2027 gold 는 `_,3>#f`). 한 글자 밑 `\log_a` 는 4단계 머리에서 `\log_{a}` 로 맞춘다.
-_LOG_BASE_FULL_RE = re.compile(r"\\log_\{((?:[^{}]|\{[^{}]*\})*)\}\s*(?:⠦([^⠦⠴]*)⠴)?")
+# 괄호 진수 뒤의 지수 · 이어진 괄호 인수(`(1/2)^x` · `(x-1)(x+2)`)는 진수다(group 3). 숫자 밑 묶음은 그것까지 감싼다(#1445).
+#   괄호 하나만 감싸던 때는 `_,8(8#b/#a0)~x` 로 지수가 로그 밖에 걸렸다(2027 수학Ⅰ gold `_,8(8#b/#a0~x)` 5 : 0).
+# 진수로 이어 붙이는 괄호 인수. 관계 기호가 든 괄호는 조건(`\log_{2}(-x) & (x<0)`, 해설 12쪽 gold `_,2(89x0)`8x99#j0`)이고
+#   로그가 든 괄호는 따로 곱하는 인수다(`\log_{6} 2(6\log_{6} 2-\log_{3} 6)`, 해설 7쪽 다음 줄 `3(\log_{6} 2)^{2}`). 둘 다 진수가 아니다.
+_LOG_PAREN = r"⠦(?:(?!\\(?:log|[lg]eq?|neq?)(?![A-Za-z]))[^⠦⠴<>=≤≥≠])*⠴"
+_LOG_BASE_FULL_RE = re.compile(
+    r"\\log_\{((?:[^{}]|\{[^{}]*\})*)\}\s*(?:⠦([^⠦⠴]*)⠴"
+    r"((?:\s*\^\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[A-Za-z0-9]))?(?:\s*" + _LOG_PAREN + r")*))?")
 # \log_base (단일 문자/숫자) — 규칙 이력(rule_trail) 잔여 계산용. 점역은 4단계가 중괄호 꼴로 맞춘다.
 _LOG_BASE1_RE = re.compile(r"\\log_([A-Za-z0-9])")
 # \abs{x} 또는 \left| ... \right|
@@ -240,6 +247,8 @@ _ACC_POSTFIX_RE = re.compile(
 _ACC_POSTFIX_MARK = {"bar": "⠈⠉", "overline": "⠈⠉", "hat": "⠈⠈⠢", "widehat": "⠈⠈⠢",
                      "dot": "⠈⠲", "ddot": "⠈⠲⠲", "tilde": "⠈⠈⠔", "widetilde": "⠈⠈⠔"}
 _CAPS_RUN_RE = re.compile(r"^[A-Z](?:['′⠤]?[A-Z])+['′⠤]?$")
+# 묶음 판정에서 인수 하나로 세는 앞 기호형 점형(선분 ⠈⠉ · 벡터 ⠒⠕ · ⠪⠒⠕ · 호 ⠈⠪ + 대문자표 + 글자, #1445)
+_SEG_ATOM_RE = re.compile(r"(?:⠈⠉|⠪⠒⠕|⠒⠕|⠈⠪)⠠?⠠?[⠁-⠵]+")
 
 # ── 순열·조합(제62항): nPr = ,P(N R) — P·C·H·중복순열 ,.P. 묶음은 _WRAP(관행/규정 분기) ──
 # 선행 문자 가드: P₁P₂(점 이름 아래첨자 곱)를 순열로 오인하지 않게, 왼쪽 첨자는
@@ -314,9 +323,15 @@ _TRIG_ARG_RE = re.compile(
 # 진수 묶음(제46항 [붙임 2], #1074) — 괄호 없는 분수 · 곱 진수. 괄호 진수는 4단계가 본다.
 _LOG_HEAD = r"\\log(?:_\{[^{}]*\}|_[A-Za-z0-9])?"
 _LOG_ATOM = rf"(?:\\sqrt\{{[^{{}}]*\}}|[A-Za-z{_TRIG_GREEK}])"
+# 분수 진수는 칸 중괄호를 세 겹까지 받고(`\frac{1}{2^{\frac{3}{4}}}` · `\frac{a_{5}}{a_{3}}`), 뒤에 붙은 곱 글자(`\frac{1}{2}a`)까지
+#   묶는다. 수 × 괄호(`2(x-2)`)도 곱이다. 한 겹만 받던 때는 첨자 · 지수 든 분수 진수를 안 묶었다(#1445, 2027 수학Ⅰ gold
+#   `_,2(#b~(#d/#c)/#a)` · `_;p(#b/#a"a)` · `_,3(a;#c/a;#e)` · `_,2(#b8x9#b0)`). 글자 × 괄호는 함수값(`f(x)`)과 못 갈라 안 받는다.
+_LOG_BR = r"\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}"
+_LOG_FRAC = rf"\\frac{_LOG_BR}{_LOG_BR}"
 _LOG_ARG_RE = re.compile(
     rf"({_LOG_HEAD})\s*"
-    rf"({_TRIG_FRAC}|(?:\d+(?:\.\d+)?|{_LOG_ATOM})(?:\s*{_LOG_ATOM})+)"
+    rf"({_LOG_FRAC}(?:\s*{_LOG_ATOM})*|(?:\d+(?:\.\d+)?|{_LOG_ATOM})(?:\s*{_LOG_ATOM})+"
+    rf"|\d+(?:\.\d+)?(?:\s*{_LOG_PAREN})+)"
     r"(?![\^_{⠦A-Za-z0-9])")
 
 
@@ -1207,7 +1222,7 @@ def _normalize_latex_input(latex: str) -> str:
 #   등호로 오인해 지워 `p⇒ q`처럼 한쪽만 붙는 비대칭이 나갔다(2026-09-10 정정).
 _MULTI_TIGHT = "⠨⠒⠒(?!⠕)|⠨⠢⠢|⠨⠔⠔|⠨⠲⠲|⠨⠖⠖|⠐⠒⠒|⠐⠂|⠨⠳|⠳"
 _TIGHT_OPS_RE = re.compile(
-    r"(\S)[ ⠀]*(" + _MULTI_TIGHT +
+    r"(?<=(\S))[ ⠀]*(" + _MULTI_TIGHT +
     r"|(?<![⠈⠸])⠒⠒(?!⠕)|(?<![⠈⠸])⠢|(?<![⠈⠸])⠔|×|÷|<|>|≤|≥|≠|±|∓|≒|:)[ ⠀]*(?=(\S))")
 
 
@@ -1260,9 +1275,14 @@ def _tighten_operator_spacing(result: str) -> str:
         left, op, right = m.group(1), m.group(2), m.group(3)
         if _hangul_or_sentinel(left) or _hangul_or_sentinel(right):
             return m.group(0)
-        return f"{left}{op}"
+        return op
 
-    return _TIGHT_OPS_RE.sub(_repl, result)
+    # 기호 둘이 칸을 두고 잇달면(닫는 절댓값 막대 ⠳ 다음 ⠒⠒) 앞 매치가 뒤 기호의 왼쪽 글자를 먹어 뒤 기호 뒤 칸이 남았다
+    #   (`|…|33⠀#b`, 2027 수학Ⅰ gold `|…|33#b`). 왼쪽 글자는 뒤돌아보기로만 보고, 남은 칸이 없을 때까지 다시 훑는다(#1445).
+    prev = None
+    while prev != result:
+        prev, result = result, _TIGHT_OPS_RE.sub(_repl, result)
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1598,7 +1618,7 @@ def _stage1g_log_arg_group(result: str) -> str:
     r"""1g. 로그 진수 묶음 (수학 제46항 [붙임 2], #1074).
 
     [입력] \log 가 아직 LaTeX 이고 분수 · 근호도 LaTeX 꼴(2 · 2c 단계 전).
-    [출력] 괄호 없는 분수 · 곱 진수에 묶음표(_WRAP_S/E)가 씌워진 상태.
+    [출력] 괄호 없는 분수 · 곱 진수(수 × 괄호 `2(x-2)` 포함, #1445)에 묶음표(_WRAP_S/E)가 씌워진 상태.
 
     규정: 진수가 분수 · 곱 · 다항식 · 괄호면 묶음 괄호로 묶는다(`_;A(V/U)`). 괄호 진수는
     4단계가 밑에 따라 가른다([다만] 밑이 문자면 안 묶음). 괄호 없는 다항식은 진수 끝을
@@ -1696,7 +1716,7 @@ def _stage4_log(result: str) -> str:
     def _log_base_replace(m: re.Match) -> str:
         base_raw = m.group(1).strip()
         trailing = m.group(2)
-        tail = f"⠦{trailing}⠴" if trailing is not None else ""
+        tail = f"⠦{trailing}⠴{m.group(3) or ''}" if trailing is not None else ""   # 뒤 지수 · 괄호 인수까지 진수(#1445)
         base = convert_latex(base_raw)
         # 밑이 숫자(다자리 포함): _, + 수표 없이 내린 숫자들 (제46항 1호)
         if base_raw.isdigit():
@@ -2778,13 +2798,17 @@ def _needs_wrap(expr: str, *, radicand: bool = False, product: bool = True) -> b
         return True
     # 이항 +/− (괄호 밖, 양쪽에 피연산자) → 다항식. 깊이는 1단계 뒤 소괄호 ⠦⠴ · 묶음 ⠷⠾ 까지 센다(#1437) —
     #   ASCII 괄호만 세면 `⠦2k+1⠴^{2}` 의 + 가 깊이 0 이 되어 괄호의 거듭제곱을 다항식으로 묶었다.
-    depth = 0
+    #   절댓값 막대 `| … |` 안 ± 도 최상위가 아니다(#1445) — 절댓값 하나는 곱도 다항식도 아니라 안 묶는다(제7항 3호 3149행,
+    #   2027 gold 절댓값 하나뿐인 분수 칸 안 묶음 55 : 묶음 0, 수학Ⅰ 본문 21쪽 `/|#d*#j9#j5#a|`).
+    depth, in_abs = 0, False
     for i, ch in enumerate(expr):
         if ch in _OPEN_ALL:
             depth += 1
         elif ch in _CLOSE_ALL:
             depth -= 1
-        elif ch in ("+", "-") and depth == 0 and 0 < i < len(expr) - 1:
+        elif ch == "|":
+            in_abs = not in_abs
+        elif ch in ("+", "-") and depth == 0 and not in_abs and 0 < i < len(expr) - 1:
             return True
     if not product:
         return False
@@ -2793,7 +2817,11 @@ def _needs_wrap(expr: str, *, radicand: bool = False, product: bool = True) -> b
         return True
     # 곱 판정: 첨자를 지우고(중첩 중괄호까지) 원자를 접은 뒤 최상위 인수(문자·수·명령·원자) 2개 이상.
     #   규정 제7항 3호(재추출 3149행) · 제6항 2호(3110행) · 지수 [붙임](3540행) · 아래첨자 [붙임](3573행).
-    flat = _fold_atoms(_strip_scripts(expr))
+    #   절댓값 무리는 인수 하나다. 이미 점형이 된 선분 · 벡터 · 호(`\overline{AE}` → ⠈⠉⠠⠠⠁⠑)도 인수 하나로 센다(#1445) —
+    #   안 세던 때는 `2 \overline{AE}` · `2 × DE × BE` 가 수 하나로 잡혀 분수 칸에서 안 묶였다(2027 수학Ⅰ gold `(#b@c,,ae)/#c`
+    #   · `(#b*@c,,de*@c,,be)/`, 선분 곱 칸 묶음 13 : 반례 0). 점형 덩어리를 통째로 세면 지수 속 로그 머리 ⠸⠠⠆ 까지
+    #   인수가 되어 `2^{\log_{2} x}` 를 묶는다(gold 안 묶음, 해설 5쪽) — 선분 꼴만 센다.
+    flat = _SEG_ATOM_RE.sub("\x00", re.sub(r"\|[^|]*\|", "\x00", _fold_atoms(_strip_scripts(expr))))
     factors = [f for f in re.findall(r"\x00|\\[a-zA-Z]+|\d+(?:[.,]\d+)*|[A-Za-zα-ωΑ-Ω]", flat)
                if f not in ("\\times", "\\cdot", "\\quad", "\\qquad")]
     return len(factors) >= 2
@@ -2903,6 +2931,11 @@ def _needs_wrap_out(raw: str, braille: str) -> bool:
 # 되돌리기 `TEXT_FRACTION_WRAP=0`(호출 때 읽음).
 _KOR_GROUP_S, _KOR_GROUP_E = "⠸⠷", "⠸⠾"
 
+# ★ 원장 M-15(관행 채택, 2026-10-19 pm): 분모가 부호 붙은 수 · 글자 하나(`\frac{1}{-9}`)면 묶음 괄호로 묶는다(#1445).
+#   안 묶으면 `9#i/#a` 가 `-\frac{1}{9}` 와 같은 점형이다. 조항이 없다(제7항 3호 3149행은 곱 · 다항식만).
+#   2027 gold 음수 분모 묶음 23곳(4권, 수학Ⅰ 해설 53쪽 `(9#i)/#a`). 음수 분자는 gold 가 갈려(묶음 11 : 안 묶음 32) 안 건드린다.
+_NEG_DEN_RE = re.compile(r"[-−]\s*(?:\d+(?:[.,]\d+)*|[A-Za-zα-ωΑ-Ω])")
+
 
 def _kor_group(raw: str, braille: str, kor: set) -> str | None:
     """분자 · 분모 원문(`raw`, \\text 는 이미 sentinel)에 한글 sentinel 이 들면 한글표로 묶은 점형."""
@@ -2923,7 +2956,8 @@ def _apply_fracs(latex: str, kor: set = frozenset()) -> str:
                 num = convert_latex(num_raw)
                 den = convert_latex(den_raw)
                 den_wrapped = _kor_group(den_raw, den, kor) or (
-                    _wrap_ins(den) if _needs_wrap(den_raw) or _is_monomial_product(den_raw) else den)
+                    _wrap_ins(den) if _needs_wrap(den_raw) or _is_monomial_product(den_raw)
+                    or _NEG_DEN_RE.fullmatch(den_raw.strip()) else den)
                 num_wrapped = _kor_group(num_raw, num, kor) or (
                     _wrap_ins(num) if _needs_wrap(num_raw) or _is_monomial_product(num_raw) else num)
                 frac = f"{den_wrapped}{_FRACTION_MID}{num_wrapped}"

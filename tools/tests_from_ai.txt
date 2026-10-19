@@ -57,6 +57,7 @@ test/unit_test/braille/test_markup_fragment_leak.py
 test/unit_test/braille/test_mask_runs_t25.py
 test/unit_test/braille/test_math_comma_space.py
 test/unit_test/braille/test_math_convert_1443.py
+test/unit_test/braille/test_math_group_1445.py
 test/unit_test/braille/test_math_product_group_1437.py
 test/unit_test/braille/test_mineru_token_gap.py
 test/unit_test/braille/test_odd_space_separator.py
@@ -177,8 +178,7 @@ test/unit_test/braille/test_kiwi_load_lock_1324.py
 test/unit_test/quality/test_page_content_risk.py
 
 # ── 2026-10-19 추가(#82): 경로 치환만으로 도는 36개(화학 · 과학 14 · 영어 13 · 글자 · 조판 8 · 한글 급수 1) ──
-# 안 옮긴 것: test_decode_eng_blank_ctx · test_decode_head_english(홀드아웃 권 gold 줄이 입력 · 주석에 있다.
-#   「한국 점자 규정」 [부록 1] 예문으로 다시 써서 따로 옮긴다).
+# 그때 안 옮긴 영어 둘(홀드아웃 권 gold 줄)은 AI #1452 에서 규정 · 지침 예문 입력으로 다시 써서 #84 에서 옮겼다(아래).
 test/unit_test/braille/test_answer_pair_breaks.py
 test/unit_test/braille/test_be_syllable.py
 test/unit_test/braille/test_chem_bonds_t36.py
@@ -215,3 +215,7 @@ test/unit_test/braille/test_tn_head_indent_c139.py
 test/unit_test/braille/test_ueb_abolished_contractions.py
 test/unit_test/braille/test_unicode_sub_letters_t36.py
 test/unit_test/braille/test_url_email_t36.py
+
+# ── 2026-10-19 추가(#84): 규정 · 지침 예문 입력으로 다시 쓴 영어 역점역 시험 둘(AI #1452) ──
+test/unit_test/braille/test_decode_eng_blank_ctx.py
+test/unit_test/braille/test_decode_head_english.py

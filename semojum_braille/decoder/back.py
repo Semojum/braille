@@ -3017,7 +3017,8 @@ _ENG_LONE_WORD = {"⠆": "be", "⠦": "his", "⠔": "in",
                   "⠴": "was", "⠶": "were", "⠖": "to", "⠔⠖": "into"}
 # 빈칸 `___` — 통일영어점자 밑줄 ⠨⠤ (한글 점자의 밑줄 빈칸 ⠸⠤ 와 다른 셀). 홀로 선 낱말로만 본다.
 # gold 전권 홀로 선 ⠨⠤ 7,684회(영어 책 7,029)가 전부 빈칸이다. 낱말로 못 읽어 줄 영어 판정이
-# 통째로 떨어졌다 — `___ is highlighted in a study` 가 `자- 더 타다사다얼가 - a 예오푀`.
+# 통째로 떨어졌다 — 규정 예문으로 지은 `___ are small side dishes served along with` 가
+# `자- 야마 어욱사사 어다파마 파듀머 어영와가 a사춘 언`(시험 test_decode_eng_blank_ctx).
 # 앞 ⠴ 는 로마자표다. 증거(기능어)로는 안 센다. 정방향은 한글 점자 꼴 ⠸⠤ 를 낸다(원장 C-05 부록 10-07).
 _ENG_BLANK_RE = re.compile(r"⠴?(?:⠨⠤)+([⠂⠲⠦⠖⠆⠒]?)")
 
@@ -3826,8 +3827,8 @@ _GAP_MATH_CLEAN_RE = re.compile(r"(?=.*[A-Za-zα-ωΑ-Ω])[A-Za-z0-9α-ωΑ-Ω+\
 
 
 # ── 말머리·글머리 뒤 영어 몸통 (#1161) ─────────────────────────────────────────
-# 줄 통째로는 영어 판정이 안 되는데 머리 토막을 떼면 영어인 줄 — `• This provides students…` ·
-# `제이크: Where are you…` · `2. Data for other…`. 머리는 한글 경로로, 몸통은 영어 줄 판정
+# 줄 통째로는 영어 판정이 안 되는데 머리 토막을 떼면 영어인 줄 — 규정 예문으로 지으면 `• are small side…` ·
+# `일시: What Is A Youth?` · `1. served along with`(시험 test_decode_head_english). 머리는 한글 경로로, 몸통은 영어 줄 판정
 # (`_english_any`, 엄격)으로 읽는다. 자르는 곳은 **줄 머리 한 번**뿐이고 머리는 닫힌 목록이다.
 # ⚠ 그냥 한글 낱말 머리는 안 받는다 — 비영어 책에서 몸통이 엄격 판정을 191줄 통과했다
 #   (`방식으로 읽는 것이 속도는 더`). 점역자주 표 ⠠⠄ 를 품은 머리(`【점역자주】그림:`)도 안 받는다.
@@ -3835,7 +3836,8 @@ _GAP_MATH_CLEAN_RE = re.compile(r"(?=.*[A-Za-zα-ωΑ-Ω])[A-Za-z0-9α-ωΑ-Ω+\
 _HEAD_SYMBOLS = frozenset({"⠸⠲", "⠸⠶", "⠸⠴", "⠐⠔", "⠐⠶", _ARROW_RIGHT})   # • □ ∘ * 〈 →
 _HEAD_NUMBER_RE = re.compile(r"⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚]+⠲?")
 # 몸통 안에 로마자표로 열고 종료표로 닫은 구간 뒤에 토막이 더 있으면 그 줄은 한글 문맥이다(제29항).
-#   단어장 `□ ⠴retail⠲ 소매` 가 문맥 영어로 먹혀 `□ retail. Uer` 가 됐다(B팔 실측 40줄 안팎).
+#   단어장 꼴(B팔 실측 40줄 안팎)이 문맥 영어로 먹혔다. 규정 예문으로 지은 `□ ⠴help⠲ 도움` 은
+#   `□ help. iumen` 이 된다(시험 test_decode_head_english).
 _HEAD_CLOSED_ROMAN_RE = re.compile("⠴[^⠀]*(?:⠀[^⠀]+)*?⠲⠀+[^⠀]")
 # 머리 자른 줄을 쪽 문맥의 씨앗으로 세고, 문맥 판정(이웃 번짐)도 받게 한다. `BR_HEAD_ENG_CTX=0` 이면 끈다.
 _HEAD_ENG_CTX = os.environ.get("BR_HEAD_ENG_CTX", "1").lower() not in ("0", "false", "off")
@@ -3865,7 +3867,7 @@ def _head_split_english(line: str, *, ctx: bool = False) -> str | None:
             return None
         rest = _SPACE_CELL.join(toks[n:])
         if _HEAD_CLOSED_ROMAN_RE.search(rest):
-            return None              # 로마자 구간을 닫고 한글이 이어진다 — 단어장 `□ retail 소매`
+            return None              # 로마자 구간을 닫고 한글이 이어진다(단어장 `□ help 도움`)
         gap = rest[:len(rest) - len(rest.lstrip(_SPACE_CELL))]
         eng = _english_any(rest.lstrip(_SPACE_CELL), ctx=ctx)
         if eng is not None:
