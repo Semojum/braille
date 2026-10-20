@@ -554,7 +554,7 @@ export interface JobOptions {
   first_braille_page?: number;
   cover_orig_page_count?: number;
   orig_page_first_no?: number | null;
-  page_row_pages?: 'odd' | 'every';
+  page_row_pages?: 'odd' | 'every' | 'even' | 'none';
   show_orig_page?: boolean;
   show_braille_page?: boolean;
   /** 원본 페이지 변경선. 끄면 넣지 않는다(show_orig_page 를 끄면 이 값과 상관없이 꺼진다). */
@@ -581,7 +581,8 @@ export interface Job {
 export function optionsFromJob(job: Job): Partial<Options> {
   const o = job.opts ?? {};
   const rowsOn = o.page_row_pages ?? 'odd';
-  if (rowsOn !== 'odd' && rowsOn !== 'every') throw new Error(`page_row_pages는 odd|every: ${rowsOn}`);
+  if (!['odd', 'every', 'even', 'none'].includes(rowsOn))
+    throw new Error(`page_row_pages는 odd|every|even|none: ${rowsOn}`);
   return {
     cols: o.cols ?? 32,
     rows: o.rows ?? 26,
