@@ -4340,6 +4340,126 @@
         },
         "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n#g  es\"oe1                    #a\n\n\n\n\n\n#h  es\"oe1                    #b",
         "source": "V4 엔진 가이드 footer_align left · pad_to_even"
+      },
+      {
+        "name": "조판 job 페이지행 면 odd(명시)",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32,
+              "page_row_pages": "odd"
+            },
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "sources": [
+              {
+                "orig_page": 7,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "heading_level": 1,
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                  }
+                ]
+              },
+              {
+                "orig_page": 8,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n#g           es\"oe1           #a",
+        "source": "page_row_pages 를 적어 보내도 기본값과 같다"
+      },
+      {
+        "name": "조판 job 페이지행 면 even(#88)",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32,
+              "page_row_pages": "even"
+            },
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "sources": [
+              {
+                "orig_page": 7,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "heading_level": 1,
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                  }
+                ]
+              },
+              {
+                "orig_page": 8,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n",
+        "source": "v3.4.29 에서 연 짝수 면. BE 업로드 옵션 pageNumberLine 과 앱 UI 선택지에 있다"
+      },
+      {
+        "name": "조판 job 페이지행 면 none(#88)",
+        "args": {
+          "job": {
+            "opts": {
+              "rows": 6,
+              "cols": 32,
+              "page_row_pages": "none"
+            },
+            "footer": "⠑⠎⠐⠕⠑⠂",
+            "sources": [
+              {
+                "orig_page": 7,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "heading_level": 1,
+                    "braille": "  ⠠⠕⠂⠠⠪⠃\n"
+                  },
+                  {
+                    "order": 1,
+                    "braille": "  ⠕⠰⠗⠁⠵⠀⠙⠣⠕\n"
+                  }
+                ]
+              },
+              {
+                "orig_page": 8,
+                "blocks": [
+                  {
+                    "order": 0,
+                    "braille": "  ⠼⠃⠌⠼⠁\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "  ,o1,{b\n  o;raz d<o\n------------------------------#h\n  #b/#a\n\n",
+        "source": "v3.4.29 에서 연 끔. 꼬리말도 페이지행 안에 있으므로 함께 사라진다"
       }
     ],
     "wrap": [

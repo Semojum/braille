@@ -438,6 +438,20 @@ BRF_JOB = [
      {"opts": {"rows": 6, "cols": 32, "footer_align": "left", "page_row_pages": "every", "pad_to_even": True},
       "footer": FOOT_C, "sources": _JOB_SOURCES},
      "V4 엔진 가이드 footer_align left · pad_to_even"),
+    # page_row_pages 네 값 — 종전 벡터는 every 와 생략(=odd)뿐이라 3.4.29 에서 연 even · none 이
+    # 어느 벡터에도 안 걸렸다(#88 고침이 세 언어 가운데 ts · java 에서 재지지 않았다).
+    ("조판 job 페이지행 면 odd(명시)",
+     {"opts": {"rows": 6, "cols": 32, "page_row_pages": "odd"},
+      "footer": FOOT_C, "sources": _JOB_SOURCES},
+     "page_row_pages 를 적어 보내도 기본값과 같다"),
+    ("조판 job 페이지행 면 even(#88)",
+     {"opts": {"rows": 6, "cols": 32, "page_row_pages": "even"},
+      "footer": FOOT_C, "sources": _JOB_SOURCES},
+     "v3.4.29 에서 연 짝수 면. BE 업로드 옵션 pageNumberLine 과 앱 UI 선택지에 있다"),
+    ("조판 job 페이지행 면 none(#88)",
+     {"opts": {"rows": 6, "cols": 32, "page_row_pages": "none"},
+      "footer": FOOT_C, "sources": _JOB_SOURCES},
+     "v3.4.29 에서 연 끔. 꼬리말도 페이지행 안에 있으므로 함께 사라진다"),
 ]
 
 
