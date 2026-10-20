@@ -258,7 +258,7 @@ Options(
     "first_braille_page": 1,        // 첫 면의 점자 면 번호
     "cover_orig_page_count": 0,     // 표지가 차지하는 원본 쪽 수
     "orig_page_first_no": null,     // 표지 뒤 첫 원본 쪽 번호
-    "page_row_pages": "odd",        // odd | every
+    "page_row_pages": "odd",        // odd | every | even | none (3.4.29)
     "show_orig_page": true,         // 끄면 원본 페이지 변경선도 함께 꺼진다
     "show_braille_page": true,
     "show_change_line": true,       // 원본 페이지 변경선(끄면 안 넣는다, 3.4.27)
@@ -267,7 +267,7 @@ Options(
 }
 ```
 
-`opts`의 항목은 전부 선택이다. 빠지면 위 기본값이 쓰인다. `page_row_pages` 가 `odd` · `every` 가 아니면 오류다.
+`opts`의 항목은 전부 선택이다. 빠지면 위 기본값이 쓰인다. `page_row_pages` 가 `odd` · `every` · `even` · `none` 넷 중 하나가 아니면 오류다(3.4.29 에서 `even` · `none` 을 열었다. `Options.page_row_on` 은 처음부터 넷을 받았는데 조판 job 입구만 둘로 좁아, BE 업로드 옵션의 `none` 을 앱이 그대로 넘기면 `BAD_FIELD` 였다).
 
 **`blocks` 는 `order` 로 정렬한다**(없으면 배열 순서). `braille` 은 translate 의 `cells` 를 그대로 넣는다.
 
@@ -300,7 +300,7 @@ Options(
 
 | 설정 화면 | job |
 |---|---|
-| 넣을 페이지 (홀수 · 모든) | `opts.page_row_pages` |
+| 넣을 페이지 (홀수 · 모든 · 짝수 · 안 넣음) | `opts.page_row_pages` |
 | 원본 페이지 번호 · 점자 페이지 번호 | `opts.show_orig_page` · `opts.show_braille_page` |
 | 원본 페이지 변경선 | `opts.show_change_line` |
 | 꼬리말 | `footer` |

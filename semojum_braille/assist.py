@@ -657,7 +657,7 @@ def build_pages(
 #    "opts": {"cols": 32, "rows": 26, "wrap": "syllable|word", "footer_align": "left|center|right",
 #             "footer_mode": "carry|page", "show_change_line": true,
 #             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
-#             "page_row_pages": "odd|every", "show_orig_page": true, "show_braille_page": true,
+#             "page_row_pages": "odd|every|even|none", "show_orig_page": true, "show_braille_page": true,
 #             "pad_to_even": false}}
 #
 # ★ `blocks` 는 `order` 로 정렬한다(없으면 배열 순서). `braille` 은 translate 의 `cells` 그대로,
@@ -666,7 +666,11 @@ def build_pages(
 #   `heading_level`(가이드 밖, 받기는 한다)이 1이면 32칸을 넘어 접힌 1단계 제목 조각을 가운데에 놓는다.
 # ★ 원본 페이지 변경선은 `show_orig_page` 를 따른다(끄면 같이 꺼진다).
 # ★ 종전 꼴(`pages` · `elements` · `options` · `footer_braille` · `start_braille_page`)은 받지 않는다.
-_PAGE_ROW_PAGES = ("odd", "every")
+# `Options.page_row_on` 은 처음부터 네 값을 받는데(`_has_page_row`), 조판 job 입구만 둘로 좁혀
+# 두어 앱이 `none`·`even` 을 넘기면 `BAD_FIELD` 였다. BE 업로드 옵션 `pageNumberLine` 은
+# odd|every|none 셋이고(`LayoutOptions.java:19`), 앱은 짝수 면을 `none` 으로 바꿔 보내고 있었다
+# (FE 백엔드 수정 목록 2026-10-20 B-06). 입구를 Options 와 같은 네 값으로 맞춘다.
+_PAGE_ROW_PAGES = ("odd", "every", "even", "none")
 
 
 def _opt_flag(o: dict, key: str, default: bool) -> bool:
@@ -694,7 +698,7 @@ def options_from_job(job: dict) -> Options:
     o = job.get("opts") or {}
     rows_on = str(o.get("page_row_pages") or "odd")
     if rows_on not in _PAGE_ROW_PAGES:
-        raise ValueError(f"page_row_pages는 odd|every: {rows_on!r}")
+        raise ValueError(f"page_row_pages는 odd|every|even|none: {rows_on!r}")
     start = o.get("orig_page_first_no")
     return Options(
         cols=_opt_size(o, "cols", 32),

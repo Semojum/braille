@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from semojum_braille import __version__, sidecar
+from semojum_braille import __version__, assist, sidecar
 from semojum_braille.encoder.layout_braille import _flat_breaks
 
 
@@ -440,8 +440,24 @@ def test_build_brf_옛_op_와_잘못된_옵션은_BAD_FIELD():
     with pytest.raises(sidecar.SidecarError) as e:
         sidecar.handle({"op": "brf", "job": {}})
     assert e.value.code == "BAD_FIELD"
-    r = sidecar._answer(json.dumps({"id": 1, "op": "build_brf", "job": {"sources": [], "opts": {"page_row_pages": "even"}}}).encode())
+    r = sidecar._answer(json.dumps({"id": 1, "op": "build_brf", "job": {"sources": [], "opts": {"page_row_pages": "홀수"}}}).encode())
     assert r["code"] == "BAD_FIELD" and "page_row_pages" in r["error"]
+
+
+def test_build_brf_는_page_row_pages_네_값을_받는다():
+    """FE 백엔드 수정 목록 2026-10-20 B-06. BE 업로드 옵션 `pageNumberLine` 은 odd|every|none 셋이고
+    앱은 짝수 면을 `none` 으로 바꿔 보내고 있었다. `Options.page_row_on` 은 처음부터 네 값을 받는데
+    조판 job 입구(`_PAGE_ROW_PAGES`)만 둘로 좁혀 `none`·`even` 이 `BAD_FIELD` 였다."""
+    def page_rows(on):
+        """면마다 페이지행이 있는지. 페이지행은 면의 마지막 줄이고 32칸을 채워 번호로 시작한다."""
+        src = [{"orig_page": i + 1, "blocks": [{"order": 0, "braille": "⠁"}]} for i in range(6)]
+        pages = assist.build_pages_from_job({"sources": src, "opts": {"rows": 3, "page_row_pages": on}})
+        return [bool(p and len(p[-1]) == 32 and p[-1].startswith("⠼")) for p in pages]
+
+    assert all(page_rows("every"))
+    assert not any(page_rows("none"))
+    assert page_rows("odd")[:4] == [True, False, True, False]
+    assert page_rows("even")[:4] == [False, True, False, True]
 
 
 def test_참거짓_옵션_셋에_문자열을_주면_켜지지_않고_BAD_FIELD():
