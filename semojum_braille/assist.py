@@ -44,6 +44,31 @@ _BRAILLE_ASCII = (
 assert len(_BRAILLE_ASCII) == 64
 
 
+def _check_ranges(name: str, ranges) -> None:
+    """면 범위 검증. None 이면 전체라 통과한다. 그 밖에는 `((시작, 끝), …)` 꼴만 받는다."""
+    if ranges is None:
+        return
+    if not isinstance(ranges, tuple) or not ranges:
+        raise ValueError(f"{name} 는 비지 않은 ((시작, 끝), …) 이어야 한다: {ranges!r}")
+    for r in ranges:
+        if not isinstance(r, tuple) or len(r) != 2:
+            raise ValueError(f"{name} 의 각 칸은 (시작, 끝) 두 값이어야 한다: {r!r}")
+        lo, hi = r
+        if not isinstance(lo, int) or isinstance(lo, bool) or lo < 1:
+            raise ValueError(f"{name} 의 시작은 1 이상의 정수여야 한다: {lo!r}")
+        if hi is None:                      # 끝을 안 적으면 문서 끝까지다
+            continue
+        if not isinstance(hi, int) or isinstance(hi, bool) or hi < lo:
+            raise ValueError(f"{name} 의 끝은 시작 이상의 정수이거나 null 이어야 한다: {hi!r}")
+
+
+def _in_ranges(braille_page: int, ranges) -> bool:
+    """그 점자 면이 범위 안인가. `ranges` 가 None 이면 전체라 늘 참이다."""
+    if ranges is None:
+        return True
+    return any(braille_page >= lo and (hi is None or braille_page <= hi) for lo, hi in ranges)
+
+
 @dataclass(frozen=True)
 class Options:
     """조판 옵션. 1차 PoC 고정값이 기본값이다(조판 가이드 §5).
@@ -82,6 +107,18 @@ class Options:
 
     wrap — 32칸을 넘는 줄을 접는 갈래. `syllable`(기본) · `word` 두 갈래다(2026-10-10 대표 확정).
       뜻은 `wrap()` 에 적었다. 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다.
+
+    footer_on · number_ranges · footer_ranges — 번호와 꼬리말을 **따로** 켜고 끈다
+      (기획서 §5 "편집용 점자문서 페이지설정" P0: 「페이지 번호 출력」과 「꼬리말 출력」이
+      각각 모든 페이지 · 홀수 페이지 · 없음 · 사용자 지정 다섯 갈래다).
+      · `footer_on` 은 꼬리말을 넣는 면이고 `page_row_on` 과 같은 네 값이다.
+        **None(기본)이면 `page_row_on` 을 따른다** — 종전 동작 그대로다.
+      · `*_ranges` 는 `((시작 면, 끝 면), …)` 이고 **점자 면 번호** 기준, 양끝을 포함한다.
+        끝을 `None` 으로 두면 문서 끝까지다. `None`(기본)이면 범위를 안 거는 것이라 전체다.
+        "사용자 지정(모든 페이지)" 는 `footer_on="every"` + 범위, "사용자 지정(홀수 단위)" 는
+        `footer_on="odd"` + 범위로 적는다.
+      · 번호도 꼬리말도 없는 면에는 페이지행 줄 자체가 없다(본문이 한 줄 늘어난다).
+        꼬리말만 있는 면은 번호 없이 꼬리말만 적힌 페이지행이 된다.
     """
 
     cols: int = 32
@@ -96,12 +133,24 @@ class Options:
     footer_mode: str = "carry"       # carry | page — 원본 쪽에 꽂은 꼬리말의 범위
     wrap: str = "syllable"           # syllable | word
     pad_to_even: bool = False        # 홀수 면에서 끝나면 빈 면 하나를 더한다
+    footer_on: str | None = None     # 꼬리말을 넣는 면. None 이면 page_row_on 과 같다
+    number_ranges: tuple | None = None   # 번호를 넣는 점자 면 범위. None 이면 전체
+    footer_ranges: tuple | None = None   # 꼬리말을 넣는 점자 면 범위. None 이면 전체
+
+    @property
+    def footer_row_on(self) -> str:
+        """꼬리말을 넣는 면. 안 정하면 번호와 같은 면이다(종전 동작)."""
+        return self.footer_on or self.page_row_on
 
     def __post_init__(self) -> None:
         if self.cols < 8:
             raise ValueError(f"cols는 8 이상이어야 한다: {self.cols}")
         if self.page_row_on not in ("every", "odd", "even", "none"):
             raise ValueError(f"page_row_on은 odd|every|even|none: {self.page_row_on!r}")
+        if self.footer_on is not None and self.footer_on not in ("every", "odd", "even", "none"):
+            raise ValueError(f"footer_on은 odd|every|even|none: {self.footer_on!r}")
+        for name in ("number_ranges", "footer_ranges"):
+            _check_ranges(name, getattr(self, name))
         if self.footer_align not in ("center", "right", "left"):
             raise ValueError(f"footer_align은 center|right|left: {self.footer_align!r}")
         if self.footer_mode not in ("carry", "page"):
@@ -144,8 +193,12 @@ def page_row(
     braille_page: int,
     footer: str = "",
     opts: Options = DEFAULT,
+    numbers: bool = True,
 ) -> str:
     """페이지행 1줄(폭 = opts.cols)을 만든다.
+
+    numbers=False 면 이 면은 꼬리말만 적는 면이라 번호를 둘 다 빼고 꼬리말만 놓는다
+    (`opts.footer_on` 으로 꼬리말 면을 번호 면과 따로 고른 경우). 기본값은 종전 그대로다.
 
     지침 1장2절2·1장3:
       · 원본 쪽 번호 — 왼쪽 정렬, 첫 칸. cont_idx≥1이면 번호 **앞에** 알파벳(로마자표 없이)
@@ -163,9 +216,9 @@ def page_row(
     """
     n = opts.cols
     left = ""
-    if opts.show_orig_page:
+    if numbers and opts.show_orig_page:
         left = _alpha(cont_idx) + _number(orig_page)
-    right = _number(braille_page) if opts.show_braille_page else ""
+    right = _number(braille_page) if numbers and opts.show_braille_page else ""
 
     if len(left) + len(right) > n:
         raise ValueError(f"쪽 번호만으로 {n}칸을 넘는다: 원본 {len(left)} + 점자 {len(right)}")
@@ -398,6 +451,19 @@ def _has_page_row(braille_page: int, on: str) -> bool:
     return True
 
 
+def _row_parts(braille_page: int, opts: Options, cover: bool) -> tuple[bool, bool]:
+    """그 면의 (번호를 적나, 꼬리말을 적나). 표지 면은 둘 다 아니다(조판 옵션 §5).
+
+    둘을 따로 보는 것은 기획서 §5 P0 이 「페이지 번호 출력」과 「꼬리말 출력」을 각각 고르게
+    하기 때문이다. `footer_on` 을 안 주면 꼬리말은 번호와 같은 면에 실려 종전과 똑같다.
+    """
+    if cover:
+        return False, False
+    num = _has_page_row(braille_page, opts.page_row_on) and _in_ranges(braille_page, opts.number_ranges)
+    foot = _has_page_row(braille_page, opts.footer_row_on) and _in_ranges(braille_page, opts.footer_ranges)
+    return num, foot
+
+
 def _renumber(sources: list, opts: Options) -> list:
     """`orig_page_start`가 있으면 원본 페이지 번호를 다시 매긴다.
 
@@ -590,11 +656,13 @@ def build_pages(
 
     def blank(bp: int, head_page: int, cover: bool) -> list:
         """빈 면(장바꿈 · 짝수 면 채우기). 페이지행은 다른 면과 같은 규칙이고 원본 번호는 앞 내용의 원본 쪽을 잇는다."""
-        has_row = _has_page_row(bp, opts.page_row_on) and not cover
+        num_on, foot_on = _row_parts(bp, opts, cover)
+        has_row = num_on or foot_on
         body = [""] * (opts.rows - (1 if has_row else 0))
         if has_row:
             idx = len(pages)
-            body.append(page_row(head_page, idx - first_seen.get(head_page, idx), bp, face_footer(bp, []), opts))
+            body.append(page_row(head_page, idx - first_seen.get(head_page, idx), bp,
+                                 face_footer(bp, []) if foot_on else "", opts, numbers=num_on))
         return body
 
     bpn = start_braille_page              # 표지 면은 점자 면 번호를 소비하지 않는다
@@ -615,7 +683,8 @@ def build_pages(
         idx = len(pages)
         bp = bpn
         head_page = flat[pos][1]
-        has_row = _has_page_row(bp, opts.page_row_on) and not on_cover
+        num_on, foot_on = _row_parts(bp, opts, on_cover)
+        has_row = num_on or foot_on
         head = "" if on_cover else hmap.get(bp, header)
         cap = opts.rows - (1 if has_row else 0) - (1 if head else 0)
         if cap < 1:
@@ -638,7 +707,8 @@ def build_pages(
             body.insert(0, _header_line(head, head_page, num, opts.cols))
         f = face_footer(bp, ops)              # 페이지행이 없는 면도 이어가기 상태는 민다
         if has_row:
-            body.append(page_row(head_page, idx - first_seen[head_page], bp, f, opts))
+            body.append(page_row(head_page, idx - first_seen[head_page], bp,
+                                 f if foot_on else "", opts, numbers=num_on))
         if not on_cover:
             bpn += 1                      # 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
         pages.append(body)
@@ -658,7 +728,10 @@ def build_pages(
 #             "footer_mode": "carry|page", "show_change_line": true,
 #             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
 #             "page_row_pages": "odd|every|even|none", "show_orig_page": true, "show_braille_page": true,
-#             "pad_to_even": false}}
+#             "pad_to_even": false,
+#             "footer_pages": "odd|every|even|none",     # 꼬리말을 넣는 면(없으면 page_row_pages 와 같다)
+#             "number_ranges": [[3, 20], [25, null]],    # 번호를 넣는 점자 면 범위(없으면 전체)
+#             "footer_ranges": [[3, null]]}}             # 꼬리말을 넣는 점자 면 범위(없으면 전체)
 #
 # ★ `blocks` 는 `order` 로 정렬한다(없으면 배열 순서). `braille` 은 translate 의 `cells` 그대로,
 #   `breaks` 는 translate 의 `breaks` 그대로다. 없으면 그 블록은 빈칸에서 접는다.
@@ -693,6 +766,47 @@ def _opt_size(o: dict, key: str, default: int) -> int:
     raise ValueError(f"{key} 는 1 이상의 정수여야 한다: {v!r}")
 
 
+def _opt_row_on(o: dict, key: str):
+    """번호 · 꼬리말을 넣는 면. 없거나 null 이면 None(= 번호 면을 따른다)."""
+    v = o.get(key)
+    if v is None or v == "":
+        return None
+    if v not in _PAGE_ROW_PAGES:
+        raise ValueError(f"{key} 는 odd|every|even|none: {v!r}")
+    return str(v)
+
+
+def _opt_ranges(o: dict, key: str):
+    """면 범위 `[[시작, 끝], …]` → `((시작, 끝), …)`. 없거나 null 이면 None(= 전체).
+
+    끝을 `null` 로 두면 문서 끝까지다(FE 「백엔드 수정 목록」 B-06 "끝 미지정 = 끝까지").
+    JSON 을 거쳐 오면 숫자가 문자열일 수 있어 정수 꼴 문자열까지 받는다. 그 밖은 `BAD_FIELD` 다.
+    """
+    v = o.get(key)
+    if v is None:
+        return None
+    if not isinstance(v, (list, tuple)) or not v:
+        raise ValueError(f"{key} 는 비지 않은 [[시작, 끝], …] 이어야 한다: {v!r}")
+
+    def one(x):
+        if x is None:
+            return None
+        if isinstance(x, bool):
+            raise ValueError(f"{key} 의 면 번호는 정수여야 한다: {x!r}")
+        if isinstance(x, int):
+            return x
+        if isinstance(x, str) and x.strip().lstrip("-").isdigit():
+            return int(x)
+        raise ValueError(f"{key} 의 면 번호는 정수여야 한다: {x!r}")
+
+    out = []
+    for r in v:
+        if not isinstance(r, (list, tuple)) or len(r) != 2:
+            raise ValueError(f"{key} 의 각 칸은 [시작, 끝] 두 값이어야 한다: {r!r}")
+        out.append((one(r[0]), one(r[1])))
+    return tuple(out)
+
+
 def options_from_job(job: dict) -> Options:
     """조판 job 의 `opts` → `Options`(V4 가이드 이름)."""
     o = job.get("opts") or {}
@@ -713,6 +827,9 @@ def options_from_job(job: dict) -> Options:
         footer_mode=str(o.get("footer_mode") or "carry"),
         wrap=str(o.get("wrap") or "syllable"),
         pad_to_even=_opt_flag(o, "pad_to_even", False),
+        footer_on=_opt_row_on(o, "footer_pages"),
+        number_ranges=_opt_ranges(o, "number_ranges"),
+        footer_ranges=_opt_ranges(o, "footer_ranges"),
     )
 
 
