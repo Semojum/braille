@@ -105,3 +105,59 @@ def test_잘못된_범위_값은_거절한다(opts):
 def test_정수_꼴_문자열_면_번호는_받는다():
     """JSON 을 거쳐 오면 숫자가 문자열일 수 있다(`footers` 키와 같은 사정)."""
     assert rows(job("every", number_ranges=[["2", "3"]])) == rows(job("every", number_ranges=[[2, 3]]))
+
+
+# ── 5. 꼬리말이 비면 페이지행 줄을 넣지 않는다 (#92) ──────────────────────
+#
+# 3.4.30 에서 번호와 꼬리말을 가르면서 생긴 결함이다. 꼬리말 면이 켜져 있어도 **적을 글이 없으면**
+# 32칸이 전부 공백인 페이지행 줄이 남아 본문 한 줄을 먹었다. 종전에는 꼬리말이 켜지면 번호도
+# 켜져서(한 스위치였다) 이 꼴이 안 나왔다. 위 네 묶음이 전부 꼬리말 글을 깔고 돌아 못 잡았다.
+# 「번호 출력 = 없음 · 사용자 지정」 + 꼬리말 미기입은 가장 흔한 조합이다.
+
+BLANK_ROW = "⠀" * 32
+
+
+def pages(footer="", **opts):
+    src = [{"orig_page": i + 1, "blocks": [{"order": 0, "braille": "⠁"}]} for i in range(6)]
+    o = {"rows": 3, "page_row_pages": "every"}
+    o.update(opts)
+    return assist.build_pages_from_job({"sources": src, "footer": footer, "opts": o})
+
+
+def test_꼬리말이_비고_번호도_없는_면엔_공백_페이지행이_남지_않는다():
+    """#92 재현 조건 그대로. 면 1·2 는 번호 범위 밖이고 꼬리말도 비어 있다."""
+    ps = pages(footer="", number_ranges=[[3, None]])
+    assert all(BLANK_ROW not in p for p in ps)
+    assert all(len(p) == 3 for p in ps)              # 본문이 세 줄을 다 쓴다
+
+
+def test_꼬리말이_비면_본문_줄을_안_먹는다():
+    """번호를 끄고 꼬리말만 켠 자리. 꼬리말을 채우면 페이지행이 생겨 면 수가 는다 — 그 차이가 먹히던 줄이다."""
+    off = dict(page_row_pages="none", footer_pages="every")
+    assert len(pages(footer="", **off)) < len(pages(footer=FOOT, **off))
+
+
+def test_번호가_있으면_꼬리말이_비어도_페이지행은_남는다():
+    """번호를 적어야 하는 면은 꼬리말이 비어도 줄이 있어야 한다 — 종전 동작이다."""
+    ps = pages(footer="", page_row_pages="every")
+    assert all(len(p[-1]) == 32 and p[-1].startswith("⠼") for p in ps)
+
+
+def test_꽂은_꼬리말을_빈_값으로_두면_그_쪽부터_페이지행이_사라진다():
+    """빈 문자열을 꽂는 것이 '그 쪽부터 숨기기' 관용이다(v3.4.27). 번호가 없으면 줄째 사라져야 한다."""
+    src = [{"orig_page": i + 1, "blocks": [{"order": 0, "braille": "⠁"}]} for i in range(6)]
+    job = {"sources": src, "footer": FOOT, "footers_by_orig_page": {3: ""},
+           "opts": {"rows": 3, "page_row_pages": "none", "footer_pages": "every"}}
+    ps = assist.build_pages_from_job(job)
+    assert any(FOOT in p[-1] for p in ps)            # 꽂기 전 면엔 꼬리말이 있고
+    assert all(BLANK_ROW not in p for p in ps)       # 꽂은 뒤 면엔 공백 줄이 안 남는다
+
+
+def test_장바꿈_빈_면도_같은_규칙이다():
+    """`blank()` 도 같은 자리를 지난다 — 빈 면에 공백 페이지행만 남으면 안 된다."""
+    src = [{"orig_page": 1, "blocks": [{"order": 0, "braille": "⠁"},
+                                       {"order": 1, "braille": assist.CHAPTER_TAG},
+                                       {"order": 2, "braille": "⠃"}]}]
+    job = {"sources": src, "footer": "", "opts": {"rows": 3, "page_row_pages": "none",
+                                                  "footer_pages": "every", "pad_to_even": True}}
+    assert all(BLANK_ROW not in p for p in assist.build_pages_from_job(job))
