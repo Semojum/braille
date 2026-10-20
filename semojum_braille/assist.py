@@ -119,6 +119,8 @@ class Options:
         `footer_on="odd"` + 범위로 적는다.
       · 번호도 꼬리말도 없는 면에는 페이지행 줄 자체가 없다(본문이 한 줄 늘어난다).
         꼬리말만 있는 면은 번호 없이 꼬리말만 적힌 페이지행이 된다.
+      · ★ **꼬리말 면을 켜도 적을 글이 없으면 페이지행 줄을 넣지 않는다**(3.4.31, #92).
+        종전 3.4.30 은 32칸이 전부 공백인 줄을 남겨 본문 한 줄을 먹었다.
     """
 
     cols: int = 32
@@ -594,15 +596,23 @@ def build_pages(
     carried: list = [footer]              # 이어가기 꼬리말(지금까지 실은 면에서 마지막으로 나온 꽂은 쪽의 것)
 
     def face_footer(bp: int, ops: list) -> str:
-        """그 면 꼬리말: 면 키 `footers` > 원본 쪽 키(`footer_mode`) > 기본 `footer`. 이어가기 상태도 여기서 민다."""
+        """그 면 꼬리말: 면 키 `footers` > 원본 쪽 키(`footer_mode`) > 기본 `footer`.
+
+        **상태를 밀지 않는다** — 이어가기는 `push_carry` 가 민다. 자를 자리를 정하기 전에
+        꼬리말을 미리 풀어 봐야 해서(#92) 두 번 불러도 탈이 없게 갈랐다.
+        """
         pinned = [omap[o] for o in ops if o in omap]
-        if pinned:
-            carried[0] = pinned[-1]
         if bp in fmap:
             return fmap[bp]
         if opts.footer_mode == "page":
             return pinned[-1] if pinned else footer
-        return carried[0]
+        return pinned[-1] if pinned else carried[0]
+
+    def push_carry(ops: list) -> None:
+        """이어가기 상태를 민다. 그 면에 실린 꽂은 쪽 가운데 마지막 것이 다음 면으로 이어진다."""
+        pinned = [omap[o] for o in ops if o in omap]
+        if pinned:
+            carried[0] = pinned[-1]
     # 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
     sources = _renumber(sources, opts)
     # 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
@@ -654,15 +664,23 @@ def build_pages(
     while pos <= last and flat[pos][0] not in _MARKS and not flat[pos][0].strip():
         pos += 1                          # 문서 맨 앞의 빈 줄만 버린다
 
+    def _cut(flat: list, start: int, cap: int) -> int:
+        """`start` 부터 최대 `cap` 줄까지의 끝 자리. 표식을 만나면 거기서 면을 끊는다."""
+        end = start
+        while end < len(flat) and end - start < cap and flat[end][0] not in _MARKS:
+            end += 1
+        return end
+
     def blank(bp: int, head_page: int, cover: bool) -> list:
         """빈 면(장바꿈 · 짝수 면 채우기). 페이지행은 다른 면과 같은 규칙이고 원본 번호는 앞 내용의 원본 쪽을 잇는다."""
         num_on, foot_on = _row_parts(bp, opts, cover)
-        has_row = num_on or foot_on
+        f = face_footer(bp, []) if foot_on else ""
+        has_row = num_on or bool(f)      # 번호도 없고 꼬리말도 비면 페이지행 줄을 넣지 않는다(#92)
         body = [""] * (opts.rows - (1 if has_row else 0))
         if has_row:
             idx = len(pages)
             body.append(page_row(head_page, idx - first_seen.get(head_page, idx), bp,
-                                 face_footer(bp, []) if foot_on else "", opts, numbers=num_on))
+                                 f, opts, numbers=num_on))
         return body
 
     bpn = start_braille_page              # 표지 면은 점자 면 번호를 소비하지 않는다
@@ -684,15 +702,22 @@ def build_pages(
         bp = bpn
         head_page = flat[pos][1]
         num_on, foot_on = _row_parts(bp, opts, on_cover)
-        has_row = num_on or foot_on
         head = "" if on_cover else hmap.get(bp, header)
-        cap = opts.rows - (1 if has_row else 0) - (1 if head else 0)
+        # ★ 페이지행 줄이 있다고 보고 한 번 자른 뒤 그 면의 꼬리말을 푼다(#92).
+        #   번호도 없고 꼬리말도 비면 페이지행 줄을 넣을 까닭이 없으므로 그 한 줄을 본문에
+        #   돌려주고 다시 자른다. 꼬리말이 어느 값인지는 **어느 원본 쪽이 이 면에 실리는지**에
+        #   달려 있고(`footers_by_orig_page`), 그건 자를 자리를 정한 뒤에야 알아서 두 번 자른다.
+        #   줄이 하나 늘면 꽂은 쪽이 더 실릴 수도 있지만, 그때는 이 면에 꼬리말을 안 적고
+        #   다음 면으로 이어간다 — 되돌아가 다시 넣으면 두 선택이 서로를 부른다.
+        base = opts.rows - (1 if head else 0)
+        end = _cut(flat, pos, base - 1)
+        f = face_footer(bp, [o for _l, o, _c, _a in flat[pos:end]]) if foot_on else ""
+        has_row = num_on or bool(f)
+        cap = base - (1 if has_row else 0)
         if cap < 1:
             raise ValueError(f"rows {opts.rows}줄에서 머리말 · 페이지행을 빼면 본문 줄이 남지 않는다")
-        # 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
-        end = pos
-        while end < len(flat) and end - pos < cap and flat[end][0] not in _MARKS:
-            end += 1
+        if not has_row:
+            end = _cut(flat, pos, cap)
         num = "" if on_cover else _number(bp)
         body = [_align(_fill_page_no(ln, num), opts.cols, al) for ln, _o, _c, al in flat[pos:end]]
         ops = [o for _l, o, _c, _a in flat[pos:end]]
@@ -705,10 +730,10 @@ def build_pages(
         body += [""] * (cap - len(body))
         if head:
             body.insert(0, _header_line(head, head_page, num, opts.cols))
-        f = face_footer(bp, ops)              # 페이지행이 없는 면도 이어가기 상태는 민다
+        push_carry(ops)                       # 페이지행이 없는 면도 이어가기 상태는 민다
         if has_row:
             body.append(page_row(head_page, idx - first_seen[head_page], bp,
-                                 f if foot_on else "", opts, numbers=num_on))
+                                 f, opts, numbers=num_on))
         if not on_cover:
             bpn += 1                      # 지침 1장2 3)(1)·§2.1.5(1): 표지 다음 면이 1이다
         pages.append(body)
