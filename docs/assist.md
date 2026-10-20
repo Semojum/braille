@@ -262,12 +262,23 @@ Options(
     "show_orig_page": true,         // 끄면 원본 페이지 변경선도 함께 꺼진다
     "show_braille_page": true,
     "show_change_line": true,       // 원본 페이지 변경선(끄면 안 넣는다, 3.4.27)
-    "pad_to_even": false            // 홀수 면에서 끝나면 빈 면 하나를 더한다
+    "pad_to_even": false,           // 홀수 면에서 끝나면 빈 면 하나를 더한다
+    "footer_pages": null,           // 꼬리말을 넣는 면. odd | every | even | none. null 이면 page_row_pages 와 같다 (3.4.30)
+    "number_ranges": null,          // 번호를 넣는 점자 면 범위 [[시작, 끝], …]. null 이면 전체 (3.4.30)
+    "footer_ranges": null           // 꼬리말을 넣는 점자 면 범위. null 이면 전체 (3.4.30)
   }
 }
 ```
 
 `opts`의 항목은 전부 선택이다. 빠지면 위 기본값이 쓰인다. `page_row_pages` 가 `odd` · `every` · `even` · `none` 넷 중 하나가 아니면 오류다(3.4.29 에서 `even` · `none` 을 열었다. `Options.page_row_on` 은 처음부터 넷을 받았는데 조판 job 입구만 둘로 좁아, BE 업로드 옵션의 `none` 을 앱이 그대로 넘기면 `BAD_FIELD` 였다).
+
+`footer_pages` · `number_ranges` · `footer_ranges` 는 **번호와 꼬리말을 따로 켜고 끈다**(3.4.30, 기획서 §5 P0).
+종전에는 꼬리말이 페이지행 안에 들어가 번호가 없는 면에는 꼬리말도 없었다. 이제 셋이 독립이다.
+범위는 **점자 면 번호** 기준이고 양끝을 포함한다. 끝을 `null` 로 두면 문서 끝까지다.
+기획서의 "사용자 지정(모든 페이지)" 는 `footer_pages: "every"` + 범위, "사용자 지정(홀수 단위)" 는
+`footer_pages: "odd"` + 범위로 적는다. 번호도 꼬리말도 없는 면은 **페이지행 줄 자체가 없어** 본문이
+한 줄 늘어나고, 꼬리말만 있는 면은 번호 없이 꼬리말만 적힌 페이지행이 된다.
+셋 다 안 주면 종전과 바이트로 같다(옵션 조합 36,864건 대조).
 
 **`blocks` 는 `order` 로 정렬한다**(없으면 배열 순서). `braille` 은 translate 의 `cells` 를 그대로 넣는다.
 
@@ -300,7 +311,8 @@ Options(
 
 | 설정 화면 | job |
 |---|---|
-| 넣을 페이지 (홀수 · 모든 · 짝수 · 안 넣음) | `opts.page_row_pages` |
+| 넣을 페이지 (홀수 · 모든 · 짝수 · 안 넣음) | `opts.page_row_pages` · `opts.number_ranges` |
+| 꼬리말 넣을 페이지 (번호와 따로) | `opts.footer_pages` · `opts.footer_ranges` |
 | 원본 페이지 번호 · 점자 페이지 번호 | `opts.show_orig_page` · `opts.show_braille_page` |
 | 원본 페이지 변경선 | `opts.show_change_line` |
 | 꼬리말 | `footer` |
