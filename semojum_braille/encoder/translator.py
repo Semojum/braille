@@ -2821,18 +2821,40 @@ _SYMBOL_BLOCKS = ((0x00A1, 0x00BF), (0x2010, 0x2BFF), (0x3000, 0x303F),
                   (0x3200, 0x33FF), (0xFE30, 0xFE4F), (0xFF01, 0xFFEF))
 
 
+# 조합 표시(Me)를 빠뜨리면 네모 문자 ⃞(U+20DE)가 검사에 안 걸린다. 「한국 점자 규정」 제64항이
+# `_8 0l`로 묶으라고 정한 기호인데 점형이 없어 사라지고, 그 사실조차 R17에 안 잡혔다(2026-10-22).
+_SYMBOL_CATEGORIES = ("Me",)
+
+
 @lru_cache(maxsize=None)
 def _symbol_droppable(ch: str) -> bool:
-    """그 기호 하나를 점역 경로에 넣으면 아무것도 안 나오는가(= 조용히 사라지는 기호)."""
+    """그 기호 하나를 점역 경로에 넣으면 아무것도 안 나오는가(= 조용히 사라지는 기호).
+
+    ★ 단독이 아니라 **글 사이에 넣어** 본다. 단독으로는 줄머리 규칙(`_LINE_BULLET_RE`)이
+    걸려 점형이 나오지만 문중에서는 사라지는 기호가 있다(▲ U+25B2). 단독만 보면 그런
+    무성 삭제를 영영 못 잡는다(2026-10-22).
+    """
     o = ord(ch)
     if not any(a <= o <= b for a, b in _SYMBOL_BLOCKS):
         return False
-    if unicodedata.category(ch)[0] not in "SP" and unicodedata.category(ch) != "No":
+    cat = unicodedata.category(ch)
+    if cat[0] not in "SP" and cat not in ("No",) + _SYMBOL_CATEGORIES:
         return False
     try:
-        return not translate_tagged_text(ch).strip("⠀ ")
+        probe = translate_tagged_text(_DROP_PROBE_L + ch + _DROP_PROBE_R)
+        return probe == _drop_probe_base()
     except Exception:      # noqa: BLE001
         return True
+
+
+# 문맥 판정에 쓰는 앞뒤 글자. 약자·약어가 걸리지 않는 한 음절씩 둔다.
+_DROP_PROBE_L, _DROP_PROBE_R = "가", "나"
+
+
+@lru_cache(maxsize=1)
+def _drop_probe_base() -> str:
+    """기호 없이 앞뒤 글자만 점역한 결과. 이것과 같으면 기호가 흔적 없이 사라진 것이다."""
+    return translate_tagged_text(_DROP_PROBE_L + _DROP_PROBE_R)
 
 
 # 표 묵자 초안의 테두리 · 구분선 표지 줄(`table_braille._print_frame` 의 `┌ ├ └`, 점자 쪽 글상자 · 표 구분선의 짝).
