@@ -23,7 +23,7 @@ from semojum_braille.encoder.constants import CHOICES_ONE_PER_LINE, ENGLISH_GRAD
 from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.table_braille import TableBraille
-from semojum_braille.encoder.tag_names import ALIASES, parse_table_tags
+from semojum_braille.encoder.tag_names import apply_indent_tags, strip_indent_tags, ALIASES, parse_table_tags
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
 from semojum_braille.encoder.translator import _BORDER_KIND, _TAG_INLINE_MARKER, _TAG_PAIR_MARKER
@@ -132,6 +132,14 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     if etype == "table" or parse_table_tags(text) is not None:
         return _unslot(table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page))
     force_roman = force_roman or etype == "header_footer"
+    # ★ 들여쓰기를 **점역 전에** 태그로 되돌린다(2026-10-22). AI 응답의 묵자는 이제 들여쓰기를
+    #   태그가 아니라 실제 빈칸으로 싣는다(점역사 화면에 기계 표식을 안 보이려는 대표 지시).
+    #   그 빈칸을 그대로 점역하면 **두 번 들어간다** — 들여쓰기 판정(`_first_indent`)이 값을
+    #   읽어 칸을 붙이는데 글자로 남은 빈칸도 같이 찍혀, 3칸 본문이 앞빈칸 4, 7칸 제목이 8로
+    #   나갔다(제품 경로 실측). 여기서 한 번 태그로 모으면 하류는 종전 경로를 그대로 탄다.
+    _body_txt, _inds = strip_indent_tags(text)
+    if _inds:
+        text = apply_indent_tags(_body_txt, _inds)
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
     bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
                   korean_grade, english_grade, math_page, split_choices)

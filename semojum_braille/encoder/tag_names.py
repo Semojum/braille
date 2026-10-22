@@ -116,11 +116,25 @@ def indent_tag(spaces: int) -> str:
 
 
 def split_indent(line: str) -> tuple[int | None, str]:
-    """줄 → (앞 빈칸 수 | None, 태그 뗀 줄). 태그가 없으면 (None, 원문)."""
+    """줄 → (앞 빈칸 수 | None, 들여쓰기를 뗀 줄). 들여쓴 자취가 없으면 (None, 원문).
+
+    태그(`<!2칸>`)와 **실제 빈칸** 둘 다 읽는다.
+
+    ★ 빈칸도 읽는 까닭(2026-10-22 대표 지시) — AI 응답의 묵자는 이제 들여쓰기를 태그가 아니라
+      **실제 빈칸**으로 싣는다. 점역사 화면에 기계 표식을 안 보이게 하려는 것이다. 그런데 여기서
+      빈칸을 안 읽으면 그 글이 돌아올 때 들여쓴 자취가 사라지고, 호출부(`layout_braille._first_indent`)
+      가 요소 유형만 보고 기본값을 매긴다. 게다가 떼지 않은 빈칸이 글자로 남아 **두 번 들어갔다**:
+      3칸 본문이 앞빈칸 4(기본 2 + 글자 2)로, 7칸 제목이 4로 나갔다(제품 경로 실측 2026-10-22).
+
+    ⚠ 빈칸을 뗀 줄을 돌려주는 것이 핵심이다. 값만 읽고 글을 그대로 두면 이중 계산이 된다.
+    """
     m = _INDENT_TAG_RE.match(line)
-    if not m:
-        return None, line
-    return int(m.group(1)), line[m.end():]
+    if m:
+        return int(m.group(1)), line[m.end():]
+    n = len(line) - len(line.lstrip(" "))
+    if n and line.strip():          # 빈 줄은 들여쓰기가 아니다
+        return n, line[n:]
+    return None, line
 
 
 # ── 점역자 주 구간 정규화 — **양식은 코드가 정한다**(2026-09-08 대표 지시) ──────────
