@@ -611,6 +611,8 @@ True
 
 규정 조항표(`regulations.json`, 239조항)를 읽어 근거(`RuleApplication`)를 만든다. 184조항이 「한국 점자 규정」, 42조항이 「점자 도서 제작 지침」, 13조항이 「점자 자료 제작 지침」이다.
 
+AI 쪽 정본(`Semojum/AI` `app/ai/braille/regulations.json`)은 2026-10-25 부터 340조항이다. 늘어난 101조항은 음악 · 국제음성기호처럼 **점역하지 않고 검색에만 쓰는 조항**(`supported: false`)이다. 점역에 쓰이지 않으므로 이 사본은 239조항 그대로 두었다. 다음 `tools/sync_from_ai.py` 때 340조항이 같이 옮겨와도 조회 함수가 검색 전용 조항을 걸러 근거를 만들지 않으므로 엔진 동작은 같다. 사본이 낡은 것이 아니니 따로 맞추지 않는다.
+
 조항 번호 꼴: `MCST-한글-6.13.49`(한국 점자 규정 한글 편 제6장 제13절 제49항), `MCST-수학-1.7`(수학 편 제1장 제7항), `NLD-1.2.6`(도서 지침 1장 2절 6), `NISE-…`(자료 지침).
 
 #### `make_rule(rule_id, *, line_no=-1, col_start=0, col_end=0, tag="", priority="primary") -> RuleApplication`
