@@ -363,7 +363,7 @@ def test_translate_에_표를_넣으면_table_과_같다(mode):
 
 def test_표가_아니면_translate_응답에_표_칸이_없다():
     r = sidecar.translate("가나다")
-    assert set(r) == {"cells", "breaks", "dropped", "blocked", "unknown_tags"}
+    assert set(r) == {"cells", "breaks", "rule_trail", "dropped", "blocked", "unknown_tags"}
 
 
 def test_묵자_1000자를_넘으면_TOO_LONG_이고_태그는_세지_않는다():
@@ -523,3 +523,56 @@ def test_원본_쪽_꼬리말은_footer_mode_두_값만_받고_없으면_종전�
     r = sidecar._answer(json.dumps({"id": 4, "op": "build_brf",
                                     "job": {**base, "opts": {"footer_mode": "through"}}}).encode())
     assert r["code"] == "BAD_FIELD" and "footer_mode" in r["error"]
+
+
+def test_translate_는_점역_근거_조항을_cells_좌표로_낸다():
+    """#101. 엔진이 이미 들고 있던 `FlatElement.trail` 을 응답에 싣는다 — 좌표계는 `cells` 통 문자열 오프셋이다.
+
+    고치기 전에는 응답 키가 `cells` · `breaks` · `dropped` · `blocked` · `unknown_tags` 다섯뿐이라,
+    조항과 좌표를 계산해 놓고 버렸다. 앱 「적용 규정」 창이 본문 줄에서 늘 비던 원인이다.
+    """
+    r = sidecar.translate("봄이 오면 꽃이 핀다 → 여름")
+    trail = r["rule_trail"]
+    assert [t["rule_id"] for t in trail] == ["MCST-한글-6.14.70"]      # 「한국 점자 규정」 제70항(기타 부호)
+    t = trail[0]
+    assert t["tag"] == "symbol" and t["line_no"] == 0
+    assert r["cells"][t["col_start"]:t["col_end"]] == "⠒⠕"             # 좌표가 그 점형을 정확히 가리킨다
+    assert t["rule_name"] and t["contents"]                            # 표시용 메타가 비지 않는다
+
+
+def test_우리가_넣은_표식은_tag_로_갈라_본다():
+    """점역자 주 · 빈칸 · 드러냄표는 점자만 보면 묵자에 있던 기호와 구분이 안 된다. `tag` 가 유일한 자리다."""
+    cases = [("<!주>그림 1 설명<!/주>", "NLD-1.2.6", ("tn_open", "tn_close"), "⠠⠄"),
+             ("답은 <!밑줄>이다.", "MCST-한글-6.14.73", ("blank_rule",), "⠸⠤"),
+             ("표 칸은 <!빈칸> 이다.", "MCST-한글-6.14.73", ("blank_table",), "⠿⠿"),
+             ("<!강조>중요<!/강조> 하다", "MCST-한글-6.13.56", ("emphasis_open", "emphasis_close"), "⠰⠆")]
+    for text, rule_id, tags, _cells in cases:
+        r = sidecar.translate(text)
+        got = [(t["rule_id"], t["tag"]) for t in r["rule_trail"]]
+        assert got == [(rule_id, tag) for tag in tags], f"{text!r} → {got}"
+        for t in r["rule_trail"]:
+            assert r["cells"][t["col_start"]:t["col_end"]], f"{text!r} {t['tag']} 좌표가 빈 자리"
+
+
+def test_근거가_없는_요소와_조판_태그는_빈_배열이다():
+    """자명한 규정은 일부러 안 담는다(AI Step17). 키는 늘 있어야 한다 — 앱이 키 없음과 빈 배열을 달리 다루면 안 된다."""
+    assert sidecar.translate("봄이 오면 꽃이 핀다.")["rule_trail"] == []
+    assert sidecar.translate("")["rule_trail"] == []
+    assert sidecar.translate("<!쪽바꿈>")["rule_trail"] == []
+
+
+def test_rule_trail_좌표는_앞_빈_줄만큼_당긴다():
+    """`breaks` 와 같은 처리다. 2단계 제목은 `prefix` 가 1(앞 빈 줄 한 줄)이라, 안 당기면 좌표가 한 칸 밀린다."""
+    r = sidecar.translate("봄 → 여름", "title", 2)
+    (t,) = r["rule_trail"]
+    assert r["cells"][t["col_start"]:t["col_end"]] == "⠒⠕"
+    assert t["col_start"] == 10          # 엔진 좌표 11 − prefix 1. 안 당기면 11 이 되어 한 칸 밀린다
+    assert r["cells"][11:13] != "⠒⠕"     # 밀린 자리는 그 점형이 아니다
+
+
+def test_표_초안에는_rule_trail_을_넣지_않는다():
+    """엔진이 안별 trail 을 따로 들고 있지 않다. 본문 trail 을 복사하면 안의 점자와 어긋난 자리를 가리킨다."""
+    r = sidecar.table(_표(["구분", "가", "나"], ["값", "1", "2"]))
+    assert "rule_trail" in r
+    assert len(r["drafts"]) == 5         # 안이 비면 아래 단언이 헛돈다
+    assert all("rule_trail" not in d for d in r["drafts"])
