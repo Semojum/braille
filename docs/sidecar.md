@@ -51,7 +51,7 @@ python -m semojum_braille.sidecar
 
 ```
 → {"id": 3, "op": "translate", "text": "1 \uad6d\uc5b4\uc758 \ud0d0\uad6c\uc640 \ud65c\uc6a9", "type": "title", "heading_level": 2}
-← {"cells": "\u2800\u2800\u2800\u2800\u2800\u2800\u283c\u2801\u2832\u2800\u2808\u280d\u2801\u280e\u283a\u2800\u2813\u2822\u2808\u280d\u2827\u2800\u281a\u2827\u2802\u282c\u2836", "breaks": [9, 10, 13, 14, 15, 16, 18, 20, 21, 22, 25], "dropped": [], "blocked": false, "unknown_tags": [], "id": 3}
+← {"cells": "\u2800\u2800\u2800\u2800\u2800\u2800\u283c\u2801\u2832\u2800\u2808\u280d\u2801\u280e\u283a\u2800\u2813\u2822\u2808\u280d\u2827\u2800\u281a\u2827\u2802\u282c\u2836", "breaks": [9, 10, 13, 14, 15, 16, 18, 20, 21, 22, 25], "rule_trail": [], "dropped": [], "blocked": false, "unknown_tags": [], "id": 3}
 ```
 
 풀어 쓰면 `cells` 는 `⠀⠀⠀⠀⠀⠀⠼⠁⠲⠀⠈⠍⠁⠎⠺⠀⠓⠢⠈⠍⠧⠀⠚⠧⠂⠬⠶` 이다(2단계 제목이라 7칸에서 시작). 아래부터는 `\uXXXX` 를 풀어 적는다.
@@ -69,7 +69,7 @@ python -m semojum_braille.sidecar
 
 ```
 → {"id": 2, "op": "translate", "text": "대한민국의 모든 국민은 법 앞에 평등하며, 누구든지 성별이나 종교 때문에 차별받지 아니한다.", "type": "text", "heading_level": 0}
-← {"cells": "⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝⠀⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲", "breaks": [4, 6, 8, 11, 12, 13, 15, 17, 18, 21, 23, 24, 25, 28, 29, 31, 32, 33, 35, 38, 39, 42, 43, 45, 47, 49, 51, 52, 54, 56, 57, 58, 59, 61, 63, 64, 67, 69, 70, 71, 73, 75, 77, 79, 80, 81, 83, 85], "dropped": [], "blocked": false, "unknown_tags": [], "id": 2}
+← {"cells": "⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁⠺⠀⠑⠥⠊⠵⠀⠈⠍⠁⠑⠟⠵⠀⠘⠎⠃⠀⠣⠲⠝⠀⠙⠻⠊⠪⠶⠚⠑⠱⠐⠀⠉⠍⠈⠍⠊⠵⠨⠕⠀⠠⠻⠘⠳⠕⠉⠀⠨⠿⠈⠬⠀⠠⠊⠗⠑⠛⠝⠀⠰⠣⠘⠳⠘⠔⠨⠕⠀⠣⠉⠕⠚⠒⠊⠲", "breaks": [4, 6, 8, 11, 12, 13, 15, 17, 18, 21, 23, 24, 25, 28, 29, 31, 32, 33, 35, 38, 39, 42, 43, 45, 47, 49, 51, 52, 54, 56, 57, 58, 59, 61, 63, 64, 67, 69, 70, 71, 73, 75, 77, 79, 80, 81, 83, 85], "rule_trail": [], "dropped": [], "blocked": false, "unknown_tags": [], "id": 2}
 ```
 
 `cells` 앞 두 칸(`⠀⠀`)은 문단 들여쓰기다(3칸에서 시작). 85칸짜리 한 줄이고 아직 32칸으로 접지 않았다. 접는 법은 5절.
@@ -94,7 +94,7 @@ python -m semojum_braille.sidecar
 
 ```
 → {"id": 7, "op": "translate", "text": "가▶나", "korean_grade": 1}
-← {"cells": "⠀⠀⠈⠣⠉⠣", "breaks": [4], "dropped": [{"text": "▶", "count": 1, "flag": "R17"}], "blocked": false, "unknown_tags": [], "id": 7}
+← {"cells": "⠀⠀⠈⠣⠉⠣", "breaks": [4], "rule_trail": [], "dropped": [{"text": "▶", "count": 1, "flag": "R17"}], "blocked": false, "unknown_tags": [], "id": 7}
 ```
 
 `korean_grade: 1`(정자)이라 `가` 를 약자 `⠫` 가 아니라 `⠈⠣` 로 적었다. `▶` 는 점자 기호가 없어 `cells` 에서 빠졌고, 그 사실이 `dropped` 로 온다. 앱은 이 요소에 검토 표시를 띄운다(4절).
@@ -103,7 +103,7 @@ python -m semojum_braille.sidecar
 
 ```
 → {"id": 9, "op": "translate", "text": "😀"}
-← {"cells": "⠀⠀⠠⠄⠨⠎⠢⠱⠁⠀⠑⠥⠄⠀⠚⠢⠠⠄", "breaks": [9, 13], "dropped": [], "blocked": true, "unknown_tags": [], "id": 9}
+← {"cells": "⠀⠀⠠⠄⠨⠎⠢⠱⠁⠀⠑⠥⠄⠀⠚⠢⠠⠄", "breaks": [9, 13], "rule_trail": [{"rule_id": "MCST-기본-1", "source": "한국 점자 규정", "section": "한국 점자 표기의 기본 원칙 · 제1항", "rule_name": "한국 점자 표기의 기본 원칙", "contents": "한국 점자는 한 칸을 구성하는 점 여섯 개(세로 3개, 가로 2개)를 조합하여 만드는 예순세 가지의 점형으로 적는다.", "priority": "primary", "line_no": 0, "col_start": 0, "col_end": 18, "tag": ""}], "dropped": [], "blocked": true, "unknown_tags": [], "id": 9}
 ```
 
 원문은 있는데 점자가 0셀이 되는 요소는 빈 점자 대신 점역자 주 꼴 '점역 못 함'(`⠠⠄` … `⠠⠄`)으로 오고 `blocked` 가 `true` 다. AI 서버가 같은 요소에 내는 점자와 같다. 까닭(`점역 불가 문자 😀`)은 점자에 싣지 않고 표준오류 로그로 나간다. 앱은 이 요소에 검토 표시를 띄우고 묵자 창에서 원문을 보여 준다(4절). 3.4.13 까지는 이런 요소가 빈 `cells` 로 와서 조용히 사라졌다(#52).
@@ -160,6 +160,7 @@ python -m semojum_braille.sidecar
 | 모두 | `id` | 요청과 같음 | 요청의 `id`. JSON 이 아닌 줄을 받으면 `null`. UTF-8 로 못 푸는 줄은 `id` 를 읽을 수 있으면 그 값, 아니면 `null` |
 | translate | `cells` | 문자열 | 점역 결과. `flatten_elements` 가 내는 요소 통 문자열([encoder.md](encoder.md) 1.7)에서 앞뒤 빈 줄(`prefix`·`suffix`)을 뺀 본문과 같다. 들여쓰기 칸과 가운데 여백이 들어 있고, 논리 줄은 `\n` 으로 잇는다. **32칸으로 접지 않았다.** 제목·표 둘레의 앞뒤 빈 줄은 이웃 요소에 따라 정해지므로 부르는 쪽의 조판이 넣는다 |
 | translate | `breaks` | 정수 배열 | `cells` 안에서 줄을 바꿔도 되는 자리. 값 `b` 는 "`cells[b]` 앞에서 끊어도 된다" 는 뜻이다. 음절 경계와 빈칸 자리가 모두 들어 있다. 오름차순이고 겹치지 않는다. `flatten_elements` 의 `breaks`(AI 응답 `TextElement.breaks` 와 같은 함수)에서 `prefix` 길이만큼 뺀 값이라 따로 세지 않는다(#30). 여는 괄호 · 따옴표 바로 뒤는 들지 않는다(AI #1245). 닫는 따옴표 · 괄호 · 로마자 종료표 바로 앞과 빈 괄호 `( )` 안 빈칸도 들지 않는다(「한국 점자 규정」 제54항 · 제55항, AI #1398 · #1402 · #1405, 3.4.25 부터). 수식 구간(`<!수식>…<!/수식>` · `$…$`) 안 자리는 「한국 점자 규정」 수학 점자 제66항대로 사칙연산 · 등호 · 분수표 뒤다(AI #1393 · #1396 · #1397, 3.4.24 부터). 수식 요소는 `type` 을 `"text"` 로 두고 `<!수식>LaTeX<!/수식>` 를 넣으면 셀과 자리가 AI 수식 요소와 같다 |
+| translate | `rule_trail` | 객체 배열 | 점역 근거 조항(3.4.34 부터). 항목은 `rule_id` · `source` · `section` · `rule_name` · `contents` · `priority` · `line_no` · `col_start` · `col_end` · `tag` 다. **좌표계는 `cells` 통 문자열의 문자 오프셋**이고 `line_no` 는 0 고정이다(개행도 1문자) — `cells[col_start:col_end]` 가 그 조항이 만든 점형이다. `tag` 가 비지 않은 항목은 **우리가 판단해 넣은 표식**이라 점역사가 묵자에 있던 기호와 구분할 유일한 자리다(`tn_open` · `tn_close` 점역자 주 `⠠⠄` · `blank_table` · `blank_rule` · `blank_box` 채워 넣을 빈칸 · `emphasis_open` · `emphasis_close` 드러냄표). 근거가 없는 요소는 빈 배열이다 — 자명한 규정은 일부러 안 담는다. `drafts` 안에는 없다(엔진이 안별 trail 을 따로 들고 있지 않다) |
 | translate | `dropped` | 객체 배열 | 점자 기호가 없어 `cells` 에서 **조용히 빠진 글자**. `[{"text": 글자, "count": 횟수, "flag": 갈래}]`. 갈래는 AI 서버 검수 플래그와 같은 이름이다. `R15` 글꼴 사설영역(PUA) 글리프 · `R17` 기호표에 없는 기호 · `R18` 규정에 점형이 없는 옛한글 음절(이때 `text` 는 자모 여럿으로 된 음절 하나). 빠진 것이 없으면 `[]`. 앱은 이 배열이 빈 배열이 아닌 요소에 검토 표시를 띄운다. AI 서버가 쪽 플래그를 세는 함수를 그대로 써서 같은 원문이면 같은 결과다 |
 | translate | `blocked` | 참거짓 | 점역 못 한 요소면 `true`. 원문은 있는데 점자가 0셀이 되거나(점자로 옮길 글자가 없는 요소: 이모지 · 아랍 문자의 숫자(١٢٣) · 다른 문자권 글자 등) 엔진이 예외를 던지면, `cells` 가 점역자 주 꼴 '점역 못 함'이 되고 이 값이 `true` 다. AI 서버의 점역 체인(`isolation.safe_translate`)과 검토 표시(C2 · R1, `is_blocked_braille`)와 같은 판정이다. 한자만 있는 요소는 빈 `cells` 가 정답이라(도서 관행) `false` 다. 앱은 `true` 인 요소에 검토 표시를 띄운다 |
 | translate | `unknown_tags` | 문자열 배열 | 엔진이 모르는 태그 이름(나온 차례, 겹침 없이). 예 `<!없는태그>` → `"없는태그"`. 목록표 글자 태그 넷(색강조 · 취소선 · 밑줄빈칸 · 네모빈칸)은 3.4.22 부터 아는 태그다. 점역에서는 지우고 나머지를 점역한다. 앱은 이 배열이 비지 않은 요소에 검토 표시를 띄운다 |
@@ -168,7 +169,7 @@ python -m semojum_braille.sidecar
 | table | `render_mode` | 문자열 | 고른 안. 태그가 표로 안 풀려 점역자 주 한 안이면 `""` |
 | table | `drafts` | 객체 배열 | 다섯 안 전부. `[{"render_mode", "label", "cells", "breaks"}]` 이고 순서는 `unfold` · `table_grid` · `transposed` · `linear` · `numbered` 다. 안을 바꾸기만 할 때는 다시 부를 필요 없이 이 배열에서 고른다. 점역자 주 한 안이면 `[]` |
 | table | `dropped` · `blocked` | 객체 배열 · 참거짓 | `translate` 와 같다. `dropped` 는 `table_source` 의 글자로 센다(태그는 세지 않는다) |
-| translate | `render_mode` · `drafts` | 문자열 · 객체 배열 | **표일 때만 붙는다**(#60). 뜻은 `table` 의 같은 이름 필드와 같다. 표가 아니면 응답은 `cells` · `breaks` · `dropped` · `blocked` 넷뿐이다 |
+| translate | `render_mode` · `drafts` | 문자열 · 객체 배열 | **표일 때만 붙는다**(#60). 뜻은 `table` 의 같은 이름 필드와 같다. 표가 아니면 응답은 `cells` · `breaks` · `rule_trail` · `dropped` · `blocked` · `unknown_tags` 여섯뿐이다 |
 | decode | `text` | 문자열 | 역점역한 글. 원문 복원이 아니라 **검수용 근사**다. 줄바꿈은 그대로 둔다 |
 | build_brf | `brf` | 문자열 | `.brf` 파일 내용 그대로. 줄 끝 `\r\n`, 26줄 쪽마다 끝에 `\x0c`(마지막 쪽 포함), 소문자 BRF ASCII, 32칸. 부르는 쪽은 이 문자열을 ASCII 로 그대로 파일에 쓴다 |
 | build_brf | `replaced` | 객체 | 점자로 못 옮겨 **빈칸으로 바꾼 글자**와 횟수(`{"U+2009": 2}`). 없으면 `{}`. 파일은 그래도 나온다. 비어 있지 않으면 점역사에게 알린다(그 자리 점자가 빠졌다). 3.4.23 부터다. 종전에는 이런 글자 하나에 파일 전체가 `BAD_FIELD` 였다 |

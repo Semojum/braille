@@ -100,6 +100,11 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     앱이 따로 켤 일이 없다. `force_roman` 은 옛 호출을 위해 그대로 받는다. V4 가이드에는 적지 않고 프로토콜 판을
     올릴 때(2) 뺀다(같은 일을 하는 길이 둘이면 앱이 헷갈린다. 들여쓰기도 2칸 대 0칸으로 다르다, #72).
 
+    `rule_trail` 은 점역 근거 조항이다(#101). 좌표계는 `cells` 통 문자열의 문자 오프셋이고 `line_no` 는
+    0 고정이다. 엔진이 이미 계산해 두는 값(`FlatElement.trail`)을 `breaks` 와 같은 방식으로 당겨서 싣는다.
+    `tag` 가 붙은 항목은 점역사가 "여기가 점역자 주다 · 여기가 빈칸이다" 를 아는 유일한 자리다
+    (`tn_open` · `tn_close` · `blank_table` · `blank_rule` · `blank_box` · `emphasis_open` · `emphasis_close`).
+
     `flatten_elements` 를 그대로 부르고 `prefix` · `suffix` 를 떼며, `breaks` 는 `prefix` 길이만큼 뺀다.
     따로 세지 않는다. 종전에는 줄 사이 구분자를 늘 한 칸으로 세어, 앞 줄이 ⠀ 로 끝나 구분자가 빈 문자열인 자리
     뒤로 끊을 자리가 하나씩 밀렸다(#30). AI 응답 `TextElement.breaks` 와 같은 함수(`_flat_breaks`)다.
@@ -123,8 +128,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     bare = text.strip()
     if bare in RULE_TAGS or bare in (PAGE_BREAK_TAG, CHAPTER_TAG):
         # 조판 태그만 든 요소. 줄 태그는 32칸 미리보기(조판은 `opts.cols` 로 다시 펼친다), 면 넘김 표식은 빈 점자.
-        return {"cells": rule_line(bare) if bare in RULE_TAGS else "", "breaks": [], "dropped": [], "blocked": False,
-                "unknown_tags": []}
+        return {"cells": rule_line(bare) if bare in RULE_TAGS else "", "breaks": [], "rule_trail": [],
+                "dropped": [], "blocked": False, "unknown_tags": []}
     unknown = _unknown_tags(text)
     text = _HEADER_RE.sub("", _ALIGN_TAG_RE.sub("", text))
     for tag, slot in _SLOTS.items():
@@ -146,8 +151,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines),   # AI 서버 검토 표시(C2 · R1)와 같은 판정
            "unknown_tags": unknown}
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
-        return {"cells": "", "breaks": [], **out}
-    return _unslot({**_body(fe, fe.text, fe.breaks), **out})
+        return {"cells": "", "breaks": [], "rule_trail": [], **out}
+    return _unslot({**_body(fe, fe.text, fe.breaks), "rule_trail": _trail(fe), **out})
 
 
 def _unslot(res: dict) -> dict:
@@ -189,10 +194,10 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
            "dropped": _dropped(source), "blocked": is_blocked_braille(bo.braille_lines),
            "unknown_tags": _unknown_tags(source)}
     if fe is None:
-        return {"cells": "", "breaks": [], "drafts": [], **out}
+        return {"cells": "", "breaks": [], "rule_trail": [], "drafts": [], **out}
     drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b)}
               for d, t, b in zip(bo.drafts, fe.draft_texts, fe.draft_breaks)]
-    return {**_body(fe, fe.text, fe.breaks), "drafts": drafts, **out}
+    return {**_body(fe, fe.text, fe.breaks), "rule_trail": _trail(fe), "drafts": drafts, **out}
 
 
 def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
@@ -217,6 +222,27 @@ def _body(fe, text: str, breaks) -> dict:
     """요소 통 문자열에서 앞뒤 빈 줄(`prefix` · `suffix`)을 떼고, 끊을 자리를 `prefix` 길이만큼 당긴다."""
     n = len(fe.prefix)
     return {"cells": text[n:len(text) - len(fe.suffix)], "breaks": [b - n for b in breaks]}
+
+
+def _trail(fe) -> list[dict]:
+    """요소의 `rule_trail` — 점역 근거 조항. 좌표를 `cells` 와 같은 자리로 당긴다.
+
+    좌표계는 **`cells` 통 문자열의 문자 오프셋**이고 `line_no` 는 0 고정이다(개행도 1문자).
+    엔진이 내는 `fe.trail` 은 `prefix`(앞 빈 줄)를 포함한 통 문자열 기준이라 `breaks` 와 똑같이
+    `prefix` 길이만큼 당긴다. `_unslot` 의 자리표시는 태그와 글자 수가 같아(`_SLOTS` assert)
+    좌표를 밀지 않는다.
+
+    `drafts` 에는 넣지 않는다 — 엔진이 안별 trail 을 따로 들고 있지 않아서, 본문 trail 을 복사하면
+    안의 점자와 어긋난 자리를 가리킨다.
+
+    `tag` 가 붙은 항목(`tn_open` · `box_top` · `blank_rule` · `emphasis_open` …)은 점역사가
+    "여기가 점역자 주다 · 여기가 테두리다" 를 아는 유일한 자리다. 점자만 보면 우리가 판단해
+    넣은 표식인지 묵자에 있던 기호인지 구분이 안 된다.
+    """
+    n = len(fe.prefix)
+    # `prefix` 는 개행뿐이라 그 안에 조항이 붙을 자리가 없다. 좌표가 음수로 내려가는 표본은 전수 0 이었다.
+    return [{**t.model_dump(), "line_no": 0, "col_start": t.col_start - n, "col_end": t.col_end - n}
+            for t in (fe.trail or [])]
 
 
 def _dropped(text: str) -> list[dict]:
