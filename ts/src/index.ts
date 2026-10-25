@@ -370,6 +370,12 @@ export function ruleLine(tag: string, cols = 32): string {
   return a + f.repeat(cols - a.length - z.length) + z;
 }
 
+/** 위 테두리 꼴 [머리 셀, 채움 셀, 끝 셀]: 1단계 ⠿⠛…⠿ · 2단계 ⠖⠒…⠲ · 3단계 ⠖⠐…⠲. 근거는 python assist 의 `_TOP_BORDERS`. */
+const TOP_BORDERS: Array<[string, string, string]> = [['⠿', '⠛', '⠿'], ['⠖', '⠒', '⠲'], ['⠖', '⠐', '⠲']];
+/** cols 칸 위 테두리 줄인가. 머리 셀 다음 채움 네 칸을 본다(제목은 그 뒤에 선다). */
+const isTopBorder = (line: string, cols: number): boolean =>
+  line.length === cols && TOP_BORDERS.some(([a, f, z]) => line.startsWith(a + f.repeat(4)) && line.endsWith(z));
+
 const stripCells = (s: string) => s.replace(/^[⠀ ]+|[⠀ ]+$/g, '');
 
 function alignLine(line: string, cols: number, how: string): string {
@@ -504,6 +510,10 @@ export function buildPages(
     // 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
     let end = pos;
     while (end < flat.length && end - pos < cap && !MARKS.includes(flat[end][0])) end++;
+    // 면이 차서 끊길 때 면 끝 위 테두리는 다음 면으로 넘긴다(자료지침 2.1.7(4) 613행, python `_cut` 과 같은 규칙).
+    if (end <= last && !MARKS.includes(flat[end][0])) {
+      while (end - 1 > pos && isTopBorder(flat[end - 1][0], o.cols)) end--;
+    }
     const n = onCover ? '' : num(bp);
     const body = flat.slice(pos, end).map(([ln, , , al]) => alignLine(fillPageNo(ln, n), o.cols, al));
     const ops = flat.slice(pos, end).map(([, x]) => x);

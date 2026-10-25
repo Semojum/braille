@@ -514,6 +514,17 @@ BRAILLE_PAGE_TAG = "<!점자면번호>"
 ALIGNS = ("left", "center", "right")
 
 
+# 위 테두리 꼴 (머리 셀, 채움 셀, 끝 셀): 1단계 ⠿⠛…⠿ · 2단계 ⠖⠒…⠲ · 3단계 ⠖⠐…⠲(자료지침 2.1.7(2) · (3) 587~609행).
+#   `encoder/constants.BOX_LEVELS` 의 "top" 과 같다(시험이 묶는다). 표 위 테두리(`<!표시작>` · `<!표지시작>`)도 같은 꼴이다.
+_TOP_BORDERS = (("⠿", "⠛", "⠿"), ("⠖", "⠒", "⠲"), ("⠖", "⠐", "⠲"))
+
+
+def _is_top_border(line: str, cols: int) -> bool:
+    """`cols` 칸 위 테두리 줄인가. 머리 셀 다음 채움 네 칸을 본다(제목은 그 뒤에 선다, 2.1.7(1)② 580행).
+    머리 · 끝 셀만 보면 마침 `cols` 칸인 본문 줄이 걸린다(AI `layout_braille._is_border_line` #1172 와 같은 문턱)."""
+    return len(line) == cols and any(line.startswith(a + f * 4) and line.endswith(z) for a, f, z in _TOP_BORDERS)
+
+
 def rule_line(tag: str, cols: int = 32) -> str:
     """줄을 먹는 태그 → `cols` 폭 한 줄. 예: `<!표시작>` 32칸 = ⠖ + ⠒×30 + ⠲."""
     a, f, z = RULE_TAGS[tag]
@@ -665,10 +676,18 @@ def build_pages(
         pos += 1                          # 문서 맨 앞의 빈 줄만 버린다
 
     def _cut(flat: list, start: int, cap: int) -> int:
-        """`start` 부터 최대 `cap` 줄까지의 끝 자리. 표식을 만나면 거기서 면을 끊는다."""
+        """`start` 부터 최대 `cap` 줄까지의 끝 자리. 표식을 만나면 거기서 면을 끊는다.
+
+        면이 차서 끊길 때 면 끝 줄이 위 테두리면 그 테두리를 다음 면으로 넘긴다. 「점자 자료 제작 지침」 2.1.7(4)
+        (재추출 613행) · 「점자 도서 제작 지침」 글상자 (7)(491행) "점자 페이지에서 위 테두리 다음에는 한 줄 이상의
+        텍스트가 나와야 한다". 표식 앞이거나 뒤에 내용이 없으면 넘겨도 테두리 혼자 서므로 두고, 면에 테두리만
+        남게 되면 넘기지 않는다."""
         end = start
         while end < len(flat) and end - start < cap and flat[end][0] not in _MARKS:
             end += 1
+        if end <= last and flat[end][0] not in _MARKS:
+            while end - 1 > start and _is_top_border(flat[end - 1][0], opts.cols):
+                end -= 1
         return end
 
     def blank(bp: int, head_page: int, cover: bool) -> list:
