@@ -594,7 +594,10 @@ def _old_syllable_cells(syl: list[str]) -> str | None:
     else:
         cho = ""
     if not jung_l:
-        return cho
+        # 중성 없이 받침 자모가 남은 묶음 — 완성형 음절 뒤에 받침 자모가 붙은 꼴(`죠` + `ᇰ`, NFC 로 합친 글)에서 생긴다.
+        # 적을 수 없다. 종전엔 빈 점자를 돌려 받침이 소리 없이 사라졌고 R18 셈(`dropped_old_jamo`)에도 안 잡혔다(#105).
+        # 지우는 동작은 그대로 두고 None 으로 돌려 센다. 첫가끝(초성 · 중성 · 종성 자모)으로 주면 받침까지 맞게 찍힌다.
+        return None if jong_l else cho
     v = jung_l[0]
     t = jong_l[0] if jong_l else ""
     tail = ""

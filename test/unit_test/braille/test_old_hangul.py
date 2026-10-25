@@ -94,3 +94,15 @@ def test_점형_없는_음절_하나가_런을_통째로_지우지_않는다():
     assert translate_plain("하ᄀᆞᄋᆉ다") == "⠚⠈⠐⠼⠊"     # ᄀᆞ(⠈⠐⠼)는 남는다
     assert dropped_old_jamo("하ᄀᆞᄋᆉ다") == {"ᄋᆉ": 1}   # 빠진 것은 세어 R18 로
     assert not dropped_old_jamo("뒷가ᇇ ᄒᆞᇙ")           # 적히는 것은 안 센다
+
+
+def test_완성형_음절_뒤_받침_자모는_세어_남긴다():
+    """완성형 음절 뒤에 붙은 받침 자모(NFC 로 합친 `가` + `ᇰ`)는 적을 수 없어 지워진다. 종전엔 빈 점자로 처리돼
+    R18 셈(`dropped_old_jamo`)과 사이드카 `dropped` 에도 안 남고 소리 없이 사라졌다(#105). 지우는 동작은 그대로다."""
+    from semojum_braille import sidecar
+    from semojum_braille.encoder.translator import dropped_old_jamo
+    assert dropped_old_jamo("가ᇰ나") == {"ᇰ": 1}
+    assert dropped_old_jamo("각") == {"ᆨ": 1}
+    assert translate_plain("가ᇰ나") == translate_plain("가나")          # 앞뒤 음절은 남는다
+    assert {"text": "ᇰ", "count": 1, "flag": "R18"} in sidecar.translate("가ᇰ나")["dropped"]
+    assert not dropped_old_jamo("가ᇰ")                        # 첫가끝으로 주면 적힌다(안 센다)
