@@ -6,6 +6,9 @@ source/section/rule_name/contents 메타는 `regulations.json`(239개 조항) di
 
 금지: ①LLM 규정 자가보고 ②출력↔규정 유사도검색 ③DB에 없는 rule_id.
 rule_id가 JSON에 없으면 KeyError raise — 댕글링/가짜 rule_id 차단.
+
+`supported: false` 항목(음악 · 국제음성기호 등 101개)은 점역 미지원 · 검색 전용이다(R-94).
+점역사 검색 사본(Semojum/braille-reference `rules.json`)에만 쓰이고, 여기 조회에서는 없는 id 와 같다.
 """
 
 from __future__ import annotations
@@ -44,7 +47,10 @@ def _load_rules() -> dict[str, dict]:
     return raw["rules"]
 
 
-_RULES: dict[str, dict] = _load_rules()
+_ALL: dict[str, dict] = _load_rules()
+# rule_trail 에 달 수 있는 조항만. 검색 전용(supported=false)을 여기 두면 누가 그 id 로
+# rule_trail 을 달아도 막을 길이 없다.
+_RULES: dict[str, dict] = {k: v for k, v in _ALL.items() if v.get("supported", True)}
 
 
 def _canon(rule_id: str) -> str:
@@ -81,6 +87,9 @@ def make_rule(
     rule_id = _canon(rule_id)
     meta = _RULES.get(rule_id)
     if meta is None:
+        if rule_id in _ALL:
+            raise KeyError(f"rule_id {rule_id!r} 는 점역 미지원(supported=false) 검색 전용 조항이라 "
+                           f"rule_trail 에 달 수 없다")
         raise KeyError(
             f"rule_id {rule_id!r} not in regulations.json "
             f"(댕글링 rule_id 금지 — regulations.json에 조항을 먼저 추가하라)"

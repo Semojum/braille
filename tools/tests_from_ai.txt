@@ -219,3 +219,19 @@ test/unit_test/braille/test_url_email_t36.py
 # ── 2026-10-19 추가(#84): 규정 · 지침 예문 입력으로 다시 쓴 영어 역점역 시험 둘(AI #1452) ──
 test/unit_test/braille/test_decode_eng_blank_ctx.py
 test/unit_test/braille/test_decode_head_english.py
+
+# ── 2026-10-26 추가: AI d0a00083..fb4bcccf 에서 새로 생긴 점역 시험 10(엔진 모듈만 부르고 test_data 를 안 읽는 것) ──
+# 안 옮긴 것: test_hanja_dropped_1544(app.core.pipeline) · test_question_blank_1505 · test_ref_emph_attach_c181 ·
+#   test_ref_line_break_1513(app.schemas.layout) · test_regulation_sentences(규정쌍 자료). 사라지는 한자는 test/test_sidecar.py 가 본다.
+test/unit_test/braille/test_apostrophe_year_1496.py
+test/unit_test/braille/test_arrow_colon_middot_1517.py
+test/unit_test/braille/test_box_long_title_1501.py
+test/unit_test/braille/test_bracket_slash_thin_gap_1519.py
+test/unit_test/braille/test_eng_apostrophe_ueb_1543.py
+test/unit_test/braille/test_indent_from_spaces_1484.py
+test/unit_test/braille/test_new_paragraph_indent_1532.py
+test/unit_test/braille/test_qnum_code_period_1507.py
+test/unit_test/braille/test_roman_tilde_line_head_1495.py
+test/unit_test/formula/test_seg_atom_wy_1502.py
+# #96 은 엔진에서 먼저 고쳤다가 AI #1555 가 자리마다 세는 판으로 정본에 넣었다. 엔진 고유 사본(test/test_silent_symbol_drop_1022.py)을 이것으로 바꾼다.
+test/unit_test/braille/test_silent_symbol_drop_1022.py

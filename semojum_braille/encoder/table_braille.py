@@ -18,11 +18,9 @@ from semojum_braille.encoder.nested_block import append_nested
 from semojum_braille.encoder.regulations import make_rule, make_rule_at
 from semojum_braille.encoder.symbol_rules import symbol_rule_spans
 from semojum_braille.encoder.tag_names import (  # 교열과 같이 쓰는 어휘(#1364)
-    _PRINT_BOX_BOTTOM,
-    _PRINT_BOX_TOP,
-    _PRINT_RULE,
     answer_box_on,
     answer_box_parts,
+    build_table_tags,
     parse_table_tags,
 )
 from semojum_braille.encoder.text_braille import content_rules
@@ -751,17 +749,6 @@ def _render_answer_box(parts) -> list[str]:
     return out
 
 
-def _print_answer_box(parts) -> str:
-    titles, groups = parts
-    boxed = _box_title(titles)
-    out = [*(t for t in titles if t is not boxed), f"{_PRINT_BOX_TOP} {boxed}" if boxed else _PRINT_BOX_TOP]
-    for labels, pairs in groups:
-        out.extend(labels)
-        out.extend("  ".join(f"{n} {a}" for n, a in pairs[k:k + 4]) for k in range(0, len(pairs), 4))
-    out.append(_PRINT_BOX_BOTTOM)
-    return "\n".join(out)
-
-
 _NUMERIC_CELL_RE = re.compile(r"^[\d.,()%~\-\s]+$")
 
 
@@ -825,6 +812,19 @@ _ROWWISE_MAX_WIDTH = 40 if _BOOK_STYLE else _COLS
 _COLON = "⠐⠂⠀"          # 쌍점 + 한 칸 (정답 도서 실측: 사회문화 p087 '의미⠐⠂⠀하층의…')
 
 
+# 3.3.2 묶음 칸(`table_opt._split_col_grid` 의 `상위“하위1  하위2”` · `“값1  값2”`)은 칸 여럿을 모은 것이라 낱말 · 문장
+# 수준을 칸 길이로 가를 때는 나눠 센다. 통째로 세면 묶음이 길어 행 머리 뒤 구분자가 두 칸에서 쌍점으로 뒤집힌다.
+_GROUP_CELL_RE = re.compile(r"^([^“”]*)“([^“”]*  [^“”]*)”$")
+
+
+def _cell_units(rows: list[list[str]]):
+    """칸 길이 셈 단위 — 묶음 칸은 상위 제목과 묶인 칸들로 나눈다."""
+    for r in rows:
+        for c in r:
+            m = _GROUP_CELL_RE.match(c.strip())
+            yield from ([m.group(1), *m.group(2).split("  ")] if m else [c])
+
+
 def _word_level(rows: list[list[str]]) -> bool:
     """셀이 낱말 수준인가(↔ 여러 단어·문장).
 
@@ -838,7 +838,7 @@ def _word_level(rows: list[list[str]]) -> bool:
     ★ 이 '전 셀 ≤14' 판정은 **행 단위 전개 가능 여부**(`_rowwise_ok`) 전용이다. 구분자
       선택에는 `_sep_word_level`(중앙값)을 쓴다 — 근거는 그쪽 독스트링.
     """
-    return all(len(_translate(c)) <= _WORD_CELL_MAX for r in rows for c in r if c.strip())
+    return all(len(_translate(c)) <= _WORD_CELL_MAX for c in _cell_units(rows) if c.strip())
 
 
 def _sep_word_level(rows: list[list[str]]) -> bool:
@@ -866,7 +866,7 @@ def _sep_word_level(rows: list[list[str]]) -> bool:
     """
     if not _BOOK_STYLE:
         return True
-    lens = sorted(len(_translate(c)) for r in rows for c in r if c.strip())
+    lens = sorted(len(_translate(c)) for c in _cell_units(rows) if c.strip())
     return not lens or lens[len(lens) // 2] <= _WORD_CELL_MAX
 
 
@@ -1104,84 +1104,30 @@ def _render_unfold(corrected_text: str) -> list[str]:
 
 
 def print_layout(corrected_text: str, mode: str) -> str:
-    """표 초안의 **묵자** 배치 (2026-08-06).
+    """표 초안의 **묵자** — 앱 삽입 메뉴와 같은 `<!표><!행><!칸>` 꼴(#1482).
 
-    FE 피커는 묵자와 점자를 나란히 보여 준다(와이어프레임). 종전에는 초안 4개가 전부
-    `text=원문`이라 묵자 칸이 똑같아 무엇을 고르는지 알 수 없었다.
+    ★ 2026-10-22 대표 지시로 꼴을 바꿨다. 종전에는 안마다 다른 배치를 글자로 그렸다 —
+      테두리 `┌ ├ └`, 열 제목 뒤 쌍점, 번호 체계 `1.` 따위다. 그래서 **한 요소가 같은 표를
+      두 꼴로 내보냈다**: `contents` 는 테두리 그림, `table_source`(응답 17 번)는 태그 꼴.
+      앱 삽입 메뉴로 넣은 표는 태그 꼴이라 점역사가 편집하는 글에 두 꼴이 섞였다.
 
-    ★ 점자 렌더러(`_render_*`)를 재활용하지 않는다 — 그쪽은 `_translate`가 19곳에 박혀
-      있어 파라미터화하면 점자 출력이 흔들린다. 배치 규칙만 같은 별도 함수로 둔다.
-    ★ 32칸 접기는 하지 않는다. 묵자는 그 제약이 없고, 피커는 **배치 모양**을 보이는 게 목적이다.
+      이제 **모든 안이 같은 태그 꼴**이고, 테두리를 그릴지 번호를 매길지는 `render_mode`
+      (`unfold` · `table_grid` · `transposed` · `linear` · `numbered`)가 정한다. 앱이 그 값으로
+      점역하므로 묵자에 배치를 그려 넣을 까닭이 없다. 행렬이 실제로 달라지는 `transposed`
+      만 태그 꼴에서도 구별된다(대표 결정 2026-10-22: 그래도 된다).
+
+    입력은 파이프(`|`) 구분 글과 태그 꼴 둘 다 받는다 — 교열 단계가 둘을 섞어 쓴다.
     """
-    if mode == "linear" and answer_box_on() and (ab := answer_box_parts(_answer_rows(corrected_text))):
-        return _print_answer_box(ab)          # 정답 상자 — 점자 쪽 _render_answer_box 와 같은 배치
-    if mode == "transposed":
-        corrected_text = _transpose_text(corrected_text)
-    rows = [[c.strip() for c in ln.split("|")]
-            for ln in corrected_text.splitlines() if ln.strip()]
+    rows = parse_table_tags(corrected_text)
+    if rows is None:
+        rows = [[c.strip() for c in ln.split("|")]
+                for ln in corrected_text.splitlines() if ln.strip()]
     if not rows:
         return corrected_text
-    out: list[str] = []
-    if mode == "numbered":                    # §3.1.1 (1)③ 번호 체계
-        # 번호 체계·줄 나눔은 점자 쪽(`_render_numbered`)과 **같아야 한다** — 피커가
-        # 묵자와 점자를 나란히 보이므로 어긋나면 점역사가 다른 안을 보고 고른다.
-        heads, body = _numbered_split(rows)
-        for i, r in enumerate(body, start=1):
-            out.append(f"{i}. {r[0].strip()}" if r and r[0].strip() else f"{i}.")
-            for j, cell in enumerate(r[1:], start=1):
-                v = cell.strip()
-                if not v:
-                    continue
-                nm = heads[j].strip() if j < len(heads) else ""
-                mark = _L2_MARKS[(j - 1) % len(_L2_MARKS)]
-                if nm:
-                    out.append(f"  {mark}. {nm}")
-                    out.append(f"    {v}")
-                else:
-                    out.append(f"  {mark}. {v}")
-        return "\n".join(out)
-    if mode == "linear":                      # 키  값 (2열 표)
-        for r in rows:
-            out.append("  ".join(c for c in r if c) if len(r) > 1 else (r[0] if r else ""))
-    elif mode == "unfold":                    # 행머리 + 값들을 줄마다 (§3.1.2)
-        for r in rows:
-            head, vals = (r[0] if r else ""), [c for c in r[1:] if c]
-            out.append(f"{head}  " + "  ".join(vals) if vals else head)
-    else:                                     # table_grid · transposed · linear
-        for r in rows:
-            head, vals = (r[0] if r else ""), [c or "(빈칸)" for c in r[1:]]
-            out.append(f"{head}: " + "  ".join(vals) if vals else head)
     if mode == "transposed":
-        out.insert(0, "[점역자 주] 행과 열을 바꾸어 표기함")
-    # ★ 테두리·구분선을 묵자에도 그린다(2026-09-03 대표 지시). 점자 렌더러(_render_grid·
-    #   _render_linear)는 글상자 테두리와 표 구분선을 내는데 묵자 초안만 안 냈다. 그래서
-    #   FE 피커에서 **다섯 안이 죄다 테두리 없는 줄글**로 보였고 `테두리+구분선`·`테두리만`
-    #   이라는 이름과 어긋났다(unfold 와 linear 는 출력이 아예 같았다).
-    #   지침 §3.1.1 — 표는 글상자로 감싸고 머리행 아래에 구분선을 둔다.
-    return "\n".join(_print_frame(out, mode, header=len(rows) > 1))
-
-
-def _print_frame(lines: list[str], mode: str, *, header: bool) -> list[str]:
-    """묵자 초안에 테두리·구분선을 두른다.
-
-    `unfold`(테두리 없음)와 `numbered`(번호 체계)는 지침상 테두리를 두르지 않는다 —
-    표를 풀어 쓰는 형식이라 테두리가 뜻을 갖지 않는다. 나머지 셋은 두른다.
-    """
-    if mode in ("unfold", "numbered") or not lines:
-        return lines
-    body = list(lines)
-    note = None
-    if body and body[0].startswith("[점역자 주]"):
-        note = body.pop(0)                    # 주는 테두리 **밖**이다
-    out = [_PRINT_BOX_TOP]
-    # 구분선은 머리행이 있는 형식에만. `linear`(테두리만)는 이름대로 테두리만 두른다 —
-    # 안 그러면 table_grid 와 출력이 같아져 초안 둘이 겹친다.
-    if header and body and mode != "linear":
-        out += [body[0], _PRINT_RULE] + body[1:]
-    else:
-        out += body
-    out.append(_PRINT_BOX_BOTTOM)
-    return ([note] + out) if note else out
+        n_cols = max(len(r) for r in rows)
+        rows = [list(col) for col in zip(*[r + [""] * (n_cols - len(r)) for r in rows])]
+    return build_table_tags(rows)
 
 
 def _transpose_text(corrected_text: str) -> str:
