@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 from uuid import uuid4
@@ -17,7 +18,7 @@ import pytest
 from semojum_braille.encoder.visual_braille import CartoonBraille, ChartGraphBraille
 from semojum_braille.encoder.formula_braille import FormulaBraille
 from semojum_braille.encoder.visual_braille import ImageBraille
-from semojum_braille.encoder.regulations import all_rule_ids, make_rule
+from semojum_braille.encoder.regulations import all_rule_ids, make_rule, make_rule_at, rule_meta
 from semojum_braille.encoder.table_braille import TableBraille
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.schemas import Draft, LLMOutput
@@ -58,7 +59,8 @@ class TestRuleRegistry:
     def test_registry_size(self):
         # MCST+NLD 226 + 자료지침(NISE) 13 (Step17에서 §6.6.3~6.6.8 여섯 조항 추가 —
         # 도표 8종이 저마다 제 조항을 근거로 달 수 있게. 원문은 braille-source/text/ 발췌)
-        assert len(all_rule_ids()) == 239
+        # 검색 전용 101(supported=false)은 rule_trail 조회 집합에 안 든다 — TestSearchOnly.
+        assert len(all_rule_ids()) == 303          # 239 + ICEB 64(#1547)
 
     def test_make_rule_literals_subset_of_registry(self):
         scanned = _scan_make_rule_ids()
@@ -90,3 +92,35 @@ class TestRuleRegistry:
         assert emitted, "emit된 rule_id가 없음"
         dangling = emitted - all_rule_ids()
         assert not dangling, f"점역 모듈이 미등록 rule_id emit: {sorted(dangling)}"
+
+
+_REGS = json.loads((_APP_AI / "regulations.json").read_text(encoding="utf-8"))["rules"]
+_SEARCH_ONLY = sorted(k for k, v in _REGS.items() if v.get("supported", True) is False)
+
+
+class TestSearchOnly:
+    """R-94: 음악 · 국제음성기호는 점역하지 않고 검색만 되게 넣었다(supported=false).
+
+    점역 경로에서 이 id 로 rule_trail 을 다는 일이 없어야 한다 — 조회가 없는 id 와 같게 굴어야 한다.
+    """
+
+    def test_검색_전용은_101개(self):
+        assert len(_SEARCH_ONLY) == 101
+        assert len(_REGS) == 303 + 101
+
+    @pytest.mark.parametrize("rid", _SEARCH_ONLY)
+    def test_조회에_안_걸린다(self, rid):
+        assert rid not in all_rule_ids()
+        assert rule_meta(rid) is None
+        with pytest.raises(KeyError, match="검색 전용"):
+            make_rule(rid)
+
+    def test_make_rule_at_도_막힌다(self):
+        with pytest.raises(KeyError):
+            make_rule_at(_SEARCH_ONLY[0], ["⠁⠃"], 0, 1)
+
+    def test_검색에_쓸_필드는_다_있다(self):
+        for rid in _SEARCH_ONLY:
+            v = _REGS[rid]
+            assert v["source"] and v["publisher"] and v["version"] and v["rule_name"] and v["contents"], rid
+            assert v["section"], rid

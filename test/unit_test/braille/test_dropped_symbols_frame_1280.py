@@ -2,7 +2,7 @@
 
 표지를 '빠진 기호'로 세어 2027 dev · val 1,746쪽 중 571쪽에 R17 이 붙고 265쪽이 그것 하나로 NEEDS_REVIEW 였다.
 """
-from semojum_braille.encoder.table_braille import _PRINT_BOX_BOTTOM, _PRINT_BOX_TOP, _PRINT_RULE
+from semojum_braille.encoder.tag_names import _PRINT_BOX_BOTTOM, _PRINT_BOX_TOP, _PRINT_RULE
 from semojum_braille.encoder.translator import dropped_symbols
 
 

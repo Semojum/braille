@@ -45,6 +45,7 @@ python tools/check_docs.py
 ```
 
 - 코드는 임포트 경로만 바꿉니다. 그 밖의 변경은 패치 둘뿐입니다. `SILENT_FIXES`(역맵 파일이 없으면 빈 맵 대신 예외) · `KIWI_OPTIONAL`(kiwi 가 없으면 낱말 목록). 패치할 자리를 못 찾으면 동기화가 멈춥니다. AI 쪽 원본이 바뀐 것이니 패치를 맞춰 고칩니다.
+- 데이터는 조항표 하나만 손댑니다. 「통일영어점자 규정」(ICEB) 조항은 비영리 조건(CC BY-NC-ND 2.5 AU)이라 앱에 실리는 이 저장소의 조항표에서 뺍니다(`REGULATION_DROP_PREFIXES`).
 - 옮길 시험은 `tools/tests_from_ai.txt` 에 적습니다. 엔진을 부르고, AI 서버 모듈이나 정답 코퍼스(`test_data/`)를 부르지 않는 시험만 옮깁니다.
 - AI 저장소에서 이미 깨져 있는 시험은 `test/conftest.py` 의 `_BROKEN_IN_AI` 에 적어 xfail(strict)로 둡니다. AI 가 고친 뒤 다시 옮기면 XPASS 가 실패로 드러나니, 그때 목록에서 뺍니다.
 - 커밋 메시지에 옮겨 온 AI 커밋을 적습니다(예: `AI develop 8dc7e7b 로 재동기화`).

@@ -147,6 +147,10 @@ _WORD_RE = re.compile(r"[A-Za-z']+")
 # 작은따옴표일 수 있어 여기 안 걸린다.
 _INNER_APOS_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
 _APOS_CELL = "⠄"
+# UEB 10.1.2 · 10.2.2 — 아포스트로피 뒤 이 글자일 때만 앞 낱말에 단어 약자를 쓴다(#1543)
+_APOS_SUFFIX = frozenset({"d", "ll", "re", "s", "t", "ve"})
+# UEB 10.9.2 · Appendix 1(같은 파일 8837 · 9038 · 9059 · 9960행) — 줄임말을 그대로 쓰는 n't 꼴: couldn't = cdn't · mustn't = m/n't
+_SHORTFORM_NT = frozenset({"could", "would", "should", "must"})
 
 
 def iter_words(text: str) -> Iterator[str]:
@@ -183,10 +187,13 @@ def _be_is_syllable(word: str) -> bool:
 _INITIAL_SPELLED: dict[str, tuple[str, ...]] = {"ever": ("severe",), "one": ("colonel",)}
 
 
-def _apply_groups(word: str, ebae: bool = False) -> str:
+def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
     """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수.
 
     `ebae=True` 는 역점역 왕복 검사 전용이다 — 옛 EBAE 책 줄(`DON,N` = donation)을 되짚는다.
+    `mid=True` 는 이 조각이 낱말 첫머리가 아니라는 뜻이다(아포스트로피 뒤 조각, #1543) — 첫머리 음절 약자(be · con · dis)를
+    안 쓰고, 첫머리에 못 오던 윗칸 약자 ing 는 쓴다. UEB Appendix 2 `O'Connor` = ,o',connor · `Ch'ing` = ,*'+.
+    아래칸 약자(ea · bb …)는 앞이 글자가 아니라 그대로 못 쓴다(`sou'east` = s\\'ea/).
     """
     # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
     # year·near·clear에서 ar(⠜)이 ea(⠂)를 이겨야 한다(실측 12건: 우리 ⠂⠗ vs 정답 ⠑⠜).
@@ -204,7 +211,7 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
                 continue
             if k in initial_syl:
                 # 첫머리 음절 약자는 뒤에 글자가 더 있어야 한다(be/con/dis 단독 아님)
-                if i != 0 or len(word) <= len(k):
+                if i != 0 or mid or len(word) <= len(k):
                     continue
                 # UEB — 첫 음절을 이룰 때만 쓴다. `dish` 는 d-i-sh 라 dis 가 음절이 아니다
                 #   (규정 제39항 예문 `dishes` = di%es, #950)
@@ -214,7 +221,7 @@ def _apply_groups(word: str, ebae: bool = False) -> str:
                     continue
                 out.append(initial_syl[k])
             elif k in STRONG_GROUPS or k in EBAE_ONLY_GROUPS:
-                if i == 0 and k in _NOT_WORD_INITIAL:
+                if i == 0 and k in _NOT_WORD_INITIAL and not (mid and k not in _LOWER_CELL):
                     continue
                 if k in _LOWER_CELL:
                     if i + len(k) >= len(word):
@@ -286,6 +293,14 @@ def _is_abbrev(word: str) -> bool:
     return any(c.isupper() for c in letters[1:])
 
 
+def _groups_only(word: str, ebae: bool = False, uncontracted: bool = False, mid: bool = False) -> str:
+    """안쪽 아포스트로피에 붙은 조각 — 단어 약자 · 줄임말 없이 글자 묶음 약자만(UEB 10.1.2 · 10.2.2 의 'standing alone'
+    이 아니다, #1543). 앞 조각이 묶음 하나로 남아도 단어 약자로 안 읽힌다(`th'n` = ?'n · `Ch'ing` = ,*'+)."""
+    if not word or uncontracted or _is_abbrev(word):
+        return translate_word(word, ebae, uncontracted)
+    return (_CAPITAL if word[0].isupper() else "") + _apply_groups(word.lower(), ebae, mid)
+
+
 def translate_word(word: str, ebae: bool = False, uncontracted: bool = False) -> str:
     """영어 낱말 하나 → Grade 2 점자.
 
@@ -299,16 +314,21 @@ def translate_word(word: str, ebae: bool = False, uncontracted: bool = False) ->
     # 「한국 점자 규정」 제61항 — 아포스트로피(’)는 `'`(⠄) 한 칸이다. 종전에는 ASCII
     # 작은따옴표가 표에 없어 `ALPHABET.get(c, c)` 를 그대로 빠져나가 **점자 출력에
     # 점자가 아닌 글자**가 실렸다(`don't` -> ⠙⠕⠝'⠞).
-    # ★ 자리마다 잘라 각각 점역하고 ⠄ 로 잇는다. 그러면 본문 경로(`translator`)가
-    #   이미 내던 답과 **한 글자도 안 달라진다** — 그쪽은 라틴 런을 아포스트로피에서
-    #   끊고 `_span_gap` 이 ⠄ 를 내므로 결과가 같은 꼴이다(실측 11낱말 전부 일치:
-    #   don't · It's · we've · patient's · I'll · they're · world's · can't · isn't ·
-    #   you're · O'Brien). 곧 이 수정은 **두 경로를 같게 맞추는 것**이지 본문 출력을
-    #   바꾸는 것이 아니다.
+    # ★ 자리마다 잘라 각각 점역하고 ⠄ 로 잇는다. 단어 약자는 UEB 10.1.2 · 10.2.2(`통일영어점자 규정_UEB2013.txt`
+    #   4400~4410 · 4477~4486행)대로 아포스트로피 뒤가 d · ll · re · s · t · ve 일 때 앞 조각에만 쓴다(`can't` = c't ·
+    #   `this'd` = ?'d). 그 밖은 풀어 적고(`this'n` = ?is'n · `d'you` = d'y\, #1543), 뒤 조각은 낱말 첫머리가 아니다.
+    #   종전(#513)엔 조각마다 따로 점역해 `be'ave` 가 2'ave · `more'n` 이 m'n 으로 나갔다.
     # ⚠ 낱말 **안**(양옆이 로마자)일 때만이다. 홀로 선 `'` 는 제49항 작은따옴표일 수
-    #   있어 건드리지 않는다.
+    #   있어 건드리지 않는다(제품 경로는 따옴표를 먼저 처리한다).
     if _INNER_APOS_RE.search(word):
-        return _APOS_CELL.join(translate_word(p, ebae, uncontracted) for p in _INNER_APOS_RE.split(word))
+        parts = _INNER_APOS_RE.split(word)
+        low0 = parts[0].lower()
+        if parts[1].lower() == "t" and low0.endswith("n") and low0[:-1] in _SHORTFORM_NT and not uncontracted:
+            head = (_CAPITAL if parts[0][0].isupper() else "") + SHORT_FORMS[low0[:-1]] + ALPHABET["n"]
+        else:
+            head = (translate_word(parts[0], ebae, uncontracted) if parts[1].lower() in _APOS_SUFFIX
+                    else _groups_only(parts[0], ebae, uncontracted))
+        return _APOS_CELL.join([head] + [_groups_only(p, ebae, uncontracted, mid=True) for p in parts[1:]])
     letters = [c for c in word if c.isalpha()]
     if _is_abbrev(word):
         if all(c.isupper() for c in letters):

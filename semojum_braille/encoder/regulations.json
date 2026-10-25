@@ -1,9 +1,9 @@
 {
   "_meta": {
     "description": "rule_trail 정적 조회 테이블. rule-based 변환 코드가 emit한 rule_id로 표시용 메타를 dict 조회로 채운다. LLM 추론 없음. 모든 emit rule_id ⊆ 이 키 집합(test_rule_registry.py 강제).",
-    "id_scheme": "접두는 편찬 기관 이니셜(MCST 문화체육관광부 · NLD 국립장애인도서관 · NISE 국립특수교육원). 한국 점자 규정은 편이 있어 편 이름을 뒤에 붙인다 — MCST-기본-항 · MCST-한글-장.절.항 · MCST-수학-장.항 · MCST-과학-항 · MCST-외국어-장.절.항. NLD-장.절.항 · NISE-장.절[.항].",
-    "priority": "우선순위 P1 한국 점자 규정(MCST) > P2 점자 도서 제작 지침(NLD) > P3 점자 자료 제작 지침(NISE). 같은 사안이 충돌하면 상위 문서를 따른다. 상위가 침묵하는 영역은 하위가 적용(글자단위=MCST, 조판·표=NLD, 시각자료 세부=JAJAK §5~6 — MCST·NLD가 일반적이라 자료지침이 정본). MCST 내부는 한글 점자가 수학·과학·음악보다 우선(MCST-기본-6).",
-    "scope": "MCST 한글 점자(제1~14절)+수학 점자+외국어 일반, NLD 제1~3장(제3장 제5절 제외), NISE 시각자료(§5.3 만화·§6.3 형식·§6.4 그래프·§6.6 도표).",
+    "id_scheme": "접두는 편찬 기관 이니셜(MCST 문화체육관광부 · NLD 국립장애인도서관 · NISE 국립특수교육원 · ICEB International Council on English Braille). 한국 점자 규정은 편이 있어 편 이름을 뒤에 붙인다 — MCST-기본-항 · MCST-한글-장.절.항 · MCST-수학-장.항 · MCST-과학-항 · MCST-외국어-장.절.항. NLD-장.절.항 · NISE-장.절[.항]. ICEB-UEB-절[.항] 은 「통일영어점자 규정」 자체 번호를 그대로 쓴다(ICEB-UEB-10.9 · ICEB-UEB-10.9.3). 한국 점자 규정 제32항이 로마자표와 로마자 종료표 사이의 표기를 이 규정에 위임하므로 MCST 아래가 아니라 별 접두로 둔다.",
+    "priority": "우선순위 P1 한국 점자 규정(MCST) > P2 점자 도서 제작 지침(NLD) > P3 점자 자료 제작 지침(NISE). 같은 사안이 충돌하면 상위 문서를 따른다. 상위가 침묵하는 영역은 하위가 적용(글자단위=MCST, 조판·표=NLD, 시각자료 세부=JAJAK §5~6 — MCST·NLD가 일반적이라 자료지침이 정본). MCST 내부는 한글 점자가 수학·과학·음악보다 우선(MCST-기본-6). 「통일영어점자 규정」(ICEB)은 MCST-한글-4.10.32 의 위임으로 들어오므로 로마자 구간 안에서만 적용되고, 같은 사안에서 제4장(제28~39항)이 달리 정하면 제4장이 이긴다: 제33항 문장 부호 · 제34 · 35항 종료표 생략 · 제37항 단어 약자 29개 금지 · 제39항 한글표.",
+    "scope": "MCST 한글 점자(제1~14절)+수학 점자+외국어 일반, NLD 제1~3장(제3장 제5절 제외), NISE 시각자료(§5.3 만화·§6.3 형식·§6.4 그래프·§6.6 도표). ICEB Section 10 Contractions(10.1~10.11): 데이터셋이 가리키는 64항.",
     "sources": {
       "MCST": "한국 점자 규정 (문화체육관광부고시 제2024-0005호)",
       "NLD": "2025 개정 점자 도서 제작 지침",
@@ -11,8 +11,17 @@
     },
     "extracted_at": "2026-05-30",
     "note": "contents 는 규정 원문 발췌(첫 문장). 자동 추출 후 검수.",
-    "schema": "rule_id → {source, publisher, version, section{Part?·Chapter?·Section?·Paragraph?·Subparagraph?·Item?}, rule_name, contents, default_tag}. section 은 없는 위계의 key 를 넣지 않는다. rule_name 은 위계 최하단 명칭.",
-    "migrated_at": "2026-08-31"
+    "schema": "rule_id → {source, publisher, version, section{Part?·Chapter?·Section?·Paragraph?·Subparagraph?·Item?}, rule_name, contents, default_tag}. section 은 없는 위계의 key 를 넣지 않는다. rule_name 은 위계 최하단 명칭. supported 는 선택 필드다. 없으면 점역 지원이고, false 면 점역 미지원 · 검색 전용이다.",
+    "migrated_at": "2026-08-31",
+    "search_only": {
+      "decision": "R-94 대표 지시(2026-10-24): 음악 · 국제음성기호는 점역하지 않고, 점역사가 규정을 찾아볼 수 있게 검색만 되게 한다.",
+      "rule": "supported=false 항목은 rule_trail 조회(make_rule · make_rule_at · rule_meta · all_rule_ids)에서 빠진다(regulations.py). 점형 매핑(symbol_table.json · translator)에는 넣지 않는다.",
+      "scope": "MCST 한국 음악 점자 제1~40항 · 서양 음악 점자 제1~41항 · [부록 2] 국제음성기호 점자 제1~3장(일람표, 부록 머리에 '문화체육관광부의 고시 사항이 아님' 안내) · NISE 2.5.6 · 제7장 악보 16",
+      "count": 101,
+      "contents": "braille-source/text/*_재추출.txt 에서 스크립트로 뽑은 첫 문장이다(손으로 옮겨 적지 않음). 점자 예시는 원문 글자층 그대로 ASCII 점자로 남아 있다. 국제음성기호 세 장은 일람표라 부록 머리 안내 첫 문장을 넣었다.",
+      "added_at": "2026-10-24"
+    },
+    "engine_copy": "엔진 사본은 ICEB- 조항 64건을 뺐다. 라이선스 때문이다(tools/sync_from_ai.py REGULATION_DROP_PREFIXES)."
   },
   "rules": {
     "NLD-1.1.1": {
@@ -3158,6 +3167,1457 @@
       "rule_name": "외국어 점자 표기 일반",
       "contents": "문단 전체가 외국어일 때에는 외국어표를 생략할 수 있다.",
       "default_tag": ""
+    },
+    "MCST-한국음악-1.1.1": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제1절. 율명, 음역 기호(길표) 및 시가(時價)",
+        "Paragraph": "제1항"
+      },
+      "rule_name": "율명, 음역 기호(길표) 및 시가(時價)",
+      "contents": "12율명은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.1.2": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제1절. 율명, 음역 기호(길표) 및 시가(時價)",
+        "Paragraph": "제2항"
+      },
+      "rule_name": "율명, 음역 기호(길표) 및 시가(時價)",
+      "contents": "12율의 음역 기호(길표)는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.1.3": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제1절. 율명, 음역 기호(길표) 및 시가(時價)",
+        "Paragraph": "제3항"
+      },
+      "rule_name": "율명, 음역 기호(길표) 및 시가(時價)",
+      "contents": "시가는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.2.4": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제2절. 빠르기와 대·소분박",
+        "Paragraph": "제4항"
+      },
+      "rule_name": "빠르기와 대·소분박",
+      "contents": "빠르기는 한자로 표기되어 있을 때에도 아라비아 숫자로 적으며, 같음표(=) 33 앞뒤에 붙여 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.2.5": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제2절. 빠르기와 대·소분박",
+        "Paragraph": "제5항"
+      },
+      "rule_name": "빠르기와 대·소분박",
+      "contents": "정간의 정확한 분할을 위한 대·소분박은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.3.6": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제3절. 장, 각, 대강",
+        "Paragraph": "제6항"
+      },
+      "rule_name": "장, 각, 대강",
+      "contents": "장(초장, 2장, 대여음, 중여음 등)은 새로운 줄에 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.3.7": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제3절. 장, 각, 대강",
+        "Paragraph": "제7항"
+      },
+      "rule_name": "장, 각, 대강",
+      "contents": "각은 새로운 줄에 적으며, 첫머리에는 각 번호를 수표 없이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.3.8": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제3절. 장, 각, 대강",
+        "Paragraph": "제8항"
+      },
+      "rule_name": "장, 각, 대강",
+      "contents": "대강과 대강 사이는 한 칸 띄어 쓴다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.9": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제9항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "한글 등 다른 문자 중에 한국 음악 기호가 나올 때에는 그 앞에 한국 음악표 _l을 적고, 다시 문자가 나올 때에는 한 칸 띄고 그 앞에 문자표 ;2을 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.10": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제10항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "기호 표기 순서는 다음과 같다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.11": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제11항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "한배 기호는 다음과 같이 적고, 두 음 이상에 해당할 때에는 마지막 음 뒤에 종료표 s'을 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.12": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제12항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "반복 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.13": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제13항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "강약 기호는 다음과 같이 적고, 두 음 이상에 해당할 때에는 마지막 음 뒤에 종료표 s'을 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.14": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제14항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "음길이 기호는 다음과 같이 적고, 두 음 이상에 해당할 때에는 마지막 음 뒤에 종료표 s'을 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.4.15": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제4절. 한국 음악표 및 기타 기호",
+        "Paragraph": "제15항"
+      },
+      "rule_name": "한국 음악표 및 기타 기호",
+      "contents": "농음(농현) 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.16": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제16항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "가야금 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.17": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제17항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "거문고 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.18": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제18항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "대금 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.19": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제19항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "단소 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.20": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제20항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "소금 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.21": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제21항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "피리 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.22": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제22항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "해금 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.23": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제23항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "아쟁 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.24": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제24항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "양금의 타법 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.25": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제25항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "장구 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.26": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제26항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "북 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.27": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제27항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "꽹과리 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.28": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제28항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "징 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.5.29": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제5절. 악기별 기호",
+        "Paragraph": "제29항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "소리북 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.6.30": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제6절. 가사와 말붙임새",
+        "Paragraph": "제30항"
+      },
+      "rule_name": "가사와 말붙임새",
+      "contents": "가사는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-1.6.31": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제1장. 정간보의 기호 및 기보 원칙",
+        "Section": "제6절. 가사와 말붙임새",
+        "Paragraph": "제31항"
+      },
+      "rule_name": "가사와 말붙임새",
+      "contents": "말붙임새(가사, 구음, 음 이름 등)는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.7.32": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제7절. 오선보의 한국 음악 기호 기보 원칙",
+        "Paragraph": "제32항"
+      },
+      "rule_name": "오선보의 한국 음악 기호 기보 원칙",
+      "contents": "오선보에서 서양 음악 기호로 표기할 수 있는 한국 음악 기호는 서양 음악 기호로 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.7.33": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제7절. 오선보의 한국 음악 기호 기보 원칙",
+        "Paragraph": "제33항"
+      },
+      "rule_name": "오선보의 한국 음악 기호 기보 원칙",
+      "contents": "오선보에서 서양 음악 기호로 표기할 수 없는 한국 음악 기호는 음표 뒤에 오선 한국 음악표 >과 l 사이에 적고, 2개 이상의 기호가 나올 때에는 제4절 제10항의 기호 표기 순서에 따라 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.34": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제34항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "가야금 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.35": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제35항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "거문고 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.36": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제36항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "대금·소금·단소 기호의 표현(주법) 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.37": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제37항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "피리의 표현(주법) 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.38": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제38항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "해금 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.39": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제39항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "아쟁 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-한국음악-2.8.40": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "한국 음악 점자",
+        "Chapter": "제2장. 오선보의 한국 음악 기호 및 기보 원칙",
+        "Section": "제8절. 악기별 기호",
+        "Paragraph": "제40항"
+      },
+      "rule_name": "악기별 기호",
+      "contents": "타악기 기호는 「서양 음악 점자」에 따라 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.1": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제1항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "음표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.2": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제2항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "쉼표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.3": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제3항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "점음표와 점쉼표는 해당 음표나 쉼표 다음 칸에 '을 적어 나타낸다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.4": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제4항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "세로줄은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.5": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제5항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "길표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.6": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제6항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "음자리표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.7": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제7항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "변화표는 음표 앞에 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.8": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제8항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "박자표는 먼저 박자수를 수표에 이어 적고, 단위 음표는 그 뒤에 내려 적어 나타낸다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.9": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제9항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "메트로놈 기호(metronomic indication)는 음표와 숫자 사이에 7을 적어 나타내며, M.M.은 생략한다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.10": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제10항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "조표는 올림표, 내림표, 제자리표를 그 개수만큼 적어 나타내며, 4개 이상인 경우에는 그 해당 기호 앞에 숫자를 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.11": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제11항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "손가락 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.12": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제12항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "이음줄은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.13": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제13항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "붙임줄은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.14": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제14항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "집합 음표는 16분 이하의 음표가 같은 길이로 연이어 나타날 때에 사용한다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.15": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제15항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "분별 기호는 음표와 쉼표의 길이를 분별하기 어려울 때 해당 음표나 쉼표 앞에 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.16": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제16항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "잇단음표는 _과 '사이에 잇단음표의 해당 숫자를 수표 없이 한 단 내려 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.17": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제17항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "셈여림표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.18": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제18항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "주법에 관한 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.19": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제19항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "음정 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.20": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제20항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "성부 나눔 표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.21": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제21항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "기둥 표(stem sign)는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.22": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제22항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "마디 내의 일부나 마디 전부의 반복 기호는 7으로 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.23": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제23항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "도돌이표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.24": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제24항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "꾸밈 표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.25": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제25항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "줄임표는 다음과 같다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.26": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제26항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "트레몰로는 길이가 같은 음으로 번갈아 나오는 앞 음과 뒤 음 사이에 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.27": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제27항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "손 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.28": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제28항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "페달 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.29": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제29항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "기보에 사용하는 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-1.30": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제1장. 서양 음악 기본 기호",
+        "Paragraph": "제30항"
+      },
+      "rule_name": "서양 음악 기본 기호",
+      "contents": "이형(異型) 음표는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-2.31": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제2장. 성악에 관한 기호",
+        "Paragraph": "제31항"
+      },
+      "rule_name": "성악에 관한 기호",
+      "contents": "성악 일반에 관한 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-2.32": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제2장. 성악에 관한 기호",
+        "Paragraph": "제32항"
+      },
+      "rule_name": "성악에 관한 기호",
+      "contents": "독창곡은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-2.33": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제2장. 성악에 관한 기호",
+        "Paragraph": "제33항"
+      },
+      "rule_name": "성악에 관한 기호",
+      "contents": "합창곡은 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.34": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제34항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "현악기의 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.35": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제35항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "파이프 오르간 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.36": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제36항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "그 밖의 기호",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.37": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제37항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "리듬 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.38": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제38항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "단축 악보(short-form scoring)를 적는 방법은 다음과 같다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.39": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제39항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "통주저음(通奏低音, figured bass) 기호를 적는 방법은 다음과 같다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.40": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제40항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "아코디언 기호는 다음과 같이 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-서양음악-3.41": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "서양 음악 점자",
+        "Chapter": "제3장. 각 악기별 기호",
+        "Paragraph": "제41항"
+      },
+      "rule_name": "각 악기별 기호",
+      "contents": "오케스트라에서 사용하는 악기 생략 기호는 다음과 같다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-음성기호-1": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "[부록 2] 국제음성기호 점자",
+        "Chapter": "제1장. 자음과 모음"
+      },
+      "rule_name": "자음과 모음",
+      "contents": "이 국제음성기호 점자는 국제음성기호 점자 표기의 지침서이며, 문화체육관광부의 고시 사항이 아닙니다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-음성기호-2": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "[부록 2] 국제음성기호 점자",
+        "Chapter": "제2장. 비결합형 구별 기호 및 기타 기호"
+      },
+      "rule_name": "비결합형 구별 기호 및 기타 기호",
+      "contents": "이 국제음성기호 점자는 국제음성기호 점자 표기의 지침서이며, 문화체육관광부의 고시 사항이 아닙니다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "MCST-음성기호-3": {
+      "source": "한국 점자 규정",
+      "publisher": "문화체육관광부",
+      "version": 2024,
+      "section": {
+        "Part": "[부록 2] 국제음성기호 점자",
+        "Chapter": "제3장. 결합형 구별 기호"
+      },
+      "rule_name": "결합형 구별 기호",
+      "contents": "이 국제음성기호 점자는 국제음성기호 점자 표기의 지침서이며, 문화체육관광부의 고시 사항이 아닙니다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-2.5.6": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제2장. 점역 일반",
+        "Section": "2.5. 문자, 기호, 문장 부호",
+        "Paragraph": "2.5.6. 한글 문장 안의 발음 기호(한글 점자 제38항)"
+      },
+      "rule_name": "한글 문장 안의 발음 기호(한글 점자 제38항)",
+      "contents": "발음 기호는 국제영어점자위원회가 정한 ‘국제음성기호 점자’에 따라 국제음성기호 점자 변환표를 사용하여 적는다(국제음성기호 점자(IPA) 참조).",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.1.1": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.1. 일반 사항",
+        "Paragraph": "7.1.1. 제목부 표기"
+      },
+      "rule_name": "제목부 표기",
+      "contents": "제목부란 악곡 상단의 제목, 작사자, 작곡자·편곡자 등이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.1.2": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.1. 일반 사항",
+        "Paragraph": "7.1.2. 머리부 표기"
+      },
+      "rule_name": "머리부 표기",
+      "contents": "머리부란 빠르기말 및 나타냄말, 메트로놈 기호, 조표·박자표 등이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.1.3": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.1. 일반 사항",
+        "Paragraph": "7.1.3. 주석"
+      },
+      "rule_name": "주석",
+      "contents": "(1) 오선보의 주석은 해당 위치에 음악 별표 >59을 표기한다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.1.4": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.1. 일반 사항",
+        "Paragraph": "7.1.4. 텍스트 안의 악보 용어"
+      },
+      "rule_name": "텍스트 안의 악보 용어",
+      "contents": "(1) 텍스트 중간에 악보 용어가 나올 경우는 해당 악보 용어 앞에 악보(선율) 전치 기호 ,'을 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.1.5": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.1. 일반 사항",
+        "Paragraph": "7.1.5. 기보란"
+      },
+      "rule_name": "기보란",
+      "contents": "(1) 빈 오선보는 -을 4회 반복 표기하여 나타내고, 마디 구분이 필요한 경우에는 세로선(l)을 추가하여 나타낼 수 있다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.2.1": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.2. 노래 부르기를 위한 악보",
+        "Paragraph": "7.2.1. 선율과 가사가 함께 나오는 노래"
+      },
+      "rule_name": "선율과 가사가 함께 나오는 노래",
+      "contents": "(1) 선율과 가사는 한 줄씩 위아래 병행하여 적는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.2.2": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.2. 노래 부르기를 위한 악보",
+        "Paragraph": "7.2.2. 코드"
+      },
+      "rule_name": "코드",
+      "contents": "(1) 코드 전치 기호는 3>이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.2.3": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.2. 노래 부르기를 위한 악보",
+        "Paragraph": "7.2.3. 가사 반복과 다국어 가사"
+      },
+      "rule_name": "가사 반복과 다국어 가사",
+      "contents": "(1) 한국어 가사에 같은 가사가 반복될 경우는 반복되는 가사를 8 0으로 묶는다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.2.4": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.2. 노래 부르기를 위한 악보",
+        "Paragraph": "7.2.4. 중창 및 합창의 총보"
+      },
+      "rule_name": "중창 및 합창의 총보",
+      "contents": "총보란 중창 또는 합창의 각 성부를 함께 표기하는 악보이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.2.5": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.2. 노래 부르기를 위한 악보",
+        "Paragraph": "7.2.5. 오선보로 나타내는 한국 전통 성악곡"
+      },
+      "rule_name": "오선보로 나타내는 한국 전통 성악곡",
+      "contents": "가사가 있는 민요, 판소리, 시조 등 교과서에 나오는 한국 전통 성악곡은 대부분 서양 음악 기보법인 오선보로 표기하고 있다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.2.6": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.2. 노래 부르기를 위한 악보",
+        "Paragraph": "7.2.6. 정간보로 나타내는 한국 전통 성악곡"
+      },
+      "rule_name": "정간보로 나타내는 한국 전통 성악곡",
+      "contents": "정간보는 한국 음악의 전통 기보법이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.3.1": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.3. 악기 연주를 위한 악보",
+        "Paragraph": "7.3.1. 취주 악기 연주를 위한 악보"
+      },
+      "rule_name": "취주 악기 연주를 위한 악보",
+      "contents": "취주 악기란 관을 입으로 불어서 관 속의 공기를 진동시켜 소리를 내는 악기이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.3.2": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.3. 악기 연주를 위한 악보",
+        "Paragraph": "7.3.2. 현악기 연주를 위한 악보"
+      },
+      "rule_name": "현악기 연주를 위한 악보",
+      "contents": "현악기의 코드는 코드 다이어그램(chord diagram)으로 나타낸다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.3.3": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.3. 악기 연주를 위한 악보",
+        "Paragraph": "7.3.3. 건반 악기 연주를 위한 악보"
+      },
+      "rule_name": "건반 악기 연주를 위한 악보",
+      "contents": "건반 악기는 건반을 두드려 소리를 내는 악기이다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.3.4": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.3. 악기 연주를 위한 악보",
+        "Paragraph": "7.3.4. 중주 및 합주를 위한 악보"
+      },
+      "rule_name": "중주 및 합주를 위한 악보",
+      "contents": "(1) 중주 또는 합주를 위해 사용하는 악기의 이름을 나타내기 위해서는 「한국 점자 규정」의 악기별 기호를 따르되, 「한국 점자 규정」에 제시되어 있지 않은 악기 이름은 점역자 주로 제시한다.",
+      "default_tag": "",
+      "supported": false
+    },
+    "NISE-7.3.5": {
+      "source": "점자 자료 제작 지침",
+      "publisher": "국립특수교육원",
+      "version": 2025,
+      "section": {
+        "Chapter": "제7장. 음악 자료",
+        "Section": "7.3. 악기 연주를 위한 악보",
+        "Paragraph": "7.3.5. 전통 악기 연주를 위한 악보"
+      },
+      "rule_name": "전통 악기 연주를 위한 악보",
+      "contents": "(1) 전통 악기별 기호는 「한국 점자 규정」을 적용하되, 규정에 나와 있지 않은 악기 기호는 점역자 주로 제시한다.",
+      "default_tag": "",
+      "supported": false
     }
   }
 }

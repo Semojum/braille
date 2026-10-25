@@ -12,6 +12,7 @@
 - `tools/tests_from_ai.txt` 에 적힌 시험 → `test/` (같은 자리), `app/utils/braille_ascii.py` → `test/support/`
 
 코드는 **임포트 경로만** 바꾼다. 예외는 아래 두 패치 목록뿐이고, 둘 다 자리를 못 찾으면 멈춘다.
+데이터는 조항표(`regulations.json`) 하나만 손댄다. `REGULATION_DROP_PREFIXES` 의 조항을 빼고 옮긴다(라이선스).
 - `SILENT_FIXES`: 역맵 json 이 없을 때 빈 맵으로 조용히 넘어가던 것을 예외로 바꾼다.
 - `KIWI_OPTIONAL`: kiwipiepy 가 없으면 낱말 목록(`decoder/kor_words.json`)으로 한국어 낱말을 가른다.
   kiwipiepy 가 깔려 있으면 AI 원본과 똑같이 돈다.
@@ -20,6 +21,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import sys
@@ -62,12 +64,18 @@ TEST_REWRITES = REWRITES + [
     # 소스 트리를 경로로 읽는 시험(기호표 직접 대조 · make_rule 문자열 훑기 · 역맵 파일).
     (re.compile(r'"app/ai/braille/'), '"semojum_braille/encoder/'),
     (re.compile(r'/ "app" / "ai"'), '/ "semojum_braille" / "encoder"'),
+    # 위 줄로 `app/ai` 가 `encoder` 가 되면 그 아래 `braille` 한 층이 남는다(AI `test_rule_registry.py` 의 조항표 경로).
+    (re.compile(r'\b_APP_AI / "braille" /'), "_APP_AI /"),
     (re.compile(r'"app/utils/'), '"semojum_braille/decoder/'),
 ]
 # 엔진 안에 남아도 되는 `app.` 참조: 타입 검사 전용 임포트(런타임 0).
 ALLOWED_APP_REFS = {"from app.schemas.layout import LayoutResult"}
 
 SCHEMA_TYPES = ("RuleApplication", "Draft", "LLMOutput", "BoxBorder", "BrailleOutput")
+# 조항표에서 엔진 사본에 싣지 않는 조항(번호 접두). 「통일영어점자 규정」(ICEB) 조항 글은 CC BY-NC-ND 2.5 AU 라
+# 비영리 조건이 있고, 엔진은 상용 앱에 실려 나간다(pm 2026-10-26, 대표 결재에 올림). AI 저장소 정본에는 그대로 있다.
+# 점역 코드가 이 번호로 근거를 달지 않아 빼도 엔진 동작은 같다.
+REGULATION_DROP_PREFIXES = ("ICEB-",)
 DECODER_JSONS = ("braille_syllable_map.json", "braille_special_rev.json", "kor_syllable_freq.json")
 HELPERS = ["test/braille_style_equiv.py"]
 
@@ -173,6 +181,20 @@ def build_schemas(src: str) -> str:
     return doc + head + "".join(keep).rstrip() + "\n"
 
 
+def engine_regulations(text: str) -> str:
+    """AI 조항표에서 `REGULATION_DROP_PREFIXES` 조항과 그 출처 칸을 뺀다. 나머지는 바이트 그대로 다시 쓴다(indent 2)."""
+    data = json.loads(text)
+    drop = [k for k in data["rules"] if k.startswith(REGULATION_DROP_PREFIXES)]
+    assert drop, f"{REGULATION_DROP_PREFIXES} 조항이 AI 조항표에 없다. 목록을 다시 보라"
+    for k in drop:
+        del data["rules"][k]
+    for p in REGULATION_DROP_PREFIXES:
+        data["_meta"].get("sources", {}).pop(p.rstrip("-"), None)
+    data["_meta"]["engine_copy"] = (f"엔진 사본은 {' · '.join(REGULATION_DROP_PREFIXES)} 조항 {len(drop)}건을 뺐다. "
+                                    "라이선스 때문이다(tools/sync_from_ai.py REGULATION_DROP_PREFIXES).")
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
 def sync_encoder(ai: Path) -> None:
     src = ai / "app" / "ai" / "braille"
     ENC.mkdir(parents=True, exist_ok=True)
@@ -184,6 +206,8 @@ def sync_encoder(ai: Path) -> None:
         if f.suffix not in (".py", ".json") or dst in OWN:
             continue
         text = f.read_text(encoding="utf-8")
+        if f.name == "regulations.json":
+            text = engine_regulations(text)
         dst.write_text(rewrite(text, REWRITES) if f.suffix == ".py" else text, encoding="utf-8")
     gates = (ai / "app" / "ai" / "gates.py").read_text(encoding="utf-8")
     gates = gates.replace("from app.utils.logger import get_logger\n", "import logging\n")

@@ -13,7 +13,7 @@ import pytest
 
 from braille_ascii import ascii_to_unicode, unicode_to_ascii, _BRAILLE_ASCII
 
-_PAIRS_DIR = Path(__file__).parent.parent.parent / "test_data" / "regulation_pairs"
+_PAIRS = Path(__file__).parent.parent.parent / "test_data" / "regulation_pairs" / "pairs.json"
 
 # 손으로 검증한 골드 (규정 관례) — 표가 어긋나면 즉시 깨진다.
 _GOLD = [
@@ -81,13 +81,15 @@ class TestCorpusCompleteness:
     """규정 코퍼스 전수 — 모든 brf_ascii가 [?] 없이 변환되어야 한다(표 완전성)."""
 
     def test_규정_brf_전수_변환_가능(self):
-        broken = []
-        for f in sorted(_PAIRS_DIR.glob("section_*.json")):
-            for p in json.loads(f.read_text(encoding="utf-8"))["pairs"]:
-                out = ascii_to_unicode(p["brf_ascii"])
-                if "[?" in out:
-                    broken.append((p["korean"], p["brf_ascii"], out))
-        assert not broken, f"변환 실패 {len(broken)}건: {broken[:5]}"
+        broken, n = [], 0
+        for p in json.loads(_PAIRS.read_text(encoding="utf-8"))["pairs"]:
+            if not p.get("expected_brf"):
+                continue
+            n += 1
+            out = ascii_to_unicode(p["expected_brf"])
+            if "[?" in out:
+                broken.append((p["input"], p["expected_brf"], out))
+        assert n >= 600 and not broken, f"{n}건 중 변환 실패 {len(broken)}건: {broken[:5]}"
 
     def test_정방향_점역기_교차검증(self):
         """독립 엔진(translate_tagged_text)과 교차검증 — 옛 골드가 ⠛ 누락·z→⠿로 버그였던

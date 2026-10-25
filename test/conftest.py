@@ -31,6 +31,19 @@ _AI_SOURCE_ONLY = {
     "test/unit_test/formula/test_recurring_decimal.py::test_앱_소스에_숫자_범위식이_없다",
 }
 
+# AI 저장소 test_data/ 의 규정쌍을 읽는 시험. 코퍼스는 옮기지 않는다(tools/tests_from_ai.txt 머리).
+# 종전 판은 `section_*.json` 을 glob 해 파일이 없으면 0건으로 통과했다. AI #1525 부터 pairs.json 을 바로 연다.
+_AI_DATA_ONLY = {
+    "test/unit_test/braille/test_braille_ascii.py::TestCorpusCompleteness::test_규정_brf_전수_변환_가능",
+}
+
+# AI 조항표의 조항 수를 세는 시험. 엔진 사본은 ICEB 64 를 뺀다(라이선스, tools/sync_from_ai.py
+# REGULATION_DROP_PREFIXES). 엔진 쪽 수는 test/test_regulations_copy.py 가 본다.
+_ENGINE_DROPS_ICEB = {
+    "test/unit_test/braille/test_rule_registry.py::TestRuleRegistry::test_registry_size",
+    "test/unit_test/braille/test_rule_registry.py::TestSearchOnly::test_검색_전용은_101개",
+}
+
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     no_kiwi = importlib.util.find_spec("kiwipiepy") is None
@@ -40,5 +53,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip)
         if item.nodeid in _AI_SOURCE_ONLY:
             item.add_marker(pytest.mark.skip(reason="AI 저장소 app/ 소스를 읽는 시험(AI 쪽에서 돈다)"))
+        if item.nodeid in _AI_DATA_ONLY:
+            item.add_marker(pytest.mark.skip(reason="AI 저장소 test_data/ 규정쌍을 읽는 시험(AI 쪽에서 돈다)"))
+        if item.nodeid in _ENGINE_DROPS_ICEB:
+            item.add_marker(pytest.mark.skip(reason="엔진 조항표 사본은 ICEB 조항을 뺀다(test/test_regulations_copy.py 가 엔진 쪽 수를 본다)"))
         if item.nodeid in _BROKEN_IN_AI:
             item.add_marker(pytest.mark.xfail(reason=_BROKEN_IN_AI[item.nodeid], strict=True))

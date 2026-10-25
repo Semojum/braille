@@ -80,12 +80,20 @@ def test_old_vowel_regulation_examples(text, expected):
 # 정답 도서 언어와 매체 gold(body p0035 · p0096, ans p0024).
 @pytest.mark.parametrize("text, expected", [
     ("ᄒᆞᇙ", "⠚⠐⠼⠂⠐⠴"),   # ᄒᆞᇙ(ㄹㆆ) — gold body p0035 `몯ᄒᆞᇙ노미`
-    ("가ᇇ", "⠈⠣⠒⠄"),     # 가ᇇ(ㄴㅅ) — gold body p0096 `뒷가ᇇ`, 약자 '가'(⠫) 안 씀(제24항)
+    ("가ᇇ", "⠫⠒⠄"),       # 가ᇇ(ㄴㅅ) — 제24항: '가' 는 전용 셀 ⠫ 이라 생략할 ㅏ 가 없다(원장 R-95 · #1545, gold 한 자리는 ⠈⠣)
     ("부ᇑ", "⠘⠯⠢⠁"),     # 부ᇑ(ㄹㅁㄱ) — gold body p0096 · ans p0024, 약자 '울'
     ("구ᇚ", "⠈⠍⠢⠁"),     # 구ᇚ(ㅁㄱ) — gold ans p0024
 ])
 def test_옛_겹받침은_각_받침을_어울러_적는다(text, expected):
     assert translate_plain(text) == expected
+
+
+def test_옛_겹받침_앞_가는_약자로_적는다():
+    """제24항 예시(재추출 1217 · 1235행, BRF `$"4'e["osc` · `$5'iu"<c"#1`). '가' 는 제13항 전용 셀이라
+    생략할 ㅏ 가 없다. 같은 항의 '나' 는 ㅏ 를 적는다(1206행 `c<"kc;o`). 원장 R-95."""
+    assert translate_plain("가ᇱ므리어나") == "⠫⠐⠲⠄⠑⠪⠐⠕⠎⠉"
+    assert translate_plain("가ᇝ도라ᄂᆞᆯ") == "⠫⠢⠄⠊⠥⠐⠣⠉⠐⠼⠂"
+    assert translate_plain("나ᇫ나치") == "⠉⠣⠐⠅⠉⠰⠕"
 
 
 def test_점형_없는_음절_하나가_런을_통째로_지우지_않는다():
@@ -98,11 +106,9 @@ def test_점형_없는_음절_하나가_런을_통째로_지우지_않는다():
 
 def test_완성형_음절_뒤_받침_자모는_세어_남긴다():
     """완성형 음절 뒤에 붙은 받침 자모(NFC 로 합친 `가` + `ᇰ`)는 적을 수 없어 지워진다. 종전엔 빈 점자로 처리돼
-    R18 셈(`dropped_old_jamo`)과 사이드카 `dropped` 에도 안 남고 소리 없이 사라졌다(#105). 지우는 동작은 그대로다."""
-    from semojum_braille import sidecar
+    쪽 플래그 R18(`dropped_old_jamo`)에도 안 잡혀 소리 없이 사라졌다(#1539, 엔진 #105 와 같은 고침). 지우는 동작은 그대로다."""
     from semojum_braille.encoder.translator import dropped_old_jamo
     assert dropped_old_jamo("가ᇰ나") == {"ᇰ": 1}
     assert dropped_old_jamo("각") == {"ᆨ": 1}
     assert translate_plain("가ᇰ나") == translate_plain("가나")          # 앞뒤 음절은 남는다
-    assert {"text": "ᇰ", "count": 1, "flag": "R18"} in sidecar.translate("가ᇰ나")["dropped"]
     assert not dropped_old_jamo("가ᇰ")                        # 첫가끝으로 주면 적힌다(안 센다)

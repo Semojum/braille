@@ -147,6 +147,8 @@ def test_빠진_글자를_AI_쪽_플래그와_같은_갈래로_알린다():
     assert sidecar.translate("★★★★☆")["dropped"] == [{"text": "★", "count": 4, "flag": "R17"}]
     assert sidecar.translate("")["dropped"] == [{"text": "", "count": 1, "flag": "R15"}]
     assert sidecar.translate("하ᄀᆞᄋᆉ다")["dropped"] == [{"text": "ᄋᆉ", "count": 1, "flag": "R18"}]
+    assert sidecar.translate("가[漢]나")["dropped"] == [{"text": "漢", "count": 1, "flag": "R17"}]   # #108 표에 없는 한자
+    assert sidecar.translate("학교(學校)에 갔다")["dropped"] == []      # 병기 괄호는 지침 2.5.2 (2) 대로 통째 생략하는 자리
     assert sidecar.translate("가나")["dropped"] == []
 
 
