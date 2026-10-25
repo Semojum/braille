@@ -517,6 +517,17 @@ public final class BrailleAssist {
         return r[0] + r[1].repeat(cols - r[0].length() - r[2].length()) + r[2];
     }
 
+    /** 위 테두리 꼴 {머리 셀, 채움 셀, 끝 셀}: 1단계 ⠿⠛…⠿ · 2단계 ⠖⠒…⠲ · 3단계 ⠖⠐…⠲. 근거는 python assist 의 `_TOP_BORDERS`. */
+    private static final String[][] TOP_BORDERS = {{"⠿", "⠛", "⠿"}, {"⠖", "⠒", "⠲"}, {"⠖", "⠐", "⠲"}};
+
+    /** cols 칸 위 테두리 줄인가. 머리 셀 다음 채움 네 칸을 본다(제목은 그 뒤에 선다). */
+    private static boolean isTopBorder(String line, int cols) {
+        if (line.length() != cols) return false;
+        for (String[] b : TOP_BORDERS)
+            if (line.startsWith(b[0] + b[1].repeat(4)) && line.endsWith(b[2])) return true;
+        return false;
+    }
+
     private static String stripCellsAndSpaces(String s) {
         int b = 0, e = s.length();
         while (b < e && (s.charAt(b) == SPACE || s.charAt(b) == ' ')) b++;
@@ -681,6 +692,10 @@ public final class BrailleAssist {
             // 표식을 만나면 거기서 면을 끊는다 — 남은 칸은 아래에서 빈 줄로 채운다.
             int end = pos;
             while (end < lines.size() && end - pos < cap && !isMark(lines.get(end))) end++;
+            // 면이 차서 끊길 때 면 끝 위 테두리는 다음 면으로 넘긴다(자료지침 2.1.7(4) 613행, python `_cut` 과 같은 규칙).
+            if (end <= last && !isMark(lines.get(end))) {
+                while (end - 1 > pos && isTopBorder(lines.get(end - 1), opts.cols)) end--;
+            }
             String n = onCover ? "" : num(bp);
             java.util.List<String> body = new java.util.ArrayList<>();
             for (int k = pos; k < end; k++) body.add(alignLine(fillPageNo(lines.get(k), n), opts.cols, alignOf.get(k)));

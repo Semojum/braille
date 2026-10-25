@@ -298,6 +298,42 @@ BUILD_PAD = [
 ]
 
 
+# ── 면 끝 위 테두리 ─────────────────────────────────────────────────────────────────
+# 면이 차서 끊길 때 면 끝 줄이 위 테두리면 다음 면으로 넘긴다. 「점자 자료 제작 지침」 2.1.7(4)(재추출 613행) ·
+# 「점자 도서 제작 지침」 글상자 (7)(491행) "점자 페이지에서 위 테두리 다음에는 한 줄 이상의 텍스트가 나와야 한다".
+# 테두리 꼴은 자료지침 2.1.7(2) · (3)(587~609행), 위 테두리 안 제목 자리는 2.1.7(1)②(580행).
+_TOP1 = "⠿" + "⠛" * 30 + "⠿"
+_BOT1 = "⠿" + "⠶" * 30 + "⠿"
+_TOP2 = "⠖⠒⠒⠒⠒⠀⠘⠥⠈⠕⠀" + "⠒" * 20 + "⠲"           # 2단계 · 제목 든 꼴(7칸째 제목)
+_BOT2 = "⠓" + "⠒" * 30 + "⠚"
+_NOT_TOP = "⠖" + "⠁⠃" * 15 + "⠲"                     # 머리 · 끝 셀만 맞고 채움 네 칸이 없는 32칸 본문 줄
+_BODY4 = "".join(f"⠀⠀{c}\n" for c in "⠁⠃⠉⠙")        # 네 줄
+_LEAD = {"rows": 6, "page_row_on": "none"}
+_SRC_TOP = "자료지침 2.1.7(4)(재추출 613행) · 도서지침 글상자 (7)(491행) — 위 테두리 다음에 한 줄 이상"
+BUILD_BORDER = [
+    ("위 테두리가 면 끝 줄이면 다음 면으로(1단계)", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _BODY4 + "⠀⠀⠑\n" + _TOP1 + "\n⠁⠃⠉\n⠙⠑⠋\n" + _BOT1}]}],
+        opts=opt(**_LEAD)), _SRC_TOP),
+    ("위 테두리가 면 끝 줄이면 다음 면으로(2단계 제목 든 꼴 · 페이지행 면)", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _BODY4 + _TOP2 + "\n⠁⠃⠉\n" + _BOT2}]}],
+        footer=FOOT_C, opts=opt(rows=6, page_row_on="every")), _SRC_TOP),
+    ("위 테두리 둘이 면 끝에 잇달으면 둘 다 넘긴다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _BODY4 + _TOP1 + "\n" + _TOP2 + "\n⠁⠃⠉\n" + _BOT2
+                                              + "\n" + _BOT1}]}],
+        opts=opt(**_LEAD)), _SRC_TOP),
+    ("위 테두리 뒤가 쪽바꿈이면 그대로(넘겨도 혼자 선다)", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _BODY4 + "⠀⠀⠑\n" + _TOP1},
+                                             {"order": 1, "text": "<!쪽바꿈>"}, {"order": 2, "text": "⠁⠃⠉\n" + _BOT1}]}],
+        opts=opt(**_LEAD)), ""),
+    ("면에 위 테두리만 남으면 안 넘긴다(본문 한 줄 면)", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _TOP1 + "\n⠁⠃⠉\n" + _BOT1}]}],
+        opts=opt(rows=2, page_row_on="every")), ""),
+    ("채움 네 칸이 없는 32칸 본문 줄은 위 테두리가 아니다", dict(
+        sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _BODY4 + "⠀⠀⠑\n" + _NOT_TOP + "\n⠁⠃⠉\n"}]}],
+        opts=opt(**_LEAD)), ""),
+]
+
+
 # ── 조판 태그(V4 점자 태깅 목록표, #66) ─────────────────────────────────────────────
 # 줄 태그 열둘은 그 태그 하나뿐인 블록을 cols 폭 한 줄로 펼친다. 장바꿈은 다음 홀수 면에서 잇는다(도서지침 용어 ⑫
 # 재추출 4534~4537행). 정렬은 블록 align. 쪽 번호 자리표시는 그 줄이 놓인 쪽의 번호로. 머리말은 면 첫 줄을 먹는다.
@@ -456,7 +492,7 @@ BRF_JOB = [
 
 
 def build() -> dict:
-    out = {"version": "0.7.0", "cases": {"page_row": [], "page_change_line": [],
+    out = {"version": "0.8.0", "cases": {"page_row": [], "page_change_line": [],
                                          "to_brf_ascii": [], "build_pages": [],
                                          "build_brf": [], "wrap": []}}
     for name, kw, src in PAGE_ROW:
@@ -472,7 +508,7 @@ def build() -> dict:
         out["cases"]["page_change_line"].append(
             {"name": name, "args": {**kw, "opts": o or DEFAULT_OPTS}, "expect": got,
              **({"source": src} if src else {})})
-    for name, kw, src in BUILD + BUILD_WRAP + BUILD_PAD + BUILD_TAGS:
+    for name, kw, src in BUILD + BUILD_WRAP + BUILD_PAD + BUILD_TAGS + BUILD_BORDER:
         o = kw.pop("opts", None)
         got = build_pages(**kw, opts=Options(**o) if o else Options())
         for pg in got:
