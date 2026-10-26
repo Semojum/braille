@@ -27,7 +27,7 @@ from semojum_braille.encoder.tag_names import apply_indent_tags, strip_indent_ta
 from semojum_braille.encoder.text_braille import TextBraille
 from semojum_braille.encoder.translator import dropped_hanja, dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
 from semojum_braille.encoder.translator import _BORDER_KIND, _TAG_INLINE_MARKER, _TAG_PAIR_MARKER
-from semojum_braille.schemas import LLMOutput
+from semojum_braille.schemas import BrailleOutput, LLMOutput
 
 _TB = TextBraille()
 # 역점역은 영어책의 모호한 토막에서 낱말 판정을 처음 부를 때 판정기를 올린다(kiwi 면 약 2초).
@@ -85,7 +85,8 @@ def _roman_one(opt: LLMOutput):
 
 def translate(text: str, etype: str = "text", hlevel: int = 0,
               korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False,
-              render_mode: str = "", tn_text: str = "", box_level: int = 0, force_roman: bool = False) -> dict:
+              render_mode: str = "", tn_text: str = "", box_level: int = 0, force_roman: bool = False,
+              blank_lines: bool = True) -> dict:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자 + 점역 못 한 요소인가.
 
@@ -135,7 +136,7 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     for tag, slot in _SLOTS.items():
         text = text.replace(tag, slot)
     if etype == "table" or parse_table_tags(text) is not None:
-        return _unslot(table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page))
+        return _unslot(table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page, blank_lines))
     force_roman = force_roman or etype == "header_footer"
     # ★ 들여쓰기를 **점역 전에** 태그로 되돌린다(2026-10-22). AI 응답의 묵자는 이제 들여쓰기를
     #   태그가 아니라 실제 빈칸으로 싣는다(점역사 화면에 기계 표식을 안 보이려는 대표 지시).
@@ -152,7 +153,7 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
            "unknown_tags": unknown}
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
         return {"cells": "", "breaks": [], "rule_trail": [], **out}
-    return _unslot({**_body(fe, fe.text, fe.breaks), "rule_trail": _trail(fe), **out})
+    return _unslot({**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), **out})
 
 
 def _unslot(res: dict) -> dict:
@@ -170,7 +171,7 @@ def _unslot(res: dict) -> dict:
 
 
 def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int = 0,
-          korean_grade: int = 2, english_grade: int = 2, math_page: bool = False) -> dict:
+          korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, blank_lines: bool = True) -> dict:
     """표 요소 하나 → 고른 안 + 다섯 안(풀어쓰기 · 격자 · 행열 바꿈 · 테두리만 · 번호 체계)의 요소 본문 (#56).
 
     `source` 는 표 태그 글(`<!표><!행><!칸>…`)이다. AI 응답 `TextElement.table_source` 가 이 값이다. 앱이 칸 글을
@@ -195,9 +196,9 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
            "unknown_tags": _unknown_tags(source)}
     if fe is None:
         return {"cells": "", "breaks": [], "rule_trail": [], "drafts": [], **out}
-    drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b)}
+    drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b, blank_lines)}
               for d, t, b in zip(bo.drafts, fe.draft_texts, fe.draft_breaks)]
-    return {**_body(fe, fe.text, fe.breaks), "rule_trail": _trail(fe), "drafts": drafts, **out}
+    return {**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), "drafts": drafts, **out}
 
 
 def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
@@ -211,20 +212,33 @@ def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
                                          (inline_math.MATH_PAGE, math_page), (CHOICES_ONE_PER_LINE, split_choices))]
     try:
         bo = safe_translate([opt], translate_one)[0]
-        el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=0, heading_level=hlevel)
-        return bo, flatten_elements([bo], SimpleNamespace(elements=[el])).get(bo.element_id)
+        el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=1, heading_level=hlevel)
+        # 앞에 빈 줄 요구가 없는 글 요소 하나를 둔다 — 그러면 이 요소는 '쪽 첫 요소 · 쪽 머리' 가 아니어서 서버
+        #   `flatten_elements` 가 이 요소 몫으로 붙이는 앞 · 뒤 빈 줄(제목 단계 · 표 · 시각 자료 · 글상자 · 문항 머리)이
+        #   그대로 나온다. 빈 줄 규칙을 여기서 다시 짜지 않는다. 앞 요소는 빈 줄을 안 남겨(`trailing` 0) 값을 줄이지 않는다.
+        lead = BrailleOutput(element_id=uuid.uuid4(), corrected_text="가", braille_lines=["⠫"])
+        lead_el = SimpleNamespace(element_id=lead.element_id, type="text", reading_order=0, heading_level=0)
+        return bo, flatten_elements([lead, bo], SimpleNamespace(elements=[lead_el, el])).get(bo.element_id)
     finally:
         for v, tok in reversed(tokens):
             v.reset(tok)
 
 
-def _body(fe, text: str, breaks) -> dict:
-    """요소 통 문자열에서 앞뒤 빈 줄(`prefix` · `suffix`)을 떼고, 끊을 자리를 `prefix` 길이만큼 당긴다."""
+def _body(fe, text: str, breaks, blank_lines: bool = False) -> dict:
+    """요소 통 문자열 → `cells` · `breaks`.
+
+    `blank_lines` 면 이 요소 몫의 앞 · 뒤 빈 줄(`prefix` · `suffix`)을 싣는다. 앞 빈 줄은 개행 그대로, 뒤 빈 줄은 '줄 끝내기'
+    개행 하나를 더 둔다 — 앱 조립(`compose_editor`)과 엔진 조판(`build_pages`)이 둘 다 끝 개행 하나를 마지막 줄을 끝내는
+    종결자로 읽고 버린다. 뒤 빈 줄이 없으면 끝 개행도 없다(종전 꼴). 끊을 자리는 통 문자열 그대로라 당기지 않는다.
+    끄면 종전처럼 앞뒤 빈 줄을 떼고 끊을 자리를 `prefix` 길이만큼 당긴다.
+    """
+    if blank_lines:
+        return {"cells": text if len(fe.suffix) > 1 else text[:len(text) - len(fe.suffix)], "breaks": list(breaks)}
     n = len(fe.prefix)
     return {"cells": text[n:len(text) - len(fe.suffix)], "breaks": [b - n for b in breaks]}
 
 
-def _trail(fe) -> list[dict]:
+def _trail(fe, blank_lines: bool = False) -> list[dict]:
     """요소의 `rule_trail` — 점역 근거 조항. 좌표를 `cells` 와 같은 자리로 당긴다.
 
     좌표계는 **`cells` 통 문자열의 문자 오프셋**이고 `line_no` 는 0 고정이다(개행도 1문자).
@@ -239,7 +253,7 @@ def _trail(fe) -> list[dict]:
     "여기가 점역자 주다 · 여기가 테두리다" 를 아는 유일한 자리다. 점자만 보면 우리가 판단해
     넣은 표식인지 묵자에 있던 기호인지 구분이 안 된다.
     """
-    n = len(fe.prefix)
+    n = 0 if blank_lines else len(fe.prefix)     # 앞 빈 줄을 실으면 좌표도 통 문자열 그대로다
     # `prefix` 는 개행뿐이라 그 안에 조항이 붙을 자리가 없다. 좌표가 음수로 내려가는 표본은 전수 0 이었다.
     return [{**t.model_dump(), "line_no": 0, "col_start": t.col_start - n, "col_end": t.col_end - n}
             for t in (fe.trail or [])]
@@ -282,6 +296,11 @@ def _flag(req: dict, key: str) -> bool:
     if v is None or isinstance(v, bool):
         return bool(v)
     raise SidecarError("BAD_FIELD", f"{key} 는 true · false 여야 한다: {v!r}")
+
+
+def _flag_on(req: dict, key: str) -> bool:
+    """기본이 켜짐인 참거짓 옵션. 없거나 null 이면 true. 나머지는 `_flag` 와 같다."""
+    return True if req.get(key) is None else _flag(req, key)
 
 
 def _level_arg(req: dict, key: str) -> int:
@@ -356,11 +375,11 @@ def handle(req: dict) -> dict:
         return translate(req.get("text", ""), req.get("type") or "text", _level_arg(req, "heading_level"),
                          _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"), _flag(req, "math_page"),
                          _flag(req, "split_choices"), req.get("render_mode") or "", req.get("tn_text") or "",
-                         int(req.get("box_level") or 0), _flag(req, "force_roman"))
+                         int(req.get("box_level") or 0), _flag(req, "force_roman"), _flag_on(req, "blank_lines"))
     if op == "table":
         return table(req.get("table_source") or "", req.get("render_mode") or "", req.get("tn_text") or "",
                      int(req.get("box_level") or 0), _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"),
-                     _flag(req, "math_page"))
+                     _flag(req, "math_page"), _flag_on(req, "blank_lines"))
     if op == "decode":
         return {"text": decode(req.get("braille", ""), english=_flag(req, "english"),
                                korean_grade1=_grade_arg(req, "korean_grade") == 1)}
