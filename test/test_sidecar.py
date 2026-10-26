@@ -40,8 +40,41 @@ def test_빈_구분자_뒤에도_끊을_자리가_음절_경계에_있다(monkey
 
 
 def test_title_level2_starts_at_seventh_cell():
-    r = sidecar.translate("1 국어의 탐구와 활용", "title", 2)
+    r = sidecar.translate("1 국어의 탐구와 활용", "title", 2, blank_lines=False)
     assert r["cells"].startswith("⠀" * 6) and r["cells"][6] != "⠀"
+
+
+def test_cells_에_이_요소_몫의_앞뒤_빈_줄이_든다():
+    """앱 조립(`compose_editor`)은 블록의 `braille` 을 줄로 쪼개 그대로 쪽에 낸다(끝 개행 하나만 종결자로 버린다). 빈 줄을 따로
+    안 넣으므로 제목 · 표 · 시각 자료 둘레 빈 줄이 앱 화면과 BRF 에서 통째로 빠졌다(016 세계지리 48쪽 356줄). 서버
+    `flatten_elements` 가 이 요소 몫으로 붙이는 앞 · 뒤 빈 줄을 `cells` 에 싣는다 — 앞은 개행 그대로, 뒤는 종결자 하나를 더."""
+    for text, etype, level in (("1 국어의 탐구와 활용", "title", 2), ("그림 설명이다.", "image", 0)):
+        on = sidecar.translate(text, etype, level)
+        off = sidecar.translate(text, etype, level, blank_lines=False)
+        assert on["cells"] == "\n" + off["cells"] + "\n\n"                      # 앞 한 줄 · 뒤 한 줄
+        assert on["breaks"] == [b + 1 for b in off["breaks"]]                     # 자리는 통 문자열 그대로
+    body = sidecar.translate("봄이 오면 꽃이 핀다.")
+    assert body == sidecar.translate("봄이 오면 꽃이 핀다.", blank_lines=False)   # 빈 줄 요구가 없는 글은 종전 그대로
+    assert "\n" not in body["cells"]
+
+
+def test_blank_lines_는_참거짓만_받는다():
+    assert sidecar.handle({"op": "translate", "text": "가", "type": "title", "heading_level": 2,
+                           "blank_lines": False})["cells"] == sidecar.translate("가", "title", 2, blank_lines=False)["cells"]
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.handle({"op": "translate", "text": "가", "blank_lines": "false"})
+    assert e.value.code == "BAD_FIELD"
+
+
+def test_뒤_빈_줄은_조판에서도_한_줄이다():
+    """엔진 조판(`build_pages`)도 블록 끝 개행 하나를 종결자로 읽는다 — 앱 조립과 같은 수의 빈 줄이 나온다."""
+    title = sidecar.translate("1 국어의 탐구와 활용", "title", 2)["cells"]
+    job = {"sources": [{"orig_page": 1, "blocks": [{"order": 0, "braille": "⠁⠃"}, {"order": 1, "braille": title},
+                                                    {"order": 2, "braille": "⠉⠙"}]}],
+           "opts": {"page_row_pages": "none", "show_change_line": False}}
+    lines = [ln for pg in assist.build_pages_from_job(job) for ln in pg]
+    body = lines[:lines.index("⠉⠙") + 1]
+    assert body[1] == "" and body[3] == "" and body[4] == "⠉⠙"                    # 제목 앞 · 뒤 한 줄씩
 
 
 PING = {"ok": True, "version": __version__, "protocol": sidecar.PROTOCOL}
@@ -340,15 +373,15 @@ def test_table_은_고른_안과_다섯_안을_같이_낸다(mode):
 
 def test_table_상자_안_표는_테두리만_바뀐다():
     src = _표(["구분", "가", "나"], ["값", "1", "2"])
-    a = sidecar.table(src, "table_grid")["cells"].split("\n")
-    b = sidecar.table(src, "table_grid", box_level=1)["cells"].split("\n")
+    a = sidecar.table(src, "table_grid", blank_lines=False)["cells"].split("\n")
+    b = sidecar.table(src, "table_grid", box_level=1, blank_lines=False)["cells"].split("\n")
     assert a[0] != b[0] and a[-1] != b[-1]          # 위아래 테두리
     assert a[1:-1] == b[1:-1]                        # 칸 줄은 그대로
 
 
 def test_table_에_태그가_없으면_점역자_주_한_안이다():
     r = sidecar.table("칸이 없는 글", tn_text="<!주>표. 칸 없음<!/주>")
-    assert r["drafts"] == [] and r["render_mode"] == "" and r["cells"].lstrip("⠀").startswith("⠠⠄")
+    assert r["drafts"] == [] and r["render_mode"] == "" and r["cells"].lstrip("\n⠀").startswith("⠠⠄")
 
 
 @pytest.mark.parametrize("mode", ["unfold", "table_grid", "numbered"])
@@ -564,12 +597,16 @@ def test_근거가_없는_요소와_조판_태그는_빈_배열이다():
 
 
 def test_rule_trail_좌표는_앞_빈_줄만큼_당긴다():
-    """`breaks` 와 같은 처리다. 2단계 제목은 `prefix` 가 1(앞 빈 줄 한 줄)이라, 안 당기면 좌표가 한 칸 밀린다."""
-    r = sidecar.translate("봄 → 여름", "title", 2)
+    """`breaks` 와 같은 처리다. 2단계 제목은 `prefix` 가 1(앞 빈 줄 한 줄)이라, 빈 줄을 뗀 `cells` 에서는 안 당기면 좌표가
+    한 칸 밀린다. 빈 줄을 실은 `cells`(기본)는 통 문자열 그대로라 당기지 않는다."""
+    r = sidecar.translate("봄 → 여름", "title", 2, blank_lines=False)
     (t,) = r["rule_trail"]
     assert r["cells"][t["col_start"]:t["col_end"]] == "⠒⠕"
     assert t["col_start"] == 10          # 엔진 좌표 11 − prefix 1. 안 당기면 11 이 되어 한 칸 밀린다
     assert r["cells"][11:13] != "⠒⠕"     # 밀린 자리는 그 점형이 아니다
+    r = sidecar.translate("봄 → 여름", "title", 2)
+    (t,) = r["rule_trail"]
+    assert t["col_start"] == 11 and r["cells"][t["col_start"]:t["col_end"]] == "⠒⠕"
 
 
 def test_표_초안에는_rule_trail_을_넣지_않는다():
