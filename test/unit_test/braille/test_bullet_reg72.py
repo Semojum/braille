@@ -57,3 +57,24 @@ def test_all_three_shapes(korean: str, head: str) -> None:
 ])
 def test_hidden_marks_survive(korean: str, head: str) -> None:
     assert translate_plain(korean).startswith(head), translate_plain(korean)[:10]
+
+
+@pytest.mark.parametrize("korean,reg_brf", [
+    # 제49항 숨김표 표(재추출 2206~2213행). 줄에 기호 하나뿐이면 글머리가 아니다(#1557 · 원장 B-46).
+    ("○", "_0l"),
+    ("□", "_7l"),
+    ("△", "_+l"),
+])
+def test_lone_shape_is_hidden_mark(korean: str, reg_brf: str) -> None:
+    assert translate_plain(korean) == _reg(reg_brf)
+
+
+def test_lone_shape_in_layout_keeps_tail() -> None:
+    """본문 경로(`_apply_bullet_marker`)도 같다. 뒤에 글이 있는 줄만 글머리가 된다."""
+    from uuid import uuid4
+
+    from semojum_braille.encoder.layout_braille import LayoutBraille
+    from semojum_braille.schemas import BrailleOutput
+    bo = BrailleOutput(element_id=uuid4(), braille_lines=["⠸⠴⠇", "⠸⠴⠇⠀⠈⠕⠫⠒", "⠸⠶⠇⠀"])
+    LayoutBraille()._apply_bullet_marker(bo)
+    assert bo.braille_lines == ["⠸⠴⠇", "⠸⠴⠀⠈⠕⠫⠒", "⠸⠶⠇⠀"]

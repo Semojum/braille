@@ -778,6 +778,41 @@ _ENV_RE = re.compile(r"\\(?:begin|end)\s*\{[^{}]*\}(?:\s*\[[^\]]*\])?(?:\s*\{[^{
 #   연산 붙임(11e)이 등호 앞뒤를 붙인다. 규정은 배열 행을 이어 적을 때의 폭을 정하지 않는다(관행). gold 수학 Ⅰ(dev 009) 행 머리 등호
 #   251행 전부 앞뒤 0칸(줄 가운데 148 · 앞 줄 끝 103). 연립식(`_SYS_ENV_RE`)은 그보다 먼저 행을 나눠 두 칸 그대로다.
 _DERIV_ROW_RE = re.compile(r"\\\\(?=[\s&]*=)")
+# 연립식 행의 열 구분 `&` — 식과 조건 사이는 한 칸이다(수학 제6항 예문 `a8#a9x0`8#j66x66#a0`, gold 수학 Ⅰ(dev 009)도
+#   한 칸). 그냥 공백으로 넘기면 괄호 곁 공백 정리(1단계)와 수 · 문자 곱 붙임(`_DIGIT_GAP_RE`)이 지워 `a(1−x)(0≤x≤1)` 이
+#   나가고 `1 & x>0` 은 곱 `1x>0` 으로 읽혔다. 구조 칸 `_SP` 로 나른다. 열 머리나 꼬리가 연산 · 관계 기호인 정렬용 `&`
+#   (`x+y &= 3`)는 그 기호 앞뒤를 붙이는 제45항 몫이라 공백 그대로 둔다.
+_SYS_COL_OP = (r"=|<|>|≤|≥|≠|≈|≡|\+|\\(?:le|leq|leqq|leqslant|ge|geq|geqq|geqslant|ne|neq|lt|gt|approx|equiv"
+               r"|sim|simeq|pm|mp|times|div|cdot|Rightarrow|Leftarrow|Leftrightarrow|iff)(?![a-zA-Z])")
+_SYS_COL_HEAD_RE = re.compile(rf"(?:{_SYS_COL_OP})")
+_SYS_COL_TAIL_RE = re.compile(rf"(?:{_SYS_COL_OP}|-)$")
+# `&` 없이 적힌 조건(`3 (t = 0)` · `a_{n}+1\quad(…)`, 간격 명령은 이 앞에서 공백이 된다)도 같다. 행 끝 괄호 묶음 안에
+#   관계 기호나 한글(`\text` sentinel)이 있으면 조건으로 본다(함수 인수 `\log_{2}(x-2)` 는 관계 기호가 없다). 조건만 있는
+#   행(인쇄에서 식이 길어 조건이 다음 줄로 내려간 꼴)은 앞 행의 조건이라 행 구분 두 칸 대신 한 칸으로 붙는다.
+_SYS_COND_RE = re.compile(r"=|<|>|≤|≥|≠|\\(?:le|leq|leqq|leqslant|ge|geq|geqq|geqslant|ne|neq|lt|gt)(?![a-zA-Z])"
+                          r"|[\ue000-\uf8ff]")
+
+
+def _sys_row(row: str) -> tuple[str, bool]:
+    """연립식 한 행 → (행, 조건만 있는 행인가). 식과 조건 사이(열 구분 `&` · 행 끝 조건 괄호)는 구조 칸으로,
+    정렬용 `&`(빈 열 · 연산 기호 곁)는 공백으로 잇는다."""
+    out = ""
+    for col in (" ".join(c.split()) for c in row.split("&")):
+        if col:
+            tight = not out or _SYS_COL_HEAD_RE.match(col) or _SYS_COL_TAIL_RE.search(out)
+            out += ("" if not out else " " if tight else _SP) + col
+    # 행 머리도 부호 자리다(`\\ - \sqrt{2} …`). `_SIGN_GAP_RE` 는 식 전체에서 돌아 행 구분 뒤 부호 곁 빈칸이 남았다.
+    out = _SIGN_GAP_RE.sub(r"\1\2\3", out)
+    if out.endswith(")"):
+        depth = 0
+        for i in range(len(out) - 1, -1, -1):
+            depth += {")": 1, "(": -1}.get(out[i], 0)
+            if not depth:
+                break
+        head = out[:i].rstrip()       # rstrip 은 `_SP` 도 걷는다
+        if not depth and _SYS_COND_RE.search(out[i:]) and not _SYS_COL_TAIL_RE.search(head):
+            return (head + _SP if head else "") + out[i:], not head
+    return out, False
 # 연립식 괄호(수학 규정 제6항): 여는 ⠶⠄(7')·닫는 ⠠⠶(,7). \left\{ 동반 array 또는 cases.
 _SYS_OPEN, _SYS_CLOSE = "⠶⠄", "⠠⠶"
 # 관행 스위치 — translator._BOOK_STYLE과 같은 판정을 env에서 직접 읽는다(순환 import 회피).
@@ -899,6 +934,75 @@ def _protect_text(latex: str) -> tuple[str, list[str]]:
     latex = _W2C_JAMO_ITEM_RE.sub(lambda m: _stash(m.group(0)), latex)  # "ㄱ." 통째로
     latex = _BARE_KOR_RE.sub(lambda m: _stash(m.group(0)), latex)
     return latex, store
+
+
+# 수식 요소 속 한글 앞뒤 두 칸(「수학 점자」 제11항 "수식과 수학적 표기는 앞뒤를 두 칸씩 띄어 쓴다", 재추출 3235행 · 예문
+#   `tanx의 값은` = `6tx``w`). 종전엔 입력 띄움을 따라 0 · 1 · 2칸이 섞였다(`= 2 \text{에서}` → 한 칸). gold 수학 Ⅰ(dev 009)
+#   수식 요소 속 한글 앞 이웃이 식 · 홑 글자 · 닫는 괄호일 때 두 칸이 약 390 · 한 칸 19 다. 그대로 두는 자리:
+#   · 연산 · 관계 기호 곁(제46항 `나루 + 배` 한 칸) · 쉼표 같은 문장 부호 곁 · 여는 괄호 뒤 · 닫는 괄호 앞 · 행 구분 곁
+#   · 원문자 곁(`㉠에서`, gold 붙임) · 다른 `\text` 곁 · 정규화가 넣은 점자 셀 곁(연립식 괄호 · 보기 머리) · 묶음 `{}` 안
+_KOR_GAP = r"[ \t\r\n~\x1f]*"                    # 정규화 뒤라 간격 명령은 이미 빈칸이다. 행 구분(\x1e)은 경계라 안 먹는다
+_KOR_GAP_HEAD_RE = re.compile(_KOR_GAP)
+_KOR_GAP_TAIL_RE = re.compile(_KOR_GAP + "$")
+_KOR_OPS = r"=+\-<>,.:;!?&\x1e≤≥≠×·÷±∓→⇒⇔∈∋⊂⊃"
+_KOR_REL = (r"\\(?:le|leq|leqq|leqslant|ge|geq|geqq|geqslant|ne|neq|lt|gt|times|div|cdot|pm|mp|approx|equiv|sim"
+            r"|to|rightarrow|Rightarrow|Leftrightarrow|iff)(?![A-Za-z])")
+_KOR_LEFT_KEEP_RE = re.compile(r"(?:[" + _KOR_OPS + r"(\[⠀-⣿]|\\\{|\\left\W?|\\langle|\\rangle|" + _KOR_REL + r")$")
+_KOR_RIGHT_KEEP_RE = re.compile(r"(?:[" + _KOR_OPS.replace(r"+\-", "") + r")\]⠀-⣿]|\\\}|\\right\W?|\\langle|\\rangle"
+                                r"|[+\-](?!\s*[\dA-Za-z\\({])|" + _KOR_REL + r")")
+# 이웃이 홑 로마자(`(n\text{이 홀수})`, 원장 C-155 로마자 꼴 자리)나 단순 수(`\text{일 때} 1, 3, 4`, 제11항이 두 칸 대상에서
+#   뺀다 · gold `o1 ,ir #a" #c"`)뿐이면 그대로 둔다. 이웃 낱은 괄호 · 쉼표 · 행 구분 · 다른 `\text` 에서 끊는다.
+_KOR_ATOM_L_RE = re.compile(r"[(\[,\x1e\ue000-\uf8ff]")
+_KOR_ATOM_R_RE = re.compile(r"[)\],\x1e\ue000-\uf8ff]")
+_KOR_LONE_RE = re.compile(r"[A-Za-z]|\d+(?:\.\d+)?")
+_KOR_SIGN_RE = re.compile(r"^([+\-−±])[ \t]+(?=[\dA-Za-z\\({])")
+_KOR_CIRCLED = re.compile("[\u2460-\u24ff\u3260-\u327f]")   # 원문자 — 뒤 한글은 붙인다(`㉠에서`, gold 15:0)
+_KOR_LABEL = re.compile("[\u2460-\u24ff\u3260-\u327f\ue000-\uf8ff]")   # 원문자 · 다른 `\text` sentinel
+
+
+def _kor_gap(nb: str, had: bool, left: bool) -> str:
+    """한글 sentinel 한쪽 이웃 `nb`(왼쪽이면 끝, 오른쪽이면 머리를 본다)와의 칸. 입력에 띄움이 있었으면 `had`."""
+    if not nb:
+        return ""                              # 식 머리 · 꼬리 — 바깥 글 경로가 정한다
+    edge = nb[-1] if left else nb[0]
+    if left and _KOR_CIRCLED.match(edge):
+        return ""                              # `㉠에서`
+    atom = (_KOR_ATOM_L_RE.split(nb)[-1] if left else _KOR_ATOM_R_RE.split(nb)[0]).strip()
+    keep = (_KOR_LEFT_KEEP_RE.search(nb) if left else _KOR_RIGHT_KEEP_RE.match(nb)) or _KOR_LABEL.match(edge) \
+        or _KOR_LONE_RE.fullmatch(atom)
+    if not keep:
+        return _SP * 2
+    if edge in ("([⠄" if left else ")]⠠") or nb.endswith((r"\{", r"\langle")) and left \
+            or nb.startswith((r"\}", r"\rangle")) and not left:
+        return ""                              # 여는 괄호 뒤 · 닫는 괄호 앞은 붙인다
+    return " " if had else ""
+
+
+def _space_kor_text(latex: str, store: "_TextStore") -> str:
+    """묶음 밖 한글 `\\text` sentinel 앞뒤 칸을 맞춘다(위 주석). 저장 점자의 겉 빈칸은 걷고 칸은 여기서 한 번만 정한다."""
+    out, depth, i = "", 0, 0
+    while i < len(latex):
+        ch = latex[i]
+        if ch in "{}" and (i == 0 or latex[i - 1] != "\\"):
+            depth += 1 if ch == "{" else -1
+        if ch not in store.kor or depth:
+            out += ch
+            i += 1
+            continue
+        idx = ord(ch) - 0xE000
+        body = store[idx]
+        store[idx] = body.strip("⠀ ")
+        left = out[:_KOR_GAP_TAIL_RE.search(out).start()]
+        rest = latex[i + 1:]
+        gap = _KOR_GAP_HEAD_RE.match(rest).end()
+        out = left + _kor_gap(left, len(left) < len(out) or body[:1] in "⠀ ", True) + ch
+        nb = rest[gap:]
+        sep = _kor_gap(nb, gap > 0 or body[-1:] in "⠀ ", False)
+        if sep == _SP * 2:
+            nb = _KOR_SIGN_RE.sub(r"\1", nb)    # 식 첫머리 부호는 뒤에 붙인다(`- 1` → `-1`, 제45항)
+        latex = latex[:i + 1] + sep + nb
+        i += 1
+    return out
 
 
 def _restore_text(result: str, store: list[str]) -> str:
@@ -1149,9 +1253,9 @@ def _normalize_latex_input(latex: str) -> str:
         # `…⠼⠚⠀⠀⠭⠩⠢…`)인데 종전 코드는 1칸으로 넣고 다중 공백 접기·연산 붙임(11e)이
         # 그마저 지워 행이 0칸으로 붙었다(p020 실측 `⠼⠚⠭` — 0과 x가 밀착).
         raw = m.group(2) or m.group(3) or ""
-        rows = [" ".join(r.replace("&", " ").split())
-                for r in raw.split("\\\\") if r.strip()]
-        body = f" {_W2R_ROW_SEP} ".join(rows)
+        body = ""
+        for row, cond_only in (_sys_row(r) for r in raw.split("\\\\") if r.strip()):
+            body += ("" if not body else _SP if cond_only else f" {_W2R_ROW_SEP} ") + row
         # 연립식 조건 괄호도 소괄호 ⠦⠴ 그대로 둔다 — 여기서 ⠤로 바꾸지 않는다.
         # 종전엔 `body.replace("(", "⠤")` blanket 치환이 있었다(2026-07-21). 근거는
         # 구판 수능특강 **수학2 한 권**의 '-x≥1-' 실측이었는데, 원장 R-06이 표시 문자
@@ -1226,6 +1330,7 @@ _TIGHT_OPS_RE = re.compile(
     r"(?<=(\S))[ ⠀]*(" + _MULTI_TIGHT +
     r"|(?<![⠈⠸])⠒⠒(?!⠕)|(?<![⠈⠸])⠢|(?<![⠈⠸])⠔|×|÷|<|>|≤|≥|≠|±|∓|≒|:)[ ⠀]*(?=(\S))")
 
+_LEAD_OP_RE = re.compile(r"[ ⠀]*(" + _MULTI_TIGHT + r"|⠒⠒(?!⠕)|⠢|⠔|×|÷|<|>|≤|≥|≠|±|∓|≒)[ ⠀]+(?=\S)")
 
 # ── 비점자 잔류 정화 (2026-07-21, w2c) ──────────────────────────────────────
 # convert_latex는 처리 못 한 문자를 **원문 그대로 통과**시킨다. 그 결과 최종 점자에
@@ -1276,13 +1381,20 @@ def _tighten_operator_spacing(result: str) -> str:
         left, op, right = m.group(1), m.group(2), m.group(3)
         if _hangul_or_sentinel(left) or _hangul_or_sentinel(right):
             return m.group(0)
-        return op
+        # 줄임표 곁은 한 칸 띄운다(`a_1+⋯+a_n` = `a;#a5 ,,, 5a;n`). 규정 예문이 없는 자리라 관행대로 —
+        #   2027 gold(홀드아웃 뺌) 기호 사이 줄임표 앞뒤 띄움 169 · 붙음 9(한 권). 원장 C-189.
+        return (" " if left == "⋯" else "") + op + (" " if right == "⋯" else "")
 
     # 기호 둘이 칸을 두고 잇달면(닫는 절댓값 막대 ⠳ 다음 ⠒⠒) 앞 매치가 뒤 기호의 왼쪽 글자를 먹어 뒤 기호 뒤 칸이 남았다
     #   (`|…|33⠀#b`, 2027 수학Ⅰ gold `|…|33#b`). 왼쪽 글자는 뒤돌아보기로만 보고, 남은 칸이 없을 때까지 다시 훑는다(#1445).
     prev = None
     while prev != result:
         prev, result = result, _TIGHT_OPS_RE.sub(_repl, result)
+    # 식 머리 기호도 뒤를 붙인다(이어 쓴 유도 줄 `= \log_{3}2 …`). 위 규칙은 왼쪽 글자가 있어야 걸려 빈칸이 남았다
+    #   (gold 수학 Ⅰ(dev 009) 식 머리 기호 뒤 붙임 95 · 빈칸 0). 오른쪽이 한글이면 제46항 몫이라 그대로 둔다.
+    m = _LEAD_OP_RE.match(result)
+    if m and not _hangul_or_sentinel(result[m.end():m.end() + 1]):
+        result = m.group(1) + result[m.end():]
     return result
 
 
@@ -2411,6 +2523,7 @@ def convert_latex(latex: str) -> str:
         latex, _chem_phrased = mark_chem_phrases(latex)
     latex, _text_store = _protect_text(latex)   # 0.  P2: \text{한글} → 한글 점자 sentinel
     result = _normalize_latex_input(latex)      # 0a. MinerU/마크다운 입력 정규화
+    result = _space_kor_text(result, _text_store)  # 0a-후. 수식 속 한글 앞뒤 두 칸(제11항, 정규화 뒤라 행 · 간격 명령이 정리됐다)
 
     result = _stage0c_bare_args(result)             # 0c. 중괄호 없는 한 글자 인자
     result = _stage0f_brace_comma(result)           # 0f. `{,}` 자릿점 표기(제41항)
