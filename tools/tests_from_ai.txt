@@ -235,3 +235,14 @@ test/unit_test/braille/test_roman_tilde_line_head_1495.py
 test/unit_test/formula/test_seg_atom_wy_1502.py
 # #96 은 엔진에서 먼저 고쳤다가 AI #1555 가 자리마다 세는 판으로 정본에 넣었다. 엔진 고유 사본(test/test_silent_symbol_drop_1022.py)을 이것으로 바꾼다.
 test/unit_test/braille/test_silent_symbol_drop_1022.py
+# 3.4.39 동기화(AI d8674e0d)에서 더함 — AI #1571 · #1573 · #1575 · #1585 · #1593 · #1595 · #1599 · #1601 · #1603 · #1605. #1560 시험(test_dropped_unknown_1559)은 AI 서버 pipeline 을 불러 뺀다.
+test/unit_test/braille/test_angstrom_mmhg_print_cells_1570.py
+test/unit_test/braille/test_unit_superscript_in_text_1572.py
+test/unit_test/braille/test_silent_empty_r17_1574.py
+test/unit_test/braille/test_eng_wordsign_shortform_1582.py
+test/unit_test/braille/test_greek_name_in_sentence_1592.py
+test/unit_test/braille/test_cases_condition_space.py
+test/unit_test/braille/test_math_korean_two_spaces.py
+test/unit_test/braille/test_lead_operator_space.py
+test/unit_test/braille/test_ellipsis_between_operators.py
+test/unit_test/braille/test_line_head_bullet_space.py

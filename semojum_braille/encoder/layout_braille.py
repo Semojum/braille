@@ -477,13 +477,20 @@ def _opens_question(src: str) -> bool:
     return bool(_Q_HEAD_RE.search(ls[0]) or _Q_ASK_RE.search(last) or _Q_DIRECT_RE.search(last))
 
 
+def is_answer_label(text: str) -> bool:
+    """`정답` 한 낱말인가(태그 · 빈칸 · 둘레 네모 U+20DE 뺌) — `개념 체크` 상자 끝 정답 줄(`정답` · `정⃞답⃞`, #1565)."""
+    return re.sub(r"[\s⃞]", "", _TAG_RE.sub("", text or "")) == "정답"
+
+
 def _question_zone(body: list, meta: dict) -> dict:
     """요소 id → 평가문제 지문 구역 안인가. 응답 · 쪽 조판이 같은 차례(읽기 순서)로 걷는다."""
     zone, inq = {}, False
     for bo in body:
-        if meta.get(bo.element_id, _DEFAULT_META)[0] == "title":
+        src = getattr(bo, "corrected_text", "") or ""
+        # 정답 줄은 글로 내려도(#1565) 구역을 닫는다 — 제목이던 때처럼 상자 끝 답 요소의 아래 빈 줄이 산다
+        if meta.get(bo.element_id, _DEFAULT_META)[0] == "title" or is_answer_label(src):
             inq = False
-        if _opens_question(getattr(bo, "corrected_text", "") or ""):
+        if _opens_question(src):
             inq = True
         zone[bo.element_id] = inq
     return zone
@@ -1160,6 +1167,10 @@ class LayoutBraille:
                 continue
             for hidden, bullet in _HIDDEN_TO_BULLET.items():
                 if not line.startswith(hidden):
+                    continue
+                if not line[len(hidden):].strip("⠀ "):
+                    # 줄에 기호 하나뿐 — 글머리가 아니라 제49항 숨김표(`_0l`, 재추출 2206~2213행)다.
+                    # 제72항 글머리 기호는 보기마다 뒤에 빈칸과 글이 온다(2879~2901행, #1557 · 원장 B-46).
                     continue
                 lines[idx] = bullet + line[len(hidden):]
                 # 글리프 길이 변화(delta)만큼 같은 줄 뒤 좌표·break offset을 보정.

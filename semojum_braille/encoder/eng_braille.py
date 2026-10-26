@@ -191,8 +191,8 @@ def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
     """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수.
 
     `ebae=True` 는 역점역 왕복 검사 전용이다 — 옛 EBAE 책 줄(`DON,N` = donation)을 되짚는다.
-    `mid=True` 는 이 조각이 낱말 첫머리가 아니라는 뜻이다(아포스트로피 뒤 조각, #1543) — 첫머리 음절 약자(be · con · dis)를
-    안 쓰고, 첫머리에 못 오던 윗칸 약자 ing 는 쓴다. UEB Appendix 2 `O'Connor` = ,o',connor · `Ch'ing` = ,*'+.
+    `mid=True` 는 이 조각이 낱말 첫머리가 아니라는 뜻이다(아포스트로피 뒤 조각 #1543 · 단축형 뒤 조각 #1582) — 첫머리 음절
+    약자(be · con · dis)를 안 쓰고, 첫머리에 못 오던 윗칸 약자 ing 와 끝 묶음표(ness · ance …)는 쓴다. UEB Appendix 2 `O'Connor` = ,o',connor · `Ch'ing` = ,*'+.
     아래칸 약자(ea · bb …)는 앞이 글자가 아니라 그대로 못 쓴다(`sou'east` = s\\'ea/).
     """
     # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
@@ -237,7 +237,7 @@ def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
                     continue
                 out.append(FINAL_EBAE_ONLY[k])
             elif k in FINAL_46 or k in FINAL_56:
-                if i == 0:
+                if i == 0 and not mid:      # 낱말 첫머리만 막는다 — 단축형 뒤 조각은 첫머리가 아니다(`blindness` = bl;s, #1582)
                     continue
                 out.append(("⠨" + FINAL_46[k]) if k in FINAL_46 else ("⠰" + FINAL_56[k]))
             else:                    # 머리글자 약자 — 낱말 속에서도 쓴다(#1216)
@@ -365,7 +365,38 @@ def translate_word(word: str, ebae: bool = False, uncontracted: bool = False) ->
         return caps + EBAE_ONLY_WORDSIGNS[low]
     if low in SHORT_FORMS:
         return caps + SHORT_FORMS[low]
-    return caps + _apply_groups(low, ebae)
+    return caps + ((not ebae and _shortform_in_word(low)) or _apply_groups(low, ebae))
+
+
+# 통일영어점자 10.9.3(`통일영어점자 규정_UEB2013.txt` 5576~5621행) — 부록 1 목록 밖 긴 낱말에서도 쓰는 단축형 열 개.
+#   (단축형, 낱말 첫머리에서만, 뒤가 모음 · y 이면 안 씀). `rebrailled` = rebrld · `Greatorex` = ,grtorex · `godchildren` = god*n ·
+#   `quickly` = qkly 이고 `Blindoc` = ,bl9doc(뒤가 모음) · `Linkletter` = ,l9klett](첫머리 아님)는 풀어 쓴다(#1582).
+#   ⚠ 10.9.2(a) 부록 1 Shortforms List 낱말(declaring · newsletter · repaid …)은 ICEB 목록이라 싣지 않는다 — ICEB 글은
+#   엔진 패키지 밖이다. 옛 EBAE 되짚기(`ebae=True`)는 규칙이 달라 안 쓴다.
+_SF_IN_WORD = (("braille", False, False), ("great", False, False), ("children", False, True),
+               ("blind", True, True), ("first", True, True), ("friend", True, True), ("good", True, True),
+               ("letter", True, True), ("little", True, True), ("quick", True, True))
+
+
+def _shortform_in_word(low: str) -> str | None:
+    """긴 낱말 안 단축형(10.9.3)을 쓴 셀열. 걸리는 자리가 없으면 None. 사이 조각은 묶음 약자로(뒤 조각은 낱말 첫머리가 아니다)."""
+    parts, start, i = [], 0, 0
+    while i < len(low):
+        for sf, head, no_vowel in _SF_IN_WORD:
+            nxt = low[i + len(sf):i + len(sf) + 1]
+            if low.startswith(sf, i) and (i == 0 or not head) and not (no_vowel and nxt in _VOWELS_Y):
+                if start < i:
+                    parts.append(_apply_groups(low[start:i], mid=start > 0))
+                parts.append(SHORT_FORMS[sf])
+                i = start = i + len(sf)
+                break
+        else:
+            i += 1
+    if not parts:
+        return None
+    if start < len(low):
+        parts.append(_apply_groups(low[start:], mid=True))
+    return "".join(parts)
 
 
 # 1종 지시자 ⠰ (「한글 점자」 제32항 → 통일영어점자 위임 · 원장 C-99) ─────────────────────
@@ -406,11 +437,16 @@ def _looks_contracted(word: str) -> bool:
 #   `be, his, was, were의` = `0be1`his1`was1`w]e4w`. 쉼표에 붙은 자리도 풀었으므로 문장 부호에
 #   닿은 자리 전부로 읽는다(통일영어점자의 아래칸 단어 약자 규칙과 같은 방향).
 _LOWER_WORDSIGNS = frozenset({"be", "enough", "his", "in", "was", "were"})
+# 제37항이 든 낱말은 29개다(알파벳 단어 약자 23 + 아래칸 6). 강약자 child · shall · this · which · out · still 은 목록에 없어
+#   로마자표 바로 뒤에서도 약자를 쓴다(`0*4` = child, #1582). 종전엔 단어 약자 표 전체에 걸어 이 여섯도 풀었다.
+_R37_WORDS = frozenset({"but", "people", "be", "can", "quite", "enough", "do", "rather", "his", "every", "so", "in",
+                        "from", "that", "was", "go", "us", "were", "have", "very", "just", "will", "knowledge", "it",
+                        "like", "you", "more", "as", "not"})
 
 
 def _spell_out(w: str, text: str, m: re.Match, lead: bool) -> bool:
     low = w.lower()
-    if low not in WORDSIGNS or _is_abbrev(w):
+    if low not in _R37_WORDS or _is_abbrev(w):
         return False
     if lead and m.start() == 0:
         return True
