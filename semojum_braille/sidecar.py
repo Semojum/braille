@@ -25,7 +25,8 @@ from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.table_braille import TableBraille
 from semojum_braille.encoder.tag_names import apply_indent_tags, strip_indent_tags, ALIASES, parse_table_tags
 from semojum_braille.encoder.text_braille import TextBraille
-from semojum_braille.encoder.translator import dropped_hanja, dropped_old_jamo, dropped_pua, dropped_symbols, translate_with_breaks
+from semojum_braille.encoder.translator import (dropped_hanja, dropped_latex, dropped_old_jamo, dropped_pua, dropped_symbols,
+                                                 dropped_unknown, translate_with_breaks)
 from semojum_braille.encoder.translator import _BORDER_KIND, _TAG_INLINE_MARKER, _TAG_PAIR_MARKER
 from semojum_braille.schemas import BrailleOutput, LLMOutput
 
@@ -35,7 +36,10 @@ _TB = TextBraille()
 # 판정이 불린다. 책 줄은 쓰지 않는다(공개 저장소, 2026-10-19 pm).
 _WARMUP = "⠀⠀⠼⠉⠲⠀⠴⠍⠥⠎⠊⠉⠀⠸⠌⠀⠠⠩⠑⠒"
 # 점자 기호가 없어 조용히 빠지는 글자. AI 서버가 쪽 플래그(R15 PUA · R17 기호 · R17 한자 · R18 옛한글)를 세는 함수 그대로다.
-_DROPPED = (("R15", dropped_pua), ("R17", dropped_symbols), ("R17", dropped_hanja), ("R18", dropped_old_jamo))
+# AI 서버 `app.core.pipeline._DROPPED_CHAR_FLAGS` 와 같은 여섯 갈래 · 같은 순서다(docs/sidecar.md 「같은 원문이면 같은 결과」).
+#   동기화가 AI 에 셈을 더하면 여기에도 더한다(#117: 결합 부호 `dropped_unknown` · 수식 명령 `dropped_latex` 가 빠져 있었다).
+_DROPPED = (("R15", dropped_pua), ("R17", dropped_symbols), ("R17", dropped_hanja), ("R17", dropped_unknown),
+            ("R17", dropped_latex), ("R18", dropped_old_jamo))
 # 프로토콜 판. 요청 · 응답 꼴이 앞 판과 호환되지 않게 바뀔 때만 올린다. 필드 · op 를 더하는 것은 올리지 않는다(docs/sidecar.md 4절).
 PROTOCOL = 1
 _BOM = b"\xef\xbb\xbf"

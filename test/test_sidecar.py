@@ -183,6 +183,9 @@ def test_빠진_글자를_AI_쪽_플래그와_같은_갈래로_알린다():
     assert sidecar.translate("가[漢]나")["dropped"] == [{"text": "漢", "count": 1, "flag": "R17"}]   # #108 표에 없는 한자
     assert sidecar.translate("학교(學校)에 갔다")["dropped"] == []      # 병기 괄호는 지침 2.5.2 (2) 대로 통째 생략하는 자리
     assert sidecar.translate("가나")["dropped"] == []
+    # #117 AI 서버(`_DROPPED_CHAR_FLAGS`)는 여섯 갈래를 센다. 3.4.39 까지 사이드카는 아래 둘을 안 세어 앱에서 표시 없이 사라졌다.
+    assert sidecar.translate("café")["dropped"] == [{"text": "́", "count": 1, "flag": "R17"}]   # AI #1575 결합 부호
+    assert sidecar.translate("두 원 $A \\bigcirc B$ 가 있다")["dropped"] == [{"text": "\\bigcirc", "count": 1, "flag": "R17"}]   # AI #1619
 
 
 def test_옵션은_정해진_꼴만_받는다():
