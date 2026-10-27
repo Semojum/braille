@@ -33,6 +33,7 @@ letter-group 약자(th·ed·st·er·ow·en·in·ch·gh·be)만 구현돼 단어 
 from __future__ import annotations
 
 import re
+import unicodedata
 from functools import lru_cache
 from typing import Iterator
 
@@ -44,6 +45,38 @@ ALPHABET: dict[str, str] = {
     "o": "⠕", "p": "⠏", "q": "⠟", "r": "⠗", "s": "⠎", "t": "⠞", "u": "⠥",
     "v": "⠧", "w": "⠺", "x": "⠭", "y": "⠽", "z": "⠵",
 }
+
+# ── 변형 글자(통일영어점자 4.2 · 4.3, `통일영어점자 규정_UEB2013.txt` 2302~2475행) ──────────────────────────
+# 변형표는 글자 **앞**에 적고(4.2.1), 변형된 글자 · 합자로 이은 글자는 약자에 들지 않는다(4.2.4 · 4.3.2). 이 모듈의 약자
+#   열쇠는 전부 ASCII 라, 변형 글자를 낱말 안에 그대로 둔 채 약자를 매기면 4.2.4 가 저절로 지켜진다(`abbé` = a2^/e ·
+#   `cinéaste` = c9^/ea/e · `fiancé` = fianc^/e). 마지막에 그 글자만 변형표 + 글자 셀로 바꾼다(`_render_modified`).
+#   종전엔 낱말 정규식이 ASCII 뿐이라 이 낱말들이 braillify 로 갔다. é · è · ç 는 표시 없이 e · c 로 바뀌고, ñ · ô 는 한국
+#   수학 점자의 '문자 위 기호' 꼴(n⠈⠈⠔)로 나가고, æ · ø · œ 는 통째로 빠졌다(1lv UEB 짝 11개).
+_MODIFIERS = {"\u0301": "⠘⠌", "\u0300": "⠘⠡", "\u0302": "⠘⠩", "\u0303": "⠘⠻", "\u0308": "⠘⠒", "\u0327": "⠘⠯",
+              "\u030a": "⠘⠫", "\u030c": "⠘⠬", "\u0306": "⠈⠬", "\u0304": "⠈⠤"}
+# 4.3.1 합자 ⠘⠖(`Cœur` = ,co^6eur) · 4.2 겹쳐 그은 획(ø 빗금 ⠈⠡ · đ 가로획 ⠈⠒).
+# ponytail: 대문자 합자 Æ · Œ 는 둘째 글자 대문자표(4.3.3 `Ætna` = ,a,^6etna)를 안 붙인다. 실물이 보이면 넣는다.
+_SPECIAL_LETTERS = {"æ": "⠁⠘⠖⠑", "œ": "⠕⠘⠖⠑", "ø": "⠈⠡⠕", "đ": "⠈⠒⠙"}
+
+
+def _modified_cells(ch: str) -> str | None:
+    low = ch.lower()
+    if low in _SPECIAL_LETTERS:
+        return _SPECIAL_LETTERS[low]
+    base, *marks = unicodedata.normalize("NFD", low)
+    if not marks or base not in ALPHABET or any(m not in _MODIFIERS for m in marks):
+        return None
+    return "".join(_MODIFIERS[m] for m in marks) + ALPHABET[base]
+
+
+_MODIFIED_CELLS = {c: cells for c in map(chr, range(0xC0, 0x250)) if (cells := _modified_cells(c))}
+MODIFIED_LETTERS = "".join(_MODIFIED_CELLS)          # 번역기 로마자 런도 이 글자들을 낱말로 받는다
+_MODIFIED_UPPER = "".join(c for c in MODIFIED_LETTERS if c.isupper())
+
+
+def _render_modified(cells: str) -> str:
+    """약자를 다 매긴 셀열에 남은 변형 글자를 변형표 + 글자 셀로 바꾼다(대문자표는 앞에서 이미 붙었다, 4.2.2)."""
+    return "".join(_MODIFIED_CELLS.get(c, c) for c in cells) if any(c in _MODIFIED_CELLS for c in cells) else cells
 
 # ── 1. 강약자(strong contractions) — 단어 어디에 있어도 쓴다 ──────────────────
 STRONG_GROUPS: dict[str, str] = {
@@ -140,12 +173,16 @@ SHORT_FORMS: dict[str, str] = {
     "such": "⠎⠡", "themselves": "⠮⠍⠧⠎", "thyself": "⠹⠽⠋", "today": "⠞⠙",
     "together": "⠞⠛⠗", "tomorrow": "⠞⠍", "tonight": "⠞⠝", "would": "⠺⠙",
     "your": "⠽⠗", "yourself": "⠽⠗⠋", "yourselves": "⠽⠗⠧⠎",
+    # 10.9 표(`통일영어점자 규정_UEB2013.txt` 5450 · 5454 · 5464 · 5466 · 5467 · 5480행)의 -ing 꼴 여섯. 75개 단축형에 든다 —
+    #   종전엔 69개만 있어 `receiving` 이 receiv+ 로 나갔다.
+    "conceiving": "⠒⠉⠧⠛", "deceiving": "⠙⠉⠧⠛", "declaring": "⠙⠉⠇⠛",
+    "perceiving": "⠏⠻⠉⠧⠛", "receiving": "⠗⠉⠧⠛", "rejoicing": "⠗⠚⠉⠛",
 }
 
-_WORD_RE = re.compile(r"[A-Za-z']+")
+_WORD_RE = re.compile(rf"[A-Za-z'{MODIFIED_LETTERS}]+")
 # 낱말 **안**의 아포스트로피 — 양옆이 로마자일 때만(제61항 ⠄). 홀로 선 `'` 는 제49항
 # 작은따옴표일 수 있어 여기 안 걸린다.
-_INNER_APOS_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
+_INNER_APOS_RE = re.compile(rf"(?<=[A-Za-z{MODIFIED_LETTERS}])'(?=[A-Za-z{MODIFIED_LETTERS}])")
 _APOS_CELL = "⠄"
 # UEB 10.1.2 · 10.2.2 — 아포스트로피 뒤 이 글자일 때만 앞 낱말에 단어 약자를 쓴다(#1543)
 _APOS_SUFFIX = frozenset({"d", "ll", "re", "s", "t", "ve"})
@@ -255,6 +292,10 @@ def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
                     continue
                 if i != 0 and any(w in word for w in _INITIAL_SPELLED.get(k, ())):
                     continue
+                # 10.7.4(5194~5195행) ever 는 앞 글자가 e · i 면 안 쓴다 — `believer` = 2liev] · `McKeever` = ,mc,keev] ·
+                #   `thievery` = ?iev]y. 강세 조건(severity · revere)은 발음이 있어야 해 그대로 둔다.
+                if k == "ever" and i and word[i - 1] in "ei":
+                    continue
                 if k in INITIAL_5:
                     out.append("⠐" + INITIAL_5[k])
                 elif k in INITIAL_45:
@@ -270,7 +311,7 @@ def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
 
 
 # 대문자 런 / 대문자 아닌 런 — 혼합 낱말의 대문자 표기 단위(#934)
-_CASE_RUN_RE = re.compile(r"[A-Z]+|[^A-Z]+")
+_CASE_RUN_RE = re.compile(rf"[A-Z{_MODIFIED_UPPER}]+|[^A-Z{_MODIFIED_UPPER}]+")
 
 
 def _is_element_seq(word: str) -> bool:
@@ -302,6 +343,11 @@ def _groups_only(word: str, ebae: bool = False, uncontracted: bool = False, mid:
 
 
 def translate_word(word: str, ebae: bool = False, uncontracted: bool = False) -> str:
+    """영어 낱말 하나 → Grade 2 점자. 변형 글자는 약자를 다 매긴 뒤 셀로 바꾼다(위 `_render_modified`)."""
+    return _render_modified(_translate_word(word, ebae, uncontracted))
+
+
+def _translate_word(word: str, ebae: bool = False, uncontracted: bool = False) -> str:
     """영어 낱말 하나 → Grade 2 점자.
 
     약어·단위는 축약하지 않고 글자 그대로 적는다 — 축약하면 ATP·mV·pH·mmHg 같은
@@ -431,6 +477,89 @@ def _looks_contracted(word: str) -> bool:
                                   for h, any_pos in _SHORTFORM_HEADS)
 
 
+# 통일영어점자 2.6.1~2.6.3(1345~1426행) — 앞이 빈칸 · 붙임표 · 줄표(사이에 여는 괄호 · 따옴표 · 아포스트로피가 껴도 된다),
+#   뒤가 빈칸 · 붙임표 · 줄표(사이에 마침표 · 쉼표 · 닫는 괄호 · 따옴표가 껴도 된다)면 "홀로 선다". 글자 · 숫자나 아래 기호에
+#   붙으면 홀로 서지 않는다(`4th` 의 th · `www.sch.edu` 의 sch). 구간 밖 이웃 글자는 호출부가 `before` · `after` 로 넘긴다.
+_NOT_ALONE_BEFORE = frozenset("./@_&+=#%*\\^~|$:;,!?)]}")
+_NOT_ALONE_AFTER = frozenset("/@_&+=#%*\\^~|$([{")
+# 홀로 선 낱말을 약자로 줄였더니 **다른 낱말의** 단어 약자 · 단축형과 셀이 같아지면 그 낱말로 읽힌다. 그때는 글자대로 적는다.
+#   10.4.2(4609~4622행) 강약자 ch · sh · th · wh · ou · st(`Sh!` = ,sh6 · `St.` = ,st4 · `th'` = th') ·
+#   10.9.4(5622~5632행) 단축형의 일부가 되는 묶음 약자(`Herf` = ,herf, herself 로 읽힘 · `mst` = mst, must 로 읽힘) ·
+#   10.6.9(5019~5027행) 홀로 선 en(enough 로 읽힘, `en route` = en r\te). 목록이 아니라 셀 맞대기라 처음 보는 낱말에도 통한다.
+_WORD_CELLS = {v: k for k, v in {**WORDSIGNS, **SHORT_FORMS}.items()}
+# 10.9.6(5653~5659행) — 낱말 첫머리가 **아닌** 자리의 글자열이 단축형으로 읽히면 낱말 앞에 1종 낱말표 ⠰⠰ 를 적고 그 안에서는
+#   약자를 하나도 안 쓴다(`Dobrljin` = ;;,dobrljin · `ozbrl` = ;;ozbrl). 낱말 속 어디서나 읽히는 단축형은 10.9.3(a)의 둘뿐이다.
+_SF_ANYWHERE = ("brl", "grt")
+
+
+def _alone_side(ch: str, attached: frozenset) -> bool:
+    return not (ch.isascii() and ch.isalnum()) and ch not in attached
+
+
+# 앞 세그에서 이미 점자가 된 끝 칸(영어 산문 줄, 호출부 `ctx.prev`). 빈칸이나 여는 부호 · 표지(2.6.2: 여는 따옴표 · 괄호 ·
+#   글자체 표지 · 대문자표)로 끝나면 홀로 서고, 글자체 종료표(⠸⠄ 등)나 글자로 끝나면 앞 낱말이 이어진다 —
+#   `<!강조>possession<!/강조>s` 의 s 는 낱말 끝이다(gold HS-REF-T26-013 …⠨⠝⠸⠄⠎).
+_OPEN_TAILS = ("⠦", "⠠⠦", "⠘⠦", "⠸⠦", "⠐⠣", "⠨⠣", "⠸⠣", "⠠", "⠠⠠", "⠸⠂", "⠸⠶", "⠸⠆", "⠨⠂", "⠨⠶", "⠨⠆",
+               "⠘⠂", "⠘⠶", "⠘⠆", "⠈⠂", "⠈⠶", "⠈⠆", "⠤", "⠠⠤")
+
+
+def _cells_tail_alone(tail: str) -> bool:
+    return not tail or tail[-1] in "⠀ " or tail.endswith(_OPEN_TAILS)
+
+
+# 2.6.2 · 2.6.3 — 낱말과 빈칸 · 붙임표 · 줄표 사이에 껴도 되는 부호. 이 부호를 **건너 그 너머**가 빈칸 · 붙임표 · 줄표여야
+#   홀로 선다. `p.m.` 의 p 는 마침표 너머가 m 이라 홀로 서지 않는다(gold EBS-E26-008 `#i p4m4` · `K.Allen` = .1,k4,all5 ·
+#   `Q&A` = ,q@&,a, 모두 ⠰ 없음). 점자로 먼저 바뀐 닫는 부호(한글 꼴 포함)도 건넌다 — 그 밖의 셀(`&` = ⠈⠯)은 붙는다.
+_OPEN_MARKS = frozenset("([{\"'“‘")
+_CLOSE_MARKS = frozenset(",;:.…!?)]}\"'”’")
+_CLOSE_CELLS = ("⠲⠲⠲", "⠠⠴", "⠴⠄", "⠐⠜", "⠨⠜", "⠸⠜", "⠠⠶", "⠠⠄", "⠨⠄", "⠸⠄", "⠈⠄", "⠘⠄", "⠐⠂", "⠰⠆",
+                "⠲", "⠂", "⠆", "⠒", "⠖", "⠦", "⠴", "⠄", "⠐")
+
+
+def _alone_before(left: str) -> bool:
+    """left 는 낱말 바로 앞 글(호출부 이웃 + 구간 안 글, 가까운 쪽이 끝)."""
+    i = len(left)
+    while i and left[i - 1] in _OPEN_MARKS:
+        i -= 1
+    if not i:
+        return True
+    if "⠁" <= left[i - 1] <= "⣿":
+        return _cells_tail_alone(left[:i])
+    return _alone_side(left[i - 1], _NOT_ALONE_BEFORE)
+
+
+def _alone_after(rest: str) -> bool:
+    """rest 는 낱말 바로 뒤 글(구간 안 글 + 호출부 이웃)."""
+    i = 0
+    while i < len(rest):
+        if rest[i] in _CLOSE_MARKS:
+            i += 1
+            continue
+        tok = next((c for c in _CLOSE_CELLS if rest.startswith(c, i)), "")
+        if not tok:
+            break
+        i += len(tok)
+    if i == len(rest):
+        return True
+    if "⠁" <= rest[i] <= "⣿":
+        return rest.startswith(("⠤", "⠠⠤"), i)       # 붙임표 · 줄표 셀만 홀로 선 쪽이다
+    return _alone_side(rest[i], _NOT_ALONE_AFTER)
+
+
+def _plain_if_misread(w: str, alone: bool) -> str | None:
+    """약자로 적으면 다른 낱말로 읽히는 낱말의 글자 꼴(10.9.6 · 10.4.2 · 10.9.4 · 10.6.9). 해당 없으면 None."""
+    low = w.lower()
+    if any(low.find(s, 1) > 0 for s in _SF_ANYWHERE):
+        return "⠰⠰" + translate_word(w, uncontracted=True)
+    core = w.strip("'")
+    lo = core.lower()
+    if (not alone or not (core.isascii() and core.isalpha()) or _is_abbrev(core)
+            or lo in WORDSIGNS or lo in SHORT_FORMS or _WORD_CELLS.get(_translate_word(lo), lo) == lo):
+        return None
+    head, tail = w[:len(w) - len(w.lstrip("'"))], w[len(w.rstrip("'")):]
+    return head + (_CAPITAL if core[0].isupper() else "") + "".join(ALPHABET[c] for c in lo) + tail
+
+
 # 「한글 점자」 제37항(재추출 1795~1851행) — 로마자표 **바로 뒤** 영어 낱말은 단어 약자를 쓰지 않고
 #   알파벳과 묶음 약자로 풀어 적는다(`Can you` = `0,can`y` · rather = `ra!r` · in = `in`).
 #   [붙임](1847~1848행) be·enough·his·in·was·were 는 로마자 종료표 앞에서도 풀어 적는다 — 예문
@@ -444,7 +573,39 @@ _R37_WORDS = frozenset({"but", "people", "be", "can", "quite", "enough", "do", "
                         "like", "you", "more", "as", "not"})
 
 
-def _spell_out(w: str, text: str, m: re.Match, lead: bool) -> bool:
+_HYPHENS = frozenset("-‐‑⠤")
+# 아래 점만 쓰는 문장 부호(통일영어점자 10.5.1 · 10.5.4 — 따옴표는 늘 아래 점으로 본다). 점자 셀로 먼저 바뀐 부호는 1 · 4점이
+#   없는 셀이 아래 칸 부호다.
+_LOWER_PUNCT = frozenset(",;:.!?\"'“”‘’…–—―") | _HYPHENS
+
+
+def _is_lower_sign(ch: str) -> bool:
+    return ch in _LOWER_PUNCT or ("⠁" <= ch <= "⣿" and not (ord(ch) - 0x2800) & 0x09)
+
+
+def _lower_touch(side: str) -> bool:
+    """낱말에 닿은 이웃(가까운 글자부터)이 아래 점만 쓰는 문장 부호인가. 점자 셀로 먼저 바뀐 부호는 셀 둘까지 본다 —
+    닫는 괄호 `⠐⠜` 는 첫 셀만 아래 점이고 둘째 셀에 4점이 있다(10.5.1 `(not his)` = "<n 8">)."""
+    if not side or side[0].isspace() or side[0] == "⠀":
+        return False
+    if not "⠁" <= side[0] <= "⣿":
+        return side[0] in _LOWER_PUNCT
+    return all(_is_lower_sign(c) for c in (side[:2] if "⠁" <= side[1:2] <= "⣿" else side[:1]))
+
+
+def _seq_has_upper(text: str, m: re.Match, before: str, after: str) -> bool:
+    """10.5.4 — 이 낱말이 든 빈칸 사이 줄(앞뒤 문장 부호까지)에 1 · 4점이 있는 셀이 있는가. 글자 · 숫자는 늘 있다."""
+    left, right = before + text[:m.start()], text[m.end():] + after
+    for side in (reversed(left), right):
+        for ch in side:
+            if ch.isspace() or ch == "⠀":
+                break
+            if not _is_lower_sign(ch):
+                return True
+    return False
+
+
+def _spell_out(w: str, text: str, m: re.Match, lead: bool, b1: str = "", a1: str = "") -> bool:
     low = w.lower()
     if low not in _R37_WORDS or _is_abbrev(w):
         return False
@@ -452,12 +613,35 @@ def _spell_out(w: str, text: str, m: re.Match, lead: bool) -> bool:
         return True
     if low not in _LOWER_WORDSIGNS:
         return False
-    before, after = text[m.start() - 1:m.start()], text[m.end():m.end() + 1]
+    before = text[m.start() - 1:m.start()] or b1
+    after = text[m.end():m.end() + 1] or a1
+    if low in ("in", "enough"):
+        # 붙임표로 이어진 합성어 속(`mother-in-law`)은 구간 끝도 문장 부호도 아니다 — 10.5.3 · 10.5.4 대로 약자를 쓴다.
+        #   1lv 로마자 짝 `기호는 mother-in-law 이다` = ⠴⠐⠍⠤⠔⠤⠇⠁⠺⠲.
+        return any(c and not c.isspace() and c not in _HYPHENS for c in (before, after)) or (
+            m.end() == len(text) and after not in _HYPHENS)
     return m.end() == len(text) or (after and not after.isspace()) or (before and not before.isspace())
 
 
+def _spell_lower_wordsign(low: str, text: str, m: re.Match, before: str, after: str) -> bool:
+    """한글 없는 영어 줄(로마자표 없음)의 아래칸 단어 약자 — 통일영어점자 그대로.
+
+    10.5.1(4663~4700행) be · were · his · was 는 아래 점만 쓰는 문장 부호(붙임표 · 줄표 · 따옴표 포함)에 닿으면 풀어 쓴다
+    (`his-and-hers` = his-&-h]s · `"Was that his?"` = 8,was t .1his80). 10.5.4(4762~4775행) in · enough 는 문장 부호에 닿은
+    줄에 1 · 4점 셀이 하나도 없으면 풀어 쓴다(`Take enough.` = ,take 5\\<4 · `Come in, stay in.` = …in1 /ay in4) — 합성어
+    속(`mother-in-law` = "m-9-law)은 글자가 있으니 약자다. gold 영어책 EBS-E26-008(홀드아웃 아님) 문장 부호에 닿은 자리
+    풀어씀 43 : 약자 0(`WAS6` · `BE4` · `GET IN4` · `5\\<1`), 홀로 선 자리 약자 596.
+    """
+    left, right = (before + text[:m.start()])[::-1], text[m.end():] + after
+    if low in ("in", "enough"):
+        return (any(s[:1] and not s[:1].isspace() and s[:1] != "⠀" for s in (left, right))
+                and not _seq_has_upper(text, m, before, after))
+    return _lower_touch(left) or _lower_touch(right)
+
+
 @lru_cache(maxsize=4096)
-def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: bool = False) -> str:
+def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: bool = False,
+              before: str = "", after: str = "") -> str:
     """영어 구간 문자열 → Grade 2 점자(낱말 단위 적용, 그 외 문자는 그대로).
 
     캐시가 붙은 이유 — `_break_offsets`가 줄바꿈 지점을 찾으려고 문자 위치마다 접두를
@@ -478,6 +662,12 @@ def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: boo
 
     uncontracted — 영어 1급(#1189, `constants.ENGLISH_GRADE1`). 약자가 없으니 1종 지시자 ⠰ 도 적지 않는다
     (gold 초등 두 권 `A` = ⠴⠠⠁⠲). 캐시 열쇠에 들어가야 해서 문맥 값을 여기서 읽지 않고 인자로 받는다.
+
+    grade1 "eng" — 한글 없는 영어 줄에서 붙임표로 이어진 구간. ⠰ 는 "cont" 처럼 적고 제37항 [붙임] 대신 통일영어점자 아래칸 단어
+    약자 규칙(10.5)을 쓴다.
+
+    before · after — text 앞뒤로 이어지는 글자 두어 개(호출부 세그와 그 뒤 줄 글에서). 첫 낱말 · 끝 낱말이 '홀로 서는가'(2.6) ·
+    문장 부호에 닿았는가(10.5)를 가르는 데만 쓴다.
     """
     words = list(_WORD_RE.finditer(text))
     passage: dict[int, str] = {}
@@ -516,13 +706,26 @@ def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: boo
             continue
         mark = (grade1 and not ebae and k not in passage and _looks_contracted(w)
                 and not (grade1 == "lead" and k == 0 and m.start() == 0 and len(w) == 1))
-        if grade1 and not ebae and k not in passage and _spell_out(w, text, m, grade1 == "lead" and k == 0):
-            low = w.lower()
+        b1 = text[m.start() - 1] if m.start() else before[-1:]
+        a1 = text[m.end()] if m.end() < len(text) else after[:1]
+        alone = _alone_before(before + text[:m.start()]) and _alone_after(text[m.end():] + after)
+        if grade1 == "eng" and not alone:
+            mark = False
+        low = w.lower()
+        if not ebae and k not in passage and (
+                _spell_out(w, text, m, grade1 == "lead" and k == 0, b1, a1) if grade1 in ("lead", "cont") else
+                low in _LOWER_WORDSIGNS and alone and _spell_lower_wordsign(low, text, m, before, after)):
             body = "".join(ALPHABET[c] for c in low) if low == "in" else _apply_groups(low)
             out.append((_CAPITAL if w[0].isupper() else "") + body)
             last = m.end()
             continue
+        if not ebae and k not in passage:
+            plain = _plain_if_misread(w, alone)
+            if plain is not None:
+                out.append(("" if plain.startswith("⠰⠰") or not mark else _GRADE1) + plain)
+                last = m.end()
+                continue
         out.append((_GRADE1 if mark else "") + (passage.get(k) or translate_word(w, ebae)))
         last = m.end()
     out.append(text[last:])
-    return "".join(out)
+    return _render_modified("".join(out))

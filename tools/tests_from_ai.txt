@@ -246,3 +246,28 @@ test/unit_test/braille/test_math_korean_two_spaces.py
 test/unit_test/braille/test_lead_operator_space.py
 test/unit_test/braille/test_ellipsis_between_operators.py
 test/unit_test/braille/test_line_head_bullet_space.py
+# 3.4.40 동기화(AI 710b2b77)에서 더함. AI #1609 · #1611 · #1617 · #1621 · #1623 · #1627 · #1630 · #1631 · #1633 · #1635 · #1637 · #1639 · #1641 · #1647 · #1653 · #1657 · #1659 · #1661 · #1663 · #1665 · #1667 · #1669.
+# #1619 시험(test_latex_command_dropped_1618)은 AI 서버 pipeline 을 불러 뺀다.
+test/unit_test/braille/test_comma_sign_space.py
+test/unit_test/braille/test_trailing_condition_space.py
+test/unit_test/braille/test_formula_lone_letter_roman.py
+test/unit_test/braille/test_formula_head_number.py
+test/unit_test/braille/test_ueb_modified_letters_1620.py
+test/unit_test/braille/test_hanja_reading_old_1622.py
+test/unit_test/braille/test_ueb_misread_alone_1626.py
+test/unit_test/braille/test_lower_wordsign_1628.py
+test/unit_test/braille/test_english_dash_1629.py
+test/unit_test/braille/test_eng_prose_grade1_1632.py
+test/unit_test/braille/test_box_title_wrap.py
+test/unit_test/braille/test_choice_number_break.py
+test/unit_test/braille/test_circled_number_21_50.py
+test/unit_test/braille/test_ueb_ever_after_ei.py
+test/unit_test/braille/test_karyotype_formula.py
+test/unit_test/braille/test_formula_comma.py
+test/unit_test/braille/test_function_notation.py
+test/unit_test/braille/test_partial_derivative.py
+test/unit_test/braille/test_right_delim_space.py
+test/unit_test/braille/test_text_latex_escape.py
+test/unit_test/braille/test_script_num_gap.py
+test/unit_test/braille/test_box_char_roman.py
+test/unit_test/braille/test_math_hangul_terms.py
