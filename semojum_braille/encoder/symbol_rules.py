@@ -317,8 +317,14 @@ def substitute_symbols(text: str) -> str:
     직접 치환해도 이중 변환이 발생하지 않는다.
     braillify 설치 환경에서는 preprocess/postprocess를 사용할 것.
     """
+    # 글 속 LaTeX 이스케이프(`\$40` · `30\%`)의 백슬래시는 글자가 아니다. 교열 LLM 이 화폐 `$` 를 수식 구분자와
+    #   가르려고 붙이는데, 표의 역슬래시(⠸⠡)로 찍혀 `① \$40` 이 ⠼⠂⠀⠸⠡⠴⠈⠎⠼⠙⠚ 로 나갔다(영어 듣기 금액 선택지).
+    text = _TEXT_LATEX_ESC_RE.sub("", text)
     for symbol, braille in SYMBOL_TABLE.items():
         text = text.replace(symbol, braille)
     for symbol, braille in SQUARE_UNIT_TABLE.items():
         text = text.replace(symbol, braille)
     return text
+
+
+_TEXT_LATEX_ESC_RE = re.compile(r"\\(?=[$#&%_])")

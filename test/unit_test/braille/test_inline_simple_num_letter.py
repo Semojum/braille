@@ -40,3 +40,20 @@ def test_단순_분수도_두_칸_대상이_아니다_3234():
 def test_선택지_사이는_두_칸_2585():
     # `#1`=a"`=3``#2` — 선택지 번호 뒤 한 칸, 선택지 사이 두 칸
     assert translate_tagged_text("① $3$  ② $5$  ③ $7$") == "⠼⠂⠀⠼⠉⠀⠀⠼⠆⠀⠼⠑⠀⠀⠼⠒⠀⠼⠛"
+
+
+@pytest.mark.parametrize("src, want", [
+    ("$2$도", "#b`iu"),        # 「한글 점자」 제44항 [다만] 예(재추출 2009~2010행) `2도` = #b`iu
+    ("$1$년", "#a`c*"),        # 같은 항 예(2007~2008행) `1년` = #a`c*
+])
+def test_수_조각_뒤_숫자와_헷갈리는_한글은_띄운다(src, want):
+    """`$3$는` 이 `⠼⠉⠉⠵`(33…)로 붙던 자리. 맨글 `3는` 은 braillify 가 이미 띄운다."""
+    assert translate_tagged_text(src) == ascii_to_unicode(want, backtick="space")
+
+
+def test_여러_자리_수_뒤에도_띄운다():
+    assert translate_tagged_text("$12$명").startswith("⠼⠁⠃⠀")   # 붙으면 ⠼⠁⠃⠑ = 125 로 읽힌다
+
+
+def test_수_조각_뒤_다른_한글은_붙인다():
+    assert translate_tagged_text("$3$이다") == "⠼⠉⠕⠊"

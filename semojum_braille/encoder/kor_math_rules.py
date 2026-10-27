@@ -7,6 +7,7 @@ C5-critical: _DIGIT_MAP 오류 시 단위 테스트에서 즉시 차단.
 
 from __future__ import annotations
 
+import contextvars
 import os
 import re
 
@@ -50,7 +51,10 @@ _SQRT_IND        = "⠜"
 # inline_math도 같은 표를 쓴다(정의는 여기 하나) — 거기선 '수식 구간 판정'에도 쓴다.
 UNI_SUP = {"⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6",
            "⁷": "7", "⁸": "8", "⁹": "9", "⁺": "+", "⁻": "-", "⁼": "=",
-           "⁽": "(", "⁾": ")", "ⁿ": "n", "ⁱ": "i", "ˣ": "x"}
+           "⁽": "(", "⁾": ")", "ⁿ": "n", "ⁱ": "i", "ˣ": "x",
+           # 질량수 위첨자 m(「과학 점자」 제3항 예 `ₐZnᵐ`, 재추출 4359행). 표에 없어 수식 구간 밖으로 떨어져
+           #   `⠰⠷⠁⠾⠠⠵⠝⠀⠀⠘⠍` 로 갈라졌다.
+           "ᵐ": "m"}
 UNI_SUB = {"₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6",
            "₇": "7", "₈": "8", "₉": "9", "₊": "+", "₋": "-", "₌": "=",
            "₍": "(", "₎": ")", "ₙ": "n", "ₖ": "k", "ₘ": "m", "ₚ": "p",
@@ -254,8 +258,12 @@ _SEG_ATOM_RE = re.compile(r"(?:⠈⠉|⠪⠒⠕|⠒⠕|⠈⠪)⠠?⠠?[⠁-⠵�
 # ── 순열·조합(제62항): nPr = ,P(N R) — P·C·H·중복순열 ,.P. 묶음은 _WRAP(관행/규정 분기) ──
 # 선행 문자 가드: P₁P₂(점 이름 아래첨자 곱)를 순열로 오인하지 않게, 왼쪽 첨자는
 # 식 머리(공백·연산자 뒤)나 {} 뒤에서만 인정한다.
+# 계수가 붙은 순열 · 조합(제62항 2호 · 3호 예, 재추출 4229~4230 · 4241~4242행 `2 ₇P₂` = #B,P(#G`#B) ·
+#   `2 ₙ₋₁Cᵣ₋₁` = #B,C(N9#A`R9#A))은 계수와 기호를 붙인다. 계수 뒤 빈 묶음 `{}` 표지가 있을 때만 앞 수를 허용하고,
+#   그 사이 빈칸 · 가는 띄움(`2\,{}_{7}P_{2}`)은 걷는다.
+_PERM_COEF_GAP_RE = re.compile(r"(?<=[0-9])(?:\s|\\[,;:!]|~)+(?=\{\}\s*_)")
 _PERM_RE = re.compile(
-    r"(?<![A-Za-z0-9⠁-⠿}])(?:\{\})?_(\{[^{}]*\}|[A-Za-z0-9])\s*"
+    r"(?:(?<![A-Za-z0-9⠁-⠿}])|(?<=[0-9])(?=\{\}))(?:\{\})?_(\{[^{}]*\}|[A-Za-z0-9])\s*"
     r"(?:([PCH])|\\Pi(?![a-zA-Z])|(Π))\s*"
     r"_(\{(?:[^{}]|\{[^{}]*\})*\}|[A-Za-z0-9])")
 # ── 왼쪽 첨자(제18·19항 2호): {}^{t}A → ^(t)A — 첨자는 항상 묶음 괄호 ──
@@ -272,8 +280,8 @@ _PRE_SUB_RE = re.compile(r"_(\{[^{}]*\}|[A-Za-z0-9])\s*(?=[A-Za-z\\^_])")
 # ⚠ "base가 아닌 것"을 빼는 방식(부정 목록)은 못 쓴다 — 1d 시점엔 `\\int`가 이미 `∫`로
 #   바뀌어 있어 부정 목록에 안 걸리고, 정적분의 아래끝이 선행 첨자로 끌려간다(실측).
 #   그래서 **선행 첨자로 볼 수 있는 앞 문자만** 허용 목록으로 둔다.
-# 원장 M-02 — 아래첨자 표기(⠰+수표 vs 하급 숫자)가 미정이라 과학 제3항(원자번호·질량수
-# 순서)은 여기서 구현하지 않는다. 여기서는 선행 첨자가 밑줄·캐럿 기호로 새는 것만 막는다.
+# 과학 제3항(원자번호·질량수 순서)은 아래 _NUCLIDE_RE 가 먼저 원소 뒤로 옮긴다. 여기서는 그 밖의
+# 선행 첨자가 밑줄·캐럿 기호로 새는 것만 막는다.
 _PREFIX_OK = re.compile(r"[(\[{,;+\-=<>±×÷·]")
 
 
@@ -789,8 +797,9 @@ _SYS_COL_TAIL_RE = re.compile(rf"(?:{_SYS_COL_OP}|-)$")
 # `&` 없이 적힌 조건(`3 (t = 0)` · `a_{n}+1\quad(…)`, 간격 명령은 이 앞에서 공백이 된다)도 같다. 행 끝 괄호 묶음 안에
 #   관계 기호나 한글(`\text` sentinel)이 있으면 조건으로 본다(함수 인수 `\log_{2}(x-2)` 는 관계 기호가 없다). 조건만 있는
 #   행(인쇄에서 식이 길어 조건이 다음 줄로 내려간 꼴)은 앞 행의 조건이라 행 구분 두 칸 대신 한 칸으로 붙는다.
-_SYS_COND_RE = re.compile(r"=|<|>|≤|≥|≠|\\(?:le|leq|leqq|leqslant|ge|geq|geqq|geqslant|ne|neq|lt|gt)(?![a-zA-Z])"
-                          r"|[\ue000-\uf8ff]")
+_SYS_REL = r"=|<|>|≤|≥|≠|\\(?:le|leq|leqq|leqslant|ge|geq|geqq|geqslant|ne|neq|lt|gt)(?![a-zA-Z])"
+_SYS_REL_RE = re.compile(_SYS_REL)
+_SYS_COND_RE = re.compile(_SYS_REL + r"|[\ue000-\uf8ff]")
 
 
 def _sys_row(row: str) -> tuple[str, bool]:
@@ -803,16 +812,51 @@ def _sys_row(row: str) -> tuple[str, bool]:
             out += ("" if not out else " " if tight else _SP) + col
     # 행 머리도 부호 자리다(`\\ - \sqrt{2} …`). `_SIGN_GAP_RE` 는 식 전체에서 돌아 행 구분 뒤 부호 곁 빈칸이 남았다.
     out = _SIGN_GAP_RE.sub(r"\1\2\3", out)
-    if out.endswith(")"):
-        depth = 0
-        for i in range(len(out) - 1, -1, -1):
-            depth += {")": 1, "(": -1}.get(out[i], 0)
-            if not depth:
-                break
+    i = _trail_cond(out)
+    if i is not None:
         head = out[:i].rstrip()       # rstrip 은 `_SP` 도 걷는다
-        if not depth and _SYS_COND_RE.search(out[i:]) and not _SYS_COL_TAIL_RE.search(head):
+        if not _SYS_COL_TAIL_RE.search(head):
             return (head + _SP if head else "") + out[i:], not head
     return out, False
+
+
+def _trail_cond(s: str, korean: bool = True) -> int | None:
+    """끝 괄호 묶음 `(…)` 이 조건이면 그 여는 괄호 자리, 아니면 None. 관계 기호는 묶음 `{}` 밖에 있어야 한다(`(\\sum_{k=1}…)`
+    의 `=` 는 첨자다). 함수 인수(관계 기호가 없는 `\\log_{2}(x-2)` · 대문자 함수 이름 뒤 `P(X=1)`)는 조건이 아니다.
+    `korean` 이면 한글(`\\text` sentinel)이 든 묶음도 조건으로 본다(연립식 행 `(n이 홀수인 경우)`)."""
+    if not s.endswith(")"):
+        return None
+    depth = 0
+    for i in range(len(s) - 1, -1, -1):
+        depth += {")": 1, "(": -1}.get(s[i], 0)
+        if not depth:
+            break
+    if depth or "A" <= s[:i].rstrip()[-1:] <= "Z":
+        return None
+    body, prev = s[i:], None
+    while prev != body:                              # 첨자 · 분수 묶음 속 관계 기호는 빼고 본다
+        prev, body = body, re.sub(r"\{[^{}]*\}", "", body)
+    return i if (_SYS_COND_RE if korean else _SYS_REL_RE).search(body) else None
+
+
+def _space_trail_cond(s: str, store: _TextStore | None = None) -> str:
+    """식 끝 조건 괄호 앞 한 칸(`f(x)=\\log_{a}x (a>0)`, 원장 C-195). 연립식 행(`_sys_row`)과 같은 판정을 행 구분마다 한다.
+    gold 수학 Ⅰ(dev 009) 수식 요소 식 끝 조건 괄호 앞 한 칸 16 · 붙음 0(앞 글자는 소문자 · 수 · 닫는 괄호뿐).
+    한글 묶음은 앞 식에 연산 · 관계 기호가 있고 묶음에 로마자나 수가 같이 들 때만 조건으로 본다
+    (`S_{n}=… (p, q, r\\text{은 상수})` · `… \\times n+\\alpha^{\\circ} (\\text{단,} n \\text{은 정수})`). 한글만 든 묶음
+    (`(\\text{가})` 이름표 · `(\\text{라디안})` 단위)과 기호 없는 앞(표 칸 `㉢(S기)` 이름표)은 뺀다."""
+    segs = s.split(_W2R_ROW_SEP)
+    for n, seg in enumerate(segs):
+        body = seg.rstrip(" ")
+        i = _trail_cond(body, korean=False)
+        if (i is None and store is not None and (j := _trail_cond(body)) is not None and _SYS_COL_HEAD_RE.search(body[:j])
+                and any(c in store.kor for c in body[j:])
+                and any(c in store.latin or c.isascii() and c.isalnum() for c in body[j:])):
+            i = j
+        head = body[:i].rstrip() if i is not None else ""
+        if head and not _SYS_COL_TAIL_RE.search(head):
+            segs[n] = head + _SP + body[i:] + seg[len(body):]
+    return _W2R_ROW_SEP.join(segs)
 # 연립식 괄호(수학 규정 제6항): 여는 ⠶⠄(7')·닫는 ⠠⠶(,7). \left\{ 동반 array 또는 cases.
 _SYS_OPEN, _SYS_CLOSE = "⠶⠄", "⠠⠶"
 # 관행 스위치 — translator._BOOK_STYLE과 같은 판정을 env에서 직접 읽는다(순환 import 회피).
@@ -897,11 +941,19 @@ _W2C_JAMO_ITEM_RE = re.compile(r"(?<![가-힣A-Za-z0-9])([ㄱ-ㅎ])\s*\.(?=\s|$)
 
 
 class _TextStore(list):
-    """`_protect_text` 저장소 — 점자 목록에 한글이 든 sentinel 집합(`kor`)을 곁들인다."""
+    """`_protect_text` 저장소 — 점자 목록에 한글이 든 sentinel 집합(`kor`)과 로마자 · 수가 든 sentinel 집합(`latin`)을 곁들인다."""
 
     def __init__(self) -> None:
         super().__init__()
         self.kor: set[str] = set()
+        self.latin: set[str] = set()
+
+
+# 홑 로마자(쉼표 나열 포함)가 한글 글 바로 앞에 붙으면 그 글에 합친다(원장 C-155). 글 경로가 로마자표 꼴로 적는다 —
+#   「한글 점자」 제32항 예 `다음 a, b, c의 값` = `0a1 ;b1 ;c4w`. 수식 경로에는 그 꼴이 없어 `(n\text{이 홀수})` 가
+#   `⠦⠝⠀⠕…` 로 나갔다(gold 수학 Ⅰ `80n4o` · `0p4cz` · `0m4z`). 앞이 식 머리 · 여는 괄호 · 쉼표 · 다른 `\text` 일 때만이다
+#   (`2 k \text{의}` 의 k 는 곱이다).
+_LONE_ROMAN_TEXT_RE = re.compile(r"(^|[(,]|\\text\s*\{[^{}]*\})(\s*)([A-Za-z](?:\s*,\s*[A-Za-z])*)\s*\\text\s*\{\s*(?=[가-힣])")
 
 
 def _protect_text(latex: str) -> tuple[str, list[str]]:
@@ -925,8 +977,11 @@ def _protect_text(latex: str) -> tuple[str, list[str]]:
         sentinel = chr(0xE000 + len(store) - 1)   # BMP PUA sentinel(이후 단계에 불활성)
         if re.search("[가-힣]", content):
             store.kor.add(sentinel)                # 한글 낱말 자리 — 분수 한글표 묶음(#1183)이 본다
+        if re.search("[A-Za-z0-9]", content):
+            store.latin.add(sentinel)              # 합친 홑 로마자(`p, q, r은 상수`) — 식 끝 한글 조건 괄호가 본다
         return sentinel
 
+    latex = _LONE_ROMAN_TEXT_RE.sub(r"\1\2\\text{\3", latex)   # 홑 로마자 + 한글 글 → 글로(원장 C-155)
     prev = None
     while prev != latex:
         prev = latex
@@ -1142,6 +1197,22 @@ _SET_REL_TIGHT = {
     r"\notin": "∉", r"\subseteq": "⊂", r"\supseteq": "⊃",
     r"\subset": "⊂", r"\supset": "⊃", r"\in": "∈", r"\ni": "∋",
 }
+# 관계 · 기하 기호도 앞뒤를 붙인다(재추출: 제34항 3718 · 3722행 `a∼b` = A@9B · `a∼/b` = A.@9B, 제41항 3777행 `AB⊥DE` =
+#   ,,AB0',,DE, 제42항 3779행 `∆ABC∽∆A′B′C′` = _+,,ABC,'_+,,A-B-C-, 제44항 3785행 `AB⫽CD` = ,,AB;2,,CD). 유니코드가
+#   붙어 오면 그대로 붙는데 명령으로 오면 원문 칸이 남았다. 합성 ∘ 는 제15항(앞뒤 한 칸)과 제45항(붙임)이 갈려 넣지 않는다.
+#   한글 · `\text` sentinel 곁(`\text{… A} \sim \text{C …}` 의 범위 물결)은 제46항 몫이라 원문 칸을 둔다
+#   (`_tighten_operator_spacing` 과 같은 판정).
+_REL_TIGHT = {r"\sim": "∼", r"\nsim": "≁", r"\perp": "⊥", r"\parallel": "∥", r"\backsim": "∽"}
+_REL_TIGHT_RE = re.compile(r"[ \t]*(" + "|".join(re.escape(k) for k in _REL_TIGHT) + r")(?![a-zA-Z])[ \t]*")
+
+
+def _rel_tight(m: re.Match) -> str:
+    left, right = m.string[:m.start()][-1:], m.string[m.end():][:1]
+    if (left and _hangul_or_sentinel(left)) or (right and _hangul_or_sentinel(right)):
+        return m.group(0)
+    return _REL_TIGHT[m.group(1)]
+
+
 _SET_REL_TIGHT_RE = re.compile(
     r"[ \t]*(" + "|".join(re.escape(k) for k in _SET_REL_TIGHT) + r")(?![a-zA-Z])[ \t]*")
 # 평행 ∥ 을 MinerU 가 빗금 둘(`\overline{BC} / / \overline{MN}` · `//`)로 읽는다. 「수학 점자」 제44항(재추출 3783~3785행)
@@ -1152,6 +1223,23 @@ _SLASH2_PARALLEL_RE = re.compile(r"(?<=[A-Za-z0-9})])[ \t]*/[ \t]*/[ \t]*(?=[A-Z
 #   (제52항 재추출 3936~3940행 `,.dy33f8x;#a5,.dx09f8x;#a0`, 수학 II 본문 32 · 36 · 88쪽 8자리). 다른 기울인 대문자
 #   그리스(`\varXi` · `\varPsi`)는 수학 II 에서 한글을 잘못 읽은 꼴에만 나와 그대로 둔다(되살리면 헛 글자가 는다).
 _VAR_DELTA_RE = re.compile(r"\\varDelta(?![A-Za-z])")
+
+
+_ARROW_CELL = {"to": "⠒⠕", "rightarrow": "⠒⠕", "longrightarrow": "⠒⠕", "leftarrow": "⠪⠒", "longleftarrow": "⠪⠒",
+               "leftrightarrow": "⠪⠒⠕", "rightleftarrows": "⠪⠶⠕", "rightleftharpoons": "⠪⠶⠕"}
+_ARROW_LABEL_RE = re.compile(
+    r"[ \t]*\\(underset|overset)\s*\{([^{}]*)\}\s*\{\s*(?:\\(underset|overset)\s*\{([^{}]*)\}\s*\{\s*)?"
+    r"\\(" + "|".join(_ARROW_CELL) + r")(?![a-zA-Z])\s*\}(?(3)\s*\})[ \t]*")
+
+
+def _arrow_label(m: re.Match) -> str:
+    """화살표 위 · 아래 글자(제45항 [붙임]): 위 글자는 화살표 앞, 아래 글자는 화살표 뒤. 앞뒤는 한 칸씩."""
+    labels = {m.group(1): m.group(2).strip()}
+    if m.group(3):
+        if m.group(3) == m.group(1):
+            return m.group(0)
+        labels[m.group(3)] = m.group(4).strip()
+    return _SP + labels.get("overset", "") + _ARROW_CELL[m.group(5)] + labels.get("underset", "") + _SP
 
 
 def _normalize_latex_input(latex: str) -> str:
@@ -1167,6 +1255,7 @@ def _normalize_latex_input(latex: str) -> str:
     # 같은 항 5호(4118~4124행)만 "그 앞뒤를 한 칸씩 띄어 쓴다"(∪ ∩)라 대비가 분명하다.
     # 종전에는 LaTeX 원문의 칸이 그대로 남아 `a ∈ M`이 `⠁ ⠖ ⠠⠍`로 나갔다(2026-09-10).
     s = _SET_REL_TIGHT_RE.sub(lambda m: _SET_REL_TIGHT[m.group(1)], s)
+    s = _REL_TIGHT_RE.sub(_rel_tight, s)
     # 유니코드로 직접 온 것도 같게 붙인다. ⊆⊇는 규정이 ⊂⊃와 구분하지 않는다
     # (제60항 3호) — 아래 별칭표와 같은 판단이라 여기서 바로 편다.
     s = re.sub(r"[ \t]*([∈∋∉⊂⊃⊄⊅])[ \t]*", r"\1", s)
@@ -1176,6 +1265,10 @@ def _normalize_latex_input(latex: str) -> str:
     s = _restore_lost_backslash(s)
     s = _SLASH2_PARALLEL_RE.sub("∥", s)
     s = _VAR_DELTA_RE.sub(r"\\Delta", s)
+    # 닫는 크기 괄호 `\right)` 앞 LaTeX 빈칸은 점자 빈칸이 아니다. 분수 · 명령 뒤에서 `⠌⠋⠀⠴` 로 남았다(수학Ⅰ 본문 4곳,
+    #   `\left( \frac{1}{2}a, -a \right)`). 델연산자 `\nabla f`(제55항 4012행~ `_%` 뒤 바로 f)의 명령 뒤 빈칸도 같다.
+    s = re.sub(r"\s+(?=\\right(?![a-zA-Z]))", "", s)
+    s = re.sub(r"\\nabla(?![a-zA-Z])\s+(?=[A-Za-z])", r"\\nabla{}", s)
     # 유니코드 첨자 → ^{}·_{} (QA 10번). 첨자 공백 정리(_SUBSUP_SP_RE)보다 먼저 와야
     # `Ca²⁺`가 한 첨자 덩이 `Ca^{2+}`로 묶인다. 프라임 ′는 제17항 ' 로 통일.
     s = unicode_scripts_to_latex(s).replace("′", "'").replace("″", "''")
@@ -1220,6 +1313,10 @@ def _normalize_latex_input(latex: str) -> str:
                    lambda m: "⠤⠼" + _DIGIT_MAP[m.group(1)] + "⠤", s)
     # 각도 ^{\circ}·^\circ → °(제50항 예시 0d=⠴⠙, 단위) — \circ(합성 ∘) 별칭보다 먼저.
     s = re.sub(r"\s*\^\s*(?:\{\s*\\circ\s*\}|\\circ)", "°", s)
+    # 편도함수 ∂(제54항 1호, 재추출 4000~4003행 `∂z/∂x` = $x/$z)는 뒤 글자에 붙는다. 명령 뒤 빈칸이 남아 `⠫⠀⠭` 이 됐고
+    #   분수 칸이 두 토막으로 보여 묶였다. 앞 글자와의 빈칸(`\partial x \partial y`)도 곱이라 걷는다.
+    s = re.sub(r"(?<=[A-Za-z0-9}])\s+(?=\\partial(?![a-zA-Z]))", "", s)
+    s = re.sub(r"\\partial(?![a-zA-Z])\s+(?=[A-Za-z])", r"\\partial{}", s)
     # 적분 명령 보호: \iint·\oint·\int을 유니코드로 먼저 — \in 별칭이 \int를 ∈t로
     # 깨는 것을 막고, 1e단계(제57·58·59항 범위)가 유니코드로만 매칭하므로 \oint도 여기서
     # 바꾼다. 없으면 \oint_C 가 1e를 못 타고 일반 아래첨자로 빠져 제59항 구분 칸이 없고,
@@ -1228,7 +1325,14 @@ def _normalize_latex_input(latex: str) -> str:
     s = re.sub(r"\\oint(?![a-zA-Z])", "∮", s)
     s = re.sub(r"\\int(?![a-zA-Z])", "∫", s)
     # 함수 위 문자 화살표(제45항 [붙임]): \xrightarrow{f} → f 3o (문자를 화살표 앞에)
-    s = re.sub(r"\\xrightarrow\s*(?:\[[^\]]*\])?\s*\{([^{}]*)\}", r" \1⠒⠕ ", s)
+    #   화살표 앞 한 칸은 구조 빈칸으로 둔다(재추출 3799~3801행 `x →(f) y` = X`F3O`Y). 맨 빈칸은 앞 글자와의 곱으로 보고
+    #   지워져 `⠭⠋⠒⠕` 가 나갔다. 위 · 아래 글자가 둘 다 있으면(`\underset{g}{\overset{f}{⇄}}`) 위는 앞에, 아래는 뒤에
+    #   붙인다(3802~3805행 X`F[7OG`Y).
+    s = re.sub(r"[ \t]*\\xrightarrow\s*(?:\[[^\]]*\])?\s*\{([^{}]*)\}[ \t]*", _SP + r"\1⠒⠕" + _SP, s)
+    s = _ARROW_LABEL_RE.sub(_arrow_label, s)
+    # 합성 함수 ∘(제45항 3795~3796행 `(g∘f)(x)=g(f(x))` = 8G_0F08X0…)는 앞뒤를 붙인다. 함숫값을 부르는 꼴 `(g∘f)(`
+    #   일 때만이다. 일반연산 ∘(제15항 5호 `a∘e` = a`_0`e)는 앞뒤 한 칸이라 그대로 둔다.
+    s = re.sub(r"\(\s*([A-Za-z])\s*(?:\\circ(?![a-zA-Z])|∘)\s*([A-Za-z])\s*\)(?=\s*\()", r"(\1∘\2)", s)
     # 행렬(제26항): 8 0 묶고 행 사이 개행 기호 >(⠜) 앞뒤 한 칸. 행렬식(vmatrix)은 \ \.
     def _mat_repl(m: re.Match) -> str:
         kind, body = m.group(1), m.group(2)
@@ -1328,7 +1432,9 @@ def _normalize_latex_input(latex: str) -> str:
 _MULTI_TIGHT = "⠨⠒⠒(?!⠕)|⠨⠢⠢|⠨⠔⠔|⠨⠲⠲|⠨⠖⠖|⠐⠒⠒|⠐⠂|⠨⠳|⠳"
 _TIGHT_OPS_RE = re.compile(
     r"(?<=(\S))[ ⠀]*(" + _MULTI_TIGHT +
-    r"|(?<![⠈⠸])⠒⠒(?!⠕)|(?<![⠈⠸])⠢|(?<![⠈⠸])⠔|×|÷|<|>|≤|≥|≠|±|∓|≒|:)[ ⠀]*(?=(\S))")
+    r"|(?<![⠈⠸])(?<!⠈⠔)⠒⠒(?!⠕)|(?<![⠈⠸])⠢|(?<![⠈⠸])⠔|×|÷|<|>|≤|≥|≠|±|∓|≒|:)[ ⠀]*(?=(\S))")
+# ↑ `⠈⠔⠒⠒` 는 등호가 아니라 물결아래등호 ≅(제32항 3703~3705행 `A≅B` = ,a`@933`,b, 앞뒤 한 칸)다. 끝 두 셀이 등호와
+#   같아 뒤 칸을 지우던 자리.
 
 _LEAD_OP_RE = re.compile(r"[ ⠀]*(" + _MULTI_TIGHT + r"|⠒⠒(?!⠕)|⠢|⠔|×|÷|<|>|≤|≥|≠|±|∓|≒)[ ⠀]+(?=\S)")
 
@@ -1380,9 +1486,16 @@ def _tighten_operator_spacing(result: str) -> str:
     def _repl(m: re.Match) -> str:
         left, op, right = m.group(1), m.group(2), m.group(3)
         if _hangul_or_sentinel(left) or _hangul_or_sentinel(right):
-            return m.group(0)
+            # 제46항: 한글 쪽에 한 칸을 둔다. 원문 칸만 따르면 `\text{자연수}\times\text{자연수}` 처럼 붙어 온 꼴이
+            #   붙은 채 나갔다(「수학 점자」 제6항 예 재추출 3134~3137행 `(자연수×자연수)/(자연수+자연수)` = _(.<*,m`5`.<*,m_)/…).
+            return ("⠀" if _hangul_or_sentinel(left) else "") + op + ("⠀" if _hangul_or_sentinel(right) else "")
         # 줄임표 곁은 한 칸 띄운다(`a_1+⋯+a_n` = `a;#a5 ,,, 5a;n`). 규정 예문이 없는 자리라 관행대로 —
         #   2027 gold(홀드아웃 뺌) 기호 사이 줄임표 앞뒤 띄움 169 · 붙음 9(한 권). 원장 C-189.
+        # 쉼표 뒤 부호(`(1, -2)`)는 쉼표 뒤 한 칸을 둔다 — 부호는 다음 항의 머리다(제12항 [붙임 1] 쉼표 뒤 한 칸 ·
+        #   gold dev · val `⠐⠀⠔` 34 · `⠐⠔` 0). 종전엔 뺄셈표처럼 보고 쉼표 뒤 칸을 지웠다. 쉼표는 이 단계에서 이미 `⠐` + 빈칸이고,
+        #   별표 `*` 는 빈칸 없는 `⠐⠔` 라 앞 빈칸이 있을 때만 쉼표로 본다(`A*` 를 가르면 안 된다).
+        if left == "⠐" and m.group(0)[:1] in " ⠀" and op in ("⠔", "⠢", "±", "∓"):
+            return " " + op
         return (" " if left == "⋯" else "") + op + (" " if right == "⋯" else "")
 
     # 기호 둘이 칸을 두고 잇달면(닫는 절댓값 막대 ⠳ 다음 ⠒⠒) 앞 매치가 뒤 기호의 왼쪽 글자를 먹어 뒤 기호 뒤 칸이 남았다
@@ -1640,7 +1753,38 @@ def _stage1c_permutation(result: str) -> str:
         head = "⠠⠨⠏" if letter is None else "⠠" + _letter_braille(letter.lower())
         return f"{head}{_WRAP_S}{low}{_SP}{up}{_WRAP_E}"
 
-    return _PERM_RE.sub(_perm_replace, result)
+    return _PERM_RE.sub(_perm_replace, _PERM_COEF_GAP_RE.sub("", result))
+
+
+# 핵종 표기(「과학 점자」 제3항, 재추출 4348~4362행): 원소 기호를 먼저 적고 원자 번호는 아래 첨자, 질량수는 위 첨자로
+#   적는다. `²³⁵₉₂U` = ,u;#ib~#bce · `₈O` = ,o;#h · `⁷Li` = ,li~#g · `ₐZnᵐ` = ,zn;a~m · `⁹₄Be²⁺` = ,be;#d^#i^#b5 로
+#   묶음표가 없다. 왼쪽 첨자를 원소 뒤로 옮겨 일반 첨자 단계(8·9)에 맡긴다. 막고 있던 원장 M-02(⠰+수표)는 2026-08-06 해소.
+#   질량수는 숫자만 받는다(전치 `{}^{t}B` 를 붕소로 읽지 않게). 원소 뒤에 아래첨자가 이어지면(`₈O₂`) 옮기지 않는다.
+#   원자 번호가 수면 그 원소의 번호와 같아야 하고 질량수는 원자 번호보다 작을 수 없다. 글자체 태그가 화학식을 쪼갠
+#   조각(`<!굵은>H<!/굵은>₂O` 의 `₂O` = 앞 H 의 아래첨자)을 `O₂` 로 옮겨 뜻을 바꾸지 않게 한다.
+_ATOMIC_NO = {e: z for z, e in enumerate((
+    "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr "
+    "Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb "
+    "Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U").split(), 1)}
+_NUCLIDE_RE = re.compile(
+    r"((?:(?:\{\}\s*)?[\^_]\s*(?:\{[^{}]*\}|[A-Za-z0-9])\s*){1,2})"
+    r"(\\mathrm\s*\{\s*([A-Z][a-z]?)\s*\}|([A-Z][a-z]?)(?![a-z]))(?!\s*_)")
+_NUCLIDE_SCRIPT_RE = re.compile(r"([\^_])\s*(\{[^{}]*\}|[A-Za-z0-9])")
+
+
+def _nuclide(m: re.Match) -> str:
+    scripts = _NUCLIDE_SCRIPT_RE.findall(m.group(1))
+    marks = {k: _unbrace(v).strip() for k, v in scripts}
+    mass, num = marks.get("^"), marks.get("_")
+    z = _ATOMIC_NO.get(m.group(3) or m.group(4)) if (m.group(3) or m.group(4)) in _ELEMENTS else None
+    if (len(marks) != len(scripts) or z is None
+            or not _is_prefix_script(m.string, m.start())
+            or (mass is not None and not (mass.isdigit() and int(mass) >= z))
+            or (num is not None and not (num == str(z) or re.fullmatch(r"[a-z]", num)))):
+        return m.group(0)
+    out = m.group(2) + (f"_{{{num}}}" if num is not None else "") + (f"^{{{mass}}}" if mass is not None else "")
+    # 뒤따르는 이온 가수(`⁹₄Be²⁺`)는 따로 선 위첨자다. 빈 묶음으로 질량수와 갈라 둔다
+    return out + ("{}" if m.string[m.end():].lstrip().startswith("^") else "")
 
 
 def _stage1d_left_scripts(result: str) -> str:
@@ -1649,6 +1793,7 @@ def _stage1d_left_scripts(result: str) -> str:
     [입력] 빈 중괄호 {} 마커와 ^·_ 가 ASCII로 살아 있음.
     [출력] 왼쪽 첨자가 묶음 점자로 확정. 남은 ^·_ 는 일반 첨자(8·9단계) 몫.
     """
+    result = _NUCLIDE_RE.sub(_nuclide, result)
     result = _LEFT_SUP_RE.sub(
         lambda m: f"⠘{_WRAP_S}{convert_latex(_unbrace(m.group(1)))}{_WRAP_E}{m.group(2)}",
         result)
@@ -1743,7 +1888,7 @@ def _stage1g_log_arg_group(result: str) -> str:
         lambda m: m.group(1) + _WRAP_S + "".join(m.group(2).split()) + _WRAP_E, result)
 
 
-def _stage2c_sqrt(result: str) -> str:
+def _stage2c_sqrt(result: str, kor: set = frozenset()) -> str:
     r"""2c. 제곱근 \sqrt{내용} → ⠜내용 (수학 제22항; n제곱근은 0b에서 선처리).
 
     [입력] \sqrt{…}가 남아 있음. 분수(2단계)는 이미 풀려 있어 근호 안 분수도 완성 점자.
@@ -1758,7 +1903,10 @@ def _stage2c_sqrt(result: str) -> str:
         if result[i:i + 5] == "\\sqrt" and result[i + 5:i + 6] == "{":
             raw, after = _extract_brace_content(result, i + 5)
             inner = convert_latex(raw)
-            out.append(_SQRT_IND + (_wrap_ins(inner) if _needs_wrap(raw, radicand=True) else inner))
+            # 근호 안이 한글이면 분수와 같은 한글표로 묶는다. 「수학 점자」 제6항 예(재추출 3138~3140행)
+            #   `표준편차=√분산` = d+.gd*;<`33>_(^gl3_).
+            out.append(_SQRT_IND + (_kor_group(raw, inner, kor)
+                                    or (_wrap_ins(inner) if _needs_wrap(raw, radicand=True) else inner)))
             i = after
             continue
         out.append(result[i])
@@ -2036,10 +2184,16 @@ _LATEX_SIMPLE: dict[str, str] = {
     "\\lhd":      "⠸⠣",     # ◁ 정규부분군 (제33항 _<)
     "\\vartriangleright": "⠸⠜",
     "\\vartriangleleft":  "⠸⠣",
+    # ★ 흔한 이름 `\triangleright` · `\triangleleft` 가 표에 없어 11d 가 지웠다 — 기호가 **흔적 없이** 사라졌다
+    #   (규정 예문 `G \triangleright N` → ⠠⠛⠀⠠⠝). 제33항 1·2호(재추출 3711~3714행).
+    "\\triangleright": "⠸⠜",
+    "\\triangleleft":  "⠸⠣",
     "\\bullet":   "⠸⠲",     # ∙ 검정동그라미 (제15항 7호 _4)
     "\\approx":   "⠈⠔⠈⠔", # ≈ 이중물결 (제29항 @9@9, 앞뒤 한 칸)
     "\\equiv":    "⠶⠶",   # ≡ 합동 (기하 제43항 77=⠶⠶ — ⠛은 폰트 g 오독)
     "\\sim":      "⠈⠔",   # ∼ 관계·분포 (제34항 @9). 닮음 ∽(⠠⠄)는 유니코드 경유
+    "\\backsim":  "⠠⠄",   # ∽ 닮음 (제42항 `,'`, 재추출 3778행). 명령으로 오면 11d 가 지웠다
+    "\\aleph":    "⠗⠋",   # ℵ 알레프 (제65항 4호 `RF`, 재추출 4279행). 유니코드 ℵ 는 기호표가 같은 점형을 낸다
     "\\in":       "⠖",    # ∈ (제60항 1호 가, 폰트 6=⠖)
     "\\notin":    "⠨⠖",   # ∉ (제60항 1호 다 .6)
     "\\subset":   "⠖⠂",   # ⊂ (제60항 3호 61)
@@ -2259,7 +2413,39 @@ def _stage11d_strip_unknown_commands(result: str) -> str:
       범위의 시작…"이라고 이름을 그대로 적게 한다.
     """
     result = _BARE_FUNC_RE.sub(r"\1", result)
+    _note_unknown_commands(result)
     return re.sub(r"\\[a-zA-Z]+\*?", "", result)
+
+
+# 11d · 13 이 지우는 명령 가운데 **보이는 것이 사라지는** 명령을 알리는 자리. 번역기 `dropped_latex` 가 켠다(R17).
+#   지우는 동작은 그대로다. 종전엔 `G \triangleright N` → ⠠⠛⠀⠠⠝ 처럼 기호가 흔적도 없이 사라져 점역사가 몰랐다
+#   (dev · val 교열 출력에서 `\vert` 102 · `\bigcirc` 53 · `\textcircled` 29 · `\diamond` 29 · `\dag` 24 · `\textdegree` 12 …).
+# 서식 명령(글꼴 · 크기 · 간격 · 괄호 크기 · 환경 머리 · 보이지 않는 자리 채움)은 지워도 읽을 것이 안 사라지므로 안 센다.
+_UNKNOWN_CMD_HOOK: contextvars.ContextVar = contextvars.ContextVar("_UNKNOWN_CMD_HOOK", default=None)
+_UNKNOWN_CMD_RE = re.compile(r"\\([a-zA-Z]+)\*?")
+_FORMAT_CMDS = frozenset({
+    "left", "right", "middle", "big", "Big", "bigg", "Bigg", "bigl", "bigr", "Bigl", "Bigr", "biggl", "biggr",
+    "Biggl", "Biggr", "bigm", "Bigm",
+    "displaystyle", "textstyle", "scriptstyle", "scriptscriptstyle",
+    "mathrm", "mathit", "mathbf", "mathsf", "mathtt", "mathcal", "mathbb", "mathfrak", "mathscr", "boldsymbol", "bm",
+    "rm", "it", "bf", "sf", "tt", "text", "textrm", "textit", "textbf", "textsf", "texttt", "textup", "textnormal",
+    "emph", "mbox", "hbox", "operatorname",
+    "tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge",
+    "quad", "qquad", "hspace", "vspace", "kern", "mkern", "hskip", "enspace", "thinspace", "medspace", "thickspace",
+    "negthinspace", "negmedspace", "negthickspace", "space", "nobreak", "allowbreak", "relax", "protect",
+    "phantom", "hphantom", "vphantom", "smash", "mathstrut", "strut",
+    "limits", "nolimits", "displaylimits", "nonumber", "notag",
+    "begin", "end", "hline", "cline", "centering", "noindent", "newline", "linebreak", "cr", "color", "textcolor",
+})
+
+
+def _note_unknown_commands(result: str) -> None:
+    hook = _UNKNOWN_CMD_HOOK.get()
+    if hook is None:
+        return
+    for m in _UNKNOWN_CMD_RE.finditer(result):
+        if m.group(1) not in _FORMAT_CMDS:
+            hook("\\" + m.group(1))
 
 
 # 인자를 잃고 홀로 남은 **함수 이름** 명령. 이름 자체가 읽을 내용이라 지우면 안 된다 —
@@ -2284,6 +2470,7 @@ def _stage13_cleanup(result: str) -> str:
       거기서 특히 잘 드러난다(`[처리 불가: 점역 불가 문자 lim]`).
     """
     result = _BARE_FUNC_RE.sub(r"\1", result)
+    _note_unknown_commands(result)
     result = re.sub(r"\\[a-zA-Z]+\*?", "", result)
     return re.sub(r"[{}]", "", result)
 
@@ -2445,6 +2632,9 @@ def _finish_recurring(result: str) -> str:
 
 # 수식 쉼표 뒤 한 칸(#1115) — A/B 스위치. 채택 뒤 굳힌다.
 _MATH_COMMA_SPACE = os.environ.get("MATH_COMMA_SPACE", "1") != "0"
+# 식 머리(행렬 · 연립식 첫 행 포함) 굵은 수 + 간격 명령 — 해설 머리 문항 번호(`\mathbf{2} \quad …`)
+_BOLD_HEAD_NUM_RE = re.compile(r"^(\s*(?:\$\$|\$)?\s*(?:\\begin\s*\{array\}\s*\{[lcr]*\}\s*)?)"
+                               r"\\mathbf\s*\{\s*(\d{1,2})\s*\}(?=\s*\\q?quad)")
 
 
 def convert_latex(latex: str) -> str:
@@ -2513,6 +2703,9 @@ def convert_latex(latex: str) -> str:
     # gold 실측: p073·p083 '\text{L.}'↔⠿⠒·'\text{七.}'↔⠿⠔·p047 동일(2026-07-22).
     latex = re.sub(r"^\s*(?:\$\$|\$)?\s*\\text\s*\{\s*(7|T|L|E|B|七)\s*\.\s*\}",
                    lambda m: _TC_JAMO_CELLS_DOT[m.group(1)] + " ", latex)
+    # 해설 머리 굵은 문항 번호(`\mathbf{2} \quad (a+b)…`)는 `\textbf{3} …` 머리처럼 글로 보낸다. 수식으로 두면 1단계가
+    # 괄호 앞 칸을 지워 `⠼⠃⠦⠁…` 로 붙었다(gold 수학 Ⅰ 답 3쪽 `#b 8a5b0`).
+    latex = _BOLD_HEAD_NUM_RE.sub(r"\1\\textbf{\2}", latex)
     _is_chem = _looks_chemical(latex)           # 0-전: 화학식 판정(원문 상태에서만 가능)
     _has_hangul = bool(re.search(r"[가-힣]", latex))   # 18단계 C-132 — _protect_text 가 한글을 걷기 전에 본다
     _chem_phrased = False
@@ -2524,6 +2717,7 @@ def convert_latex(latex: str) -> str:
     latex, _text_store = _protect_text(latex)   # 0.  P2: \text{한글} → 한글 점자 sentinel
     result = _normalize_latex_input(latex)      # 0a. MinerU/마크다운 입력 정규화
     result = _space_kor_text(result, _text_store)  # 0a-후. 수식 속 한글 앞뒤 두 칸(제11항, 정규화 뒤라 행 · 간격 명령이 정리됐다)
+    result = _space_trail_cond(result, _text_store)  # 0a-후2. 식 끝 조건 괄호 앞 한 칸
 
     result = _stage0c_bare_args(result)             # 0c. 중괄호 없는 한 글자 인자
     result = _stage0f_brace_comma(result)           # 0f. `{,}` 자릿점 표기(제41항)
@@ -2538,7 +2732,7 @@ def convert_latex(latex: str) -> str:
     result = _stage1f_trig_arg_group(result)        # 1f. 삼각함수 인수 묶음
     result = _stage1g_log_arg_group(result)         # 1g. 로그 진수 묶음
     result = _apply_fracs(result, _text_store.kor)   # 2.  분수
-    result = _stage2c_sqrt(result)                  # 2c. 제곱근
+    result = _stage2c_sqrt(result, _text_store.kor)  # 2c. 제곱근
     result = _stage3_limit(result)                  # 3.  극한
     result = _stage4_log(result)                    # 4.  로그
     result = _stage5_trig(result)                   # 5·5b. 삼각함수 + 인수 붙임
@@ -2903,6 +3097,13 @@ def _needs_wrap(expr: str, *, radicand: bool = False, product: bool = True) -> b
         return False
     if re.fullmatch(r"\\[a-zA-Z]+|[-]", expr):
         return False
+    # 편도함수(제54항, 재추출 4000~4011행): ∂ + 글자 하나는 한 덩이라 안 묶고(1호 `∂z/∂x` = $x/$z), 거듭제곱이 붙으면
+    #   묶는다(2호 `∂²z/∂x∂y` = ($x$y)/($^#Bz)). 미분소 d²y 를 안 묶는 제53항과 다르다. 둘 이상의 곱은 아래 곱 판정이 묶는다.
+    pd = re.sub(r"\s+", "", expr)
+    if re.fullmatch(r"[+-]?\\partial(?:\{\})?[A-Za-z]", pd):
+        return False
+    if re.fullmatch(r"[+-]?\\partial(?:\{\})?\^(?:\{[^{}]*\}|[0-9A-Za-z])[A-Za-z]", pd):
+        return True
     # 분수 → 묶음 (제7항 3호·제46항 붙임). **최상위**에 있을 때만이다(#1437) — 함수 인수 · 근호 · 괄호 속 분수는
     #   그 함수값 하나다. `\sin⠷\frac{π}{6}⠾` 을 분모에서 통째로 묶던 것(gold 는 sin 인수만 묶는다, 수학Ⅰ 해설 36쪽).
     #   2c 단계(근호)에는 분수가 이미 점형이라 분수표 ⠌ 로도 본다(#1439) — 제22항 [붙임 2](재추출 3615행) "근호 안이 분수 … 일 때에는

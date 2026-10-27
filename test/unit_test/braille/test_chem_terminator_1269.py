@@ -66,3 +66,20 @@ def test_숫자와_헷갈리는_한글은_띄운다():
 def test_괄호에_묶이면_종료표가_없다():
     # 제34항(재추출 1709행) — 묶인 로마자는 종료표를 안 적는다. 괄호 안 토막은 종전 경로 그대로다.
     assert "⠲" not in translate_body("물(H₂O)이")[0][0]
+
+
+def test_빈칸_뒤_한글_낱말_앞에도_종료표():
+    # 「과학 점자」 제30항 [붙임] 예(재추출 5004~5006행). 줄바꿈 자리 `@oju|cz` 는 낱말 속(`기호는`)이라 이어 붙인다.
+    assert translate_body("수주미터는 압력의 단위로 기호는 mH₂O 또는 mAq이다.")[0][0] == _reg(
+        ',m.meohscz`<b":aw`i3mr"u`@ojucz`0m,h;#b,o4`,iucz`0m,aq4oi4')
+
+
+def test_화살표_줄은_빈칸_앞에_종료표를_안_적는다():
+    # 한글 섞인 도식은 화학식마다 ⠴ 만 적는 관행(원장 C-132). #1272 첫 판이 여기서 왕복 줄을 잃었다.
+    assert "⠲" not in translate_body("포도당 + O₂ → CO₂ + H₂O 생성")[0][0]
+
+
+def test_로마자_낱말에_화학식이_이어지면_각각_대문자표():
+    # 제7항 2호(4439~4447행) `호기말 이산화탄소 분압은 PETCO₂이다.` = ju@oe1`ol3jvh3,u`^g<bz / 0,,pet,c,o;#boi4
+    assert translate_body("호기말 이산화탄소 분압은 PETCO₂이다.")[0][0] == _reg(
+        "ju@oe1`ol3jvh3,u`^g<bz`0,,pet,c,o;#boi4")

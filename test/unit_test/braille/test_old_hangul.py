@@ -104,11 +104,13 @@ def test_점형_없는_음절_하나가_런을_통째로_지우지_않는다():
     assert not dropped_old_jamo("뒷가ᇇ ᄒᆞᇙ")           # 적히는 것은 안 센다
 
 
-def test_완성형_음절_뒤_받침_자모는_세어_남긴다():
-    """완성형 음절 뒤에 붙은 받침 자모(NFC 로 합친 `가` + `ᇰ`)는 적을 수 없어 지워진다. 종전엔 빈 점자로 처리돼
-    쪽 플래그 R18(`dropped_old_jamo`)에도 안 잡혀 소리 없이 사라졌다(#1539, 엔진 #105 와 같은 고침). 지우는 동작은 그대로다."""
+def test_완성형_음절_뒤_받침_자모는_한_음절로_적는다():
+    """완성형 음절 뒤에 붙은 받침 자모(NFC 로 합친 `가` + `ᇰ`)는 #1540 에서 '적을 수 없다'고 보고 지우되 R18 로 셌다.
+    제20항 예 `斗두ᇢ` = `im"57`(재추출 1033~1035행)이 이 꼴을 한 음절로 적으므로, 받침 없는 머리는 첫가끝으로 풀어 적는다.
+    머리에 받침이 이미 있으면 받침이 둘이라 종전대로 지우고 센다."""
     from semojum_braille.encoder.translator import dropped_old_jamo
-    assert dropped_old_jamo("가ᇰ나") == {"ᇰ": 1}
-    assert dropped_old_jamo("각") == {"ᆨ": 1}
-    assert translate_plain("가ᇰ나") == translate_plain("가나")          # 앞뒤 음절은 남는다
+    assert translate_plain("가ᇰ나") == translate_plain("\u1100\u1161\u11f0나")   # NFC 로 합친 글 = 첫가끝 글
+    assert not dropped_old_jamo("가ᇰ나")
+    assert dropped_old_jamo("각ᇰ나") == {"ᇰ": 1}                 # 머리 받침 + 받침 자모
+    assert translate_plain("각ᇰ나") == translate_plain("각나")
     assert not dropped_old_jamo("가ᇰ")                        # 첫가끝으로 주면 적힌다(안 센다)
