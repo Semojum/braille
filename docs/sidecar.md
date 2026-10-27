@@ -127,7 +127,7 @@ python -m semojum_braille.sidecar
 |---|---|---|---|---|---|
 | 모두 | `id` | 아무 JSON 값 | 없음 | 응답에 그대로 돌아온다. 요청과 응답을 짝짓는 데 쓴다 | `2` |
 | 모두 | `op` | 문자열 | 없음 | `translate` · `table` · `decode` · `build_brf` · `read_brf` · `grade` · `symbols` · `ping` | `"translate"` |
-| translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다 | `"대한민국의 모든…"` |
+| translate | `text` | 문자열 | `""` | 묵자 요소 하나. 줄바꿈은 `\n`. 인라인 태그([encoder.md](encoder.md) 2.1)를 그대로 넣는다. 줄 머리 빈칸(또는 `<!N칸>`)은 그 줄의 들여쓰기이고 줄마다 지킨다(3.4.41 부터, #119. 3.4.40 까지는 첫 줄만) | `"대한민국의 모든…"` |
 | translate | `type` | 문자열 | `"text"` | 요소 종류. `text` · `title` · `list_item` · `caption` · `header_footer` · `table` 중 하나. 들여쓰기가 이것에 따라 달라진다. `table` 이면 표 길로 간다(아래 '표도 `translate` 로'). `header_footer` 면 로마자 강제(`force_roman`)가 저절로 켜진다(#60) | `"title"` |
 | translate | `heading_level` | 정수 | `0` | 0 은 본문. 1~4 는 제목 단계다. 1단계는 가운데 정렬, 2단계는 7칸, 3·4단계는 5칸에서 시작한다. 문자열 `"1"` 같은 값은 `BAD_FIELD` | `2` |
 | translate | `korean_grade` | 정수 | `2` | 한글 급수. `1` 정자(약자 · 약어「한국 점자 규정」 제13~18항을 쓰지 않는다. 받침 ㅆ `⠌` 는 자모 규정 제4항이라 그대로) · `2` 약자. `0` 은 안 보낸 것으로 보고 `2` 다. 그 밖은 `BAD_FIELD`. AI proto `korean_grade`(10)와 같다 | `1` |

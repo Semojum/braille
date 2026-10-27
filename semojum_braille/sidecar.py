@@ -147,12 +147,15 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     #   그 빈칸을 그대로 점역하면 **두 번 들어간다** — 들여쓰기 판정(`_first_indent`)이 값을
     #   읽어 칸을 붙이는데 글자로 남은 빈칸도 같이 찍혀, 3칸 본문이 앞빈칸 4, 7칸 제목이 8로
     #   나갔다(제품 경로 실측). 여기서 한 번 태그로 모으면 하류는 종전 경로를 그대로 탄다.
+    # ★ 태그는 **첫 줄에만** 둔다(#119). `_first_indent` 는 첫 줄 태그만 읽고, 둘째 줄부터의 태그는 번역기가 모르는
+    #   태그로 지워 그 줄들이 0칸이 됐다(AI dev · val 시각 자료 둘째 줄부터 5,134 줄 중 4,893). 줄별 칸은
+    #   `line_indents` 로 넘긴다. 서버 길(`VisualBraille`)이 줄별 칸을 싣는 자리와 같다.
     _body_txt, _inds = strip_indent_tags(text)
     if _inds:
-        text = apply_indent_tags(_body_txt, _inds)
+        text = apply_indent_tags(_body_txt, [_inds[0]] + [0] * (len(_inds) - 1))
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
     bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
-                  korean_grade, english_grade, math_page, split_choices)
+                  korean_grade, english_grade, math_page, split_choices, line_indents=_inds)
     out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines),   # AI 서버 검토 표시(C2 · R1)와 같은 판정
            "unknown_tags": unknown}
     if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
@@ -206,16 +209,22 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
 
 
 def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
-         korean_grade: int, english_grade: int, math_page: bool, split_choices: bool = False):
+         korean_grade: int, english_grade: int, math_page: bool, split_choices: bool = False,
+         line_indents: list[int] | None = None):
     """요소 하나를 AI 서버 체인처럼 점역하고(`safe_translate`, #52) `flatten_elements` 로 편다 → (BrailleOutput, FlatElement).
 
     엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
     다음 요청으로 새면 안 된다(#34). 내용이 없는 요소는 `flatten_elements` 가 담지 않아 FlatElement 가 None 이다.
+    `line_indents`(묵자 줄별 앞 빈칸)는 둘째 줄부터 들인 줄이 있고 점자 줄 수가 같을 때만 싣는다(#119). 아니면 종전처럼
+    첫 줄 판정만 탄다.
     """
     tokens = [(v, v.set(x)) for v, x in ((KOREAN_GRADE1, korean_grade == 1), (ENGLISH_GRADE1, english_grade == 1),
                                          (inline_math.MATH_PAGE, math_page), (CHOICES_ONE_PER_LINE, split_choices))]
     try:
         bo = safe_translate([opt], translate_one)[0]
+        # 첫 줄만 들인 글은 종전 판정 그대로다(글상자는 첫 칸을 테두리 안 첫 줄로 옮긴다, `_first_indented`).
+        if line_indents and any(line_indents[1:]) and len(line_indents) == len(bo.braille_lines):
+            bo.line_indents = list(line_indents)
         el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=1, heading_level=hlevel)
         # 앞에 빈 줄 요구가 없는 글 요소 하나를 둔다 — 그러면 이 요소는 '쪽 첫 요소 · 쪽 머리' 가 아니어서 서버
         #   `flatten_elements` 가 이 요소 몫으로 붙이는 앞 · 뒤 빈 줄(제목 단계 · 표 · 시각 자료 · 글상자 · 문항 머리)이
