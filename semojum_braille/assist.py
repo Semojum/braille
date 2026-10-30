@@ -99,6 +99,11 @@ class Options:
       right는 점자 페이지 번호 왼쪽에 **두 칸을 띄운 자리**가 오른쪽 끝이다(항목 사이 두 칸 이상).
       left는 원본 페이지 번호 오른쪽에 두 칸을 띄운 자리(번호가 없으면 첫 칸)에서 시작한다.
 
+    header_align — 머리말 정렬. `center`(기본) · `right` · `left`. 2026-10-31 신설.
+      머리말은 면의 첫 줄을 통째로 쓰므로 꼬리말과 달리 좌우에 번호가 없다. 그래서 `left`는 첫 칸,
+      `right`는 마지막 칸에 붙이고 `center`는 꼬리말과 같은 올림 셈을 쓴다.
+      ⚠ 종전에는 가운데로 고정이었다. 안 보내면 그대로 가운데라 옛 부르는 쪽은 그대로 돈다.
+
     footer_mode — 원본 쪽에 꽂은 꼬리말(`build_pages(footers_by_orig_page=…)`)을 쓰는 범위(2026-10-19 대표 결정 ②).
       `carry`(기본, 이어가기)는 꽂은 쪽이 처음 나오는 면부터 다음 꽂은 쪽 앞 면까지 · `page`(그 쪽만)는
       꽂은 쪽이 나오는 면에만 쓴다. 면 번호 키 `footers` 는 이 값과 상관없이 그 면만이다.
@@ -132,6 +137,7 @@ class Options:
     orig_page_start: int | None = None   # 본문 첫 원본 페이지에 붙일 번호. None이면 준 값 그대로
     show_change_line: bool = True    # 원본 페이지 변경선을 넣을지
     footer_align: str = "center"     # center | right | left
+    header_align: str = "center"     # center | right | left (2026-10-31 신설)
     footer_mode: str = "carry"       # carry | page — 원본 쪽에 꽂은 꼬리말의 범위
     wrap: str = "syllable"           # syllable | word
     pad_to_even: bool = False        # 홀수 면에서 끝나면 빈 면 하나를 더한다
@@ -155,6 +161,8 @@ class Options:
             _check_ranges(name, getattr(self, name))
         if self.footer_align not in ("center", "right", "left"):
             raise ValueError(f"footer_align은 center|right|left: {self.footer_align!r}")
+        if self.header_align not in ("center", "right", "left"):
+            raise ValueError(f"header_align은 center|right|left: {self.header_align!r}")
         if self.footer_mode not in ("carry", "page"):
             raise ValueError(f"footer_mode는 carry|page: {self.footer_mode!r}")
         if self.cover_pages < 0:
@@ -549,9 +557,19 @@ def _fill_page_no(line: str, num: str) -> str:
     return line if num else line.rstrip(SPACE)
 
 
-def _header_line(text: str, orig_page: int, num: str, cols: int) -> str:
-    """머리말 한 줄. 자리표시를 채우고 가운데에 놓는다(꼬리말 가운데와 같은 올림 셈). 넘치면 뒤를 자른다."""
+def _header_line(text: str, orig_page: int, num: str, cols: int, align: str = "center") -> str:
+    """머리말 한 줄. 자리표시를 채우고 `align` 자리에 놓는다. 넘치면 뒤를 자른다.
+
+    머리말은 면의 첫 줄을 통째로 쓴다(좌우에 번호가 없다). 그래서 꼬리말과 달리
+    `left` 는 첫 칸, `right` 는 마지막 칸이고, `center` 만 꼬리말과 같은 올림 셈이다.
+    """
     t = text.replace(BRAILLE_PAGE_TAG, num).replace(ORIG_PAGE_TAG, _number(orig_page)).strip(SPACE + " ")[:cols]
+    if not t:
+        return ""
+    if align == "left":
+        return t
+    if align == "right":
+        return SPACE * (cols - len(t)) + t
     return SPACE * ((cols - len(t) + 1) // 2) + t
 
 
@@ -748,7 +766,7 @@ def build_pages(
         first_seen.setdefault(head_page, idx)
         body += [""] * (cap - len(body))
         if head:
-            body.insert(0, _header_line(head, head_page, num, opts.cols))
+            body.insert(0, _header_line(head, head_page, num, opts.cols, opts.header_align))
         push_carry(ops)                       # 페이지행이 없는 면도 이어가기 상태는 민다
         if has_row:
             body.append(page_row(head_page, idx - first_seen[head_page], bp,
@@ -769,6 +787,7 @@ def build_pages(
 #    "footers": {"3": "…"},         # 면별 꼬리말(점자 면 번호 → 꼬리말, 그 면만, 선택)
 #    "footers_by_orig_page": {"7": "…"},   # 원본 쪽에 꽂은 꼬리말(범위는 opts.footer_mode, 선택, 2026-10-19)
 #    "opts": {"cols": 32, "rows": 26, "wrap": "syllable|word", "footer_align": "left|center|right",
+#             "header_align": "left|center|right",
 #             "footer_mode": "carry|page", "show_change_line": true,
 #             "first_braille_page": 1, "cover_orig_page_count": 0, "orig_page_first_no": null,
 #             "page_row_pages": "odd|every|even|none", "show_orig_page": true, "show_braille_page": true,
@@ -868,6 +887,7 @@ def options_from_job(job: dict) -> Options:
         orig_page_start=None if start in (None, "") else int(start),
         show_change_line=_opt_flag(o, "show_change_line", True),   # 종전엔 job 이 못 끄던 값(BE 업로드 옵션에 있다, #78)
         footer_align=str(o.get("footer_align") or "center"),
+        header_align=str(o.get("header_align") or "center"),
         footer_mode=str(o.get("footer_mode") or "carry"),
         wrap=str(o.get("wrap") or "syllable"),
         pad_to_even=_opt_flag(o, "pad_to_even", False),

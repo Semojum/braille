@@ -208,6 +208,7 @@ Options(
     orig_page_start=None,     # 표지 다음 첫 본문 페이지에 붙일 번호
     show_change_line=True,    # 원본 페이지 변경선
     footer_align="center",    # 꼬리말 정렬: center | right
+    header_align="center",    # 머리말 정렬: center | right | left
     footer_mode="carry",      # 원본 쪽에 꽂은 꼬리말의 범위: carry(이어가기) | page(그 쪽만)
     wrap="syllable",          # 줄바꿈: syllable | word
 )
@@ -223,6 +224,7 @@ Options(
 | `orig_page_start` | `None`이면 `sources`가 준 `orig_page`를 그대로 쓴다. 값을 주면 표지 뒤 n번째 = `orig_page_start + n` |
 | `show_change_line` | 변경선 켜기·끄기 |
 | `footer_align` | `right`면 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다 |
+| `header_align` | 머리말 정렬. 머리말은 면 첫 줄을 통째로 써 좌우에 번호가 없다. `left`는 첫 칸, `right`는 마지막 칸, `center`는 꼬리말과 같은 올림 셈 |
 | `footer_mode` | `footers_by_orig_page` 의 범위. `carry`(기본, 이어가기) · `page`(그 쪽만). 그 밖은 예외(사이드카 `BAD_FIELD`). 면 번호 키 `footers` 와는 상관없다 |
 | `wrap` | 32칸을 넘는 줄을 접는 갈래([wrap](#wraplinecolsmodebreakscenter)). 블록에 `breaks` 가 없으면 `syllable` 이어도 `word` 로 접는다 |
 
@@ -256,6 +258,7 @@ Options(
     "rows": 26,
     "wrap": "syllable",             // 줄바꿈 갈래: syllable | word
     "footer_align": "center",       // left | center | right
+    "header_align": "center",       // left | center | right
     "footer_mode": "carry",         // 원본 쪽 꼬리말 범위: carry(이어가기, 기본) | page(그 쪽만)
     "first_braille_page": 1,        // 첫 면의 점자 면 번호
     "cover_orig_page_count": 0,     // 표지가 차지하는 원본 쪽 수
@@ -320,6 +323,7 @@ Options(
 | 원본 페이지 변경선 | `opts.show_change_line` |
 | 꼬리말 | `footer` |
 | 꼬리말 정렬 | `opts.footer_align` |
+| 머리말 정렬 | `opts.header_align` |
 | 꼬리말 수정 범위 | `footers` |
 | 쪽에 꽂은 꼬리말 · 적용 방식(이어가기 · 그 쪽만) | `footers_by_orig_page` · `opts.footer_mode` |
 | 표지 페이지 수 | `opts.cover_orig_page_count` |
