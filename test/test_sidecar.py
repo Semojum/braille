@@ -401,7 +401,49 @@ def test_translate_에_표를_넣으면_table_과_같다(mode):
 
 def test_표가_아니면_translate_응답에_표_칸이_없다():
     r = sidecar.translate("가나다")
-    assert set(r) == {"cells", "breaks", "rule_trail", "dropped", "blocked", "unknown_tags"}
+    # 3.4.43: `prefix_rows` · `suffix_rows` 신설(앱 요청 E1) — 여섯에서 여덟로 늘었다.
+    assert set(r) == {"cells", "breaks", "prefix_rows", "suffix_rows",
+                      "rule_trail", "dropped", "blocked", "unknown_tags"}
+
+
+def test_앞뒤_빈_줄_수를_cells_에_든_빈_줄과_맞춰_낸다():
+    """E1(앱 2026-11-01). 요소를 하나씩 받는 쪽은 이웃을 몰라 빈 줄을 겹쳐 넣는다. 그래서 줄 수를 따로 낸다.
+
+    `blank_lines` 를 켜면 `cells` 에 그만큼 빈 줄이 실제로 들어 있어야 하고(앞은 그대로, 뒤는 끝내기
+    개행 하나가 더), 끄면 `cells` 에는 없고 이 두 수만 남아야 한다.
+    """
+    src, kw = "1 국어의 탐구와 활용", {"etype": "title", "hlevel": 2}
+    on = sidecar.translate(src, blank_lines=True, **kw)
+    off = sidecar.translate(src, blank_lines=False, **kw)
+
+    assert (on["prefix_rows"], on["suffix_rows"]) == (off["prefix_rows"], off["suffix_rows"])
+    assert on["prefix_rows"] > 0 and on["suffix_rows"] > 0      # 제목은 앞뒤를 띄운다(NLD 3장2절1)
+
+    assert on["cells"].startswith("\n" * on["prefix_rows"])
+    assert on["cells"].endswith("\n" * (on["suffix_rows"] + 1))   # +1 = 마지막 줄 끝내기
+    assert on["cells"].strip("\n") == off["cells"]
+    assert not off["cells"].startswith("\n") and not off["cells"].endswith("\n")
+
+
+def test_앞뒤_빈_줄_수_큰_쪽만_넣으면_서버_조판과_같다():
+    """E1. 앱이 쓸 병합 규칙 `max(앞 suffix_rows, 뒤 prefix_rows)` 가 서버 조판과 같은 줄 수를 내는지 본다.
+
+    서버 조판(`flatten_elements` 를 통째로 거친 결과)은 두 요소 사이 빈 줄을 한 줄로 합친다.
+    요소를 따로 받아 더하면 두 배가 되고, 큰 쪽만 넣으면 맞아야 한다.
+    """
+    head, kw = "1 국어의 탐구와 활용", {"etype": "title", "hlevel": 2}
+    para = "본문이다."
+    h = sidecar.translate(head, blank_lines=False, **kw)
+    p = sidecar.translate(para, blank_lines=False)
+    between = max(h["suffix_rows"], p["prefix_rows"])
+
+    joined = h["cells"] + "\n" * (between + 1) + p["cells"]
+    # 서버가 내는 요소 통 문자열을 그대로 이어 붙인 것(겹치는 빈 줄은 서버 규칙대로 한 줄로 합친다).
+    # 쪽 머리 · 쪽 끝 빈 줄은 쪽 조판 몫이라 떼고 가운데만 맞댄다.
+    server = (sidecar.translate(head, blank_lines=True, **kw)["cells"]
+              + sidecar.translate(para, blank_lines=True)["cells"].lstrip("\n"))
+    assert joined == server.strip("\n")
+    assert between == 1 and joined.count("\n") == 2    # 더하면 3 줄이 돼 한 줄 벌어진다
 
 
 def test_묵자_1000자를_넘으면_TOO_LONG_이고_태그는_세지_않는다():

@@ -238,17 +238,28 @@ def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
 
 
 def _body(fe, text: str, breaks, blank_lines: bool = False) -> dict:
-    """요소 통 문자열 → `cells` · `breaks`.
+    """요소 통 문자열 → `cells` · `breaks` · `prefix_rows` · `suffix_rows`.
 
     `blank_lines` 면 이 요소 몫의 앞 · 뒤 빈 줄(`prefix` · `suffix`)을 싣는다. 앞 빈 줄은 개행 그대로, 뒤 빈 줄은 '줄 끝내기'
     개행 하나를 더 둔다 — 앱 조립(`compose_editor`)과 엔진 조판(`build_pages`)이 둘 다 끝 개행 하나를 마지막 줄을 끝내는
     종결자로 읽고 버린다. 뒤 빈 줄이 없으면 끝 개행도 없다(종전 꼴). 끊을 자리는 통 문자열 그대로라 당기지 않는다.
     끄면 종전처럼 앞뒤 빈 줄을 떼고 끊을 자리를 `prefix` 길이만큼 당긴다.
+
+    ★ `prefix_rows` · `suffix_rows` 는 **`blank_lines` 값과 무관하게 늘 낸다**(3.4.43, 앱 요청 E1).
+      요소 하나만 받는 쪽은 이웃을 모르므로, `cells` 에 빈 줄을 실어 주면 앞 요소의 뒤 빈 줄과
+      이 요소의 앞 빈 줄이 **겹쳐 두 줄**이 된다(서버 조판 `flatten_elements` 는 한 줄로 합친다).
+      그래서 앱은 `blank_lines: false` 로 받아 본문만 쓰고, 이 두 수로
+      `max(앞 요소 suffix_rows, 이 요소 prefix_rows)` 만큼만 넣으면 서버 조판과 같아진다.
     """
+    # `prefix` · `suffix` 는 개행뿐이라(`layout_braille._flatten`) 길이가 곧 줄 수다.
+    # `suffix` 의 마지막 개행 하나는 빈 줄이 아니라 본문 마지막 줄의 종결자라 뺀다.
+    pre, suf = len(fe.prefix), max(0, len(fe.suffix) - 1)
     if blank_lines:
-        return {"cells": text if len(fe.suffix) > 1 else text[:len(text) - len(fe.suffix)], "breaks": list(breaks)}
+        return {"cells": text if len(fe.suffix) > 1 else text[:len(text) - len(fe.suffix)],
+                "breaks": list(breaks), "prefix_rows": pre, "suffix_rows": suf}
     n = len(fe.prefix)
-    return {"cells": text[n:len(text) - len(fe.suffix)], "breaks": [b - n for b in breaks]}
+    return {"cells": text[n:len(text) - len(fe.suffix)], "breaks": [b - n for b in breaks],
+            "prefix_rows": pre, "suffix_rows": suf}
 
 
 def _trail(fe, blank_lines: bool = False) -> list[dict]:
