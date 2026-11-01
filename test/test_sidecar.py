@@ -147,11 +147,12 @@ def test_문서에_적은_translate_줄이_지금도_그대로_오간다():
     """#34. 옵션 인자를 보태도 옵션 없는 기존 호출의 응답은 같아야 한다. 기대값은 docs/sidecar.md 3절의 실제로 오간 줄이다."""
     doc = (Path(__file__).parents[1] / "docs" / "sidecar.md").read_text(encoding="utf-8")
     pairs = [(json.loads(q), json.loads(a)) for q, a in re.findall(r"^→ (\{.*\})\n← (\{.*\})$", doc, re.M)]
-    pairs = [(q, a) for q, a in pairs if q["op"] == "translate"]
-    assert len(pairs) >= 3
+    pairs = [(q, a) for q, a in pairs if q["op"] in ("translate", "translate_page")]
+    assert len(pairs) >= 4            # translate 넷 + translate_page 하나(3.4.44)
+    assert any(q["op"] == "translate_page" for q, _ in pairs)
     for q, a in pairs:
         assert {**sidecar.handle(q), "id": q["id"]} == a
-        if not {"korean_grade", "english_grade"} & q.keys():
+        if "cells" in a and not {"korean_grade", "english_grade"} & q.keys():
             assert sidecar.handle({**q, "korean_grade": 2, "english_grade": 2})["cells"] == a["cells"]
 
 
@@ -660,3 +661,97 @@ def test_표_초안에는_rule_trail_을_넣지_않는다():
     assert "rule_trail" in r
     assert len(r["drafts"]) == 5         # 안이 비면 아래 단언이 헛돈다
     assert all("rule_trail" not in d for d in r["drafts"])
+
+
+def _표_간단():
+    return _표(["구분", "가"], ["값", "1"])
+
+
+def _이어붙임(els, page=True):
+    """요소 목록을 점역해 `cells` 를 차례로 이어 붙인다. `page=False` 면 요소를 하나씩 받는 종전 길."""
+    if page:
+        return "".join(e["cells"] for e in sidecar.translate_page(els)["elements"])
+    return "".join(sidecar.translate(e.get("text") or "", e.get("type") or "text",
+                                     e.get("heading_level") or 0)["cells"] for e in els)
+
+
+def test_쪽_창구는_겹치는_빈_줄을_합친다():
+    """E1(앱 2026-11-01 · 대표 지시). 요소를 하나씩 받으면 앞 요소 뒤 빈 줄과 이 요소 앞 빈 줄이 둘 다 들어간다.
+
+    쪽을 통째로 받는 `translate_page` 는 서버 조판(`flatten_elements`)을 한 번 지나므로 그 겹침이 합쳐진다.
+    기대값은 `docs/sidecar.md` 4-1 절 실측 표와 같은 수다.
+    """
+    제목 = {"id": "e1", "text": "1 국어의 탐구와 활용", "type": "title", "heading_level": 2}
+    for 뒤, 쪽, 하나씩 in (({"id": "e2", "text": _표_간단(), "type": "table"}, 6, 7),
+                          ({"id": "e2", "text": "그림 설명이다.", "type": "image"}, 5, 6)):
+        els = [제목, 뒤]
+        assert _이어붙임(els).count("\n") == 쪽, 뒤["type"]
+        assert _이어붙임(els, page=False).count("\n") == 하나씩, 뒤["type"]
+
+
+def test_쪽_창구는_잇단_시각_자료_사이를_안_띄운다():
+    """「점자 도서 제작 지침」 3장 2절 1 2) 다만. 요소 하나만 보면 알 수 없는 판정이다."""
+    els = [{"id": "e1", "text": "그림 설명이다.", "type": "image"},
+           {"id": "e2", "text": "또 그림이다.", "type": "image"}]
+    assert _이어붙임(els).count("\n") == 3          # 둘 사이에 빈 줄이 없다
+    assert _이어붙임(els, page=False).count("\n") == 6
+    # 빈 줄 요구가 없는 글 요소끼리는 두 길이 같다 — 합칠 빈 줄이 없다
+    글 = [{"text": "첫 문단이다."}, {"text": "둘째 문단이다."}]
+    assert _이어붙임(글).count("\n") == _이어붙임(글, page=False).count("\n") == 0
+
+
+def test_쪽_창구_응답은_요청_순서와_id_를_지킨다():
+    els = [{"id": "머리", "text": "제목이다", "type": "title", "heading_level": 2},
+           {"id": "본문", "text": "본문이다."},
+           {"id": "줄", "text": "<!중단줄>"},                    # 조판 태그만 든 요소
+           {"id": "표", "text": _표_간단(), "type": "table"}]
+    out = sidecar.translate_page(els)["elements"]
+    assert [e["id"] for e in out] == ["머리", "본문", "줄", "표"]
+    # 어느 요소든 `translate` 와 같은 칸을 낸다
+    for e in out:
+        assert {"cells", "breaks", "prefix_rows", "suffix_rows", "rule_trail",
+                "dropped", "blocked", "unknown_tags"} <= set(e)
+    assert out[3]["drafts"]                                     # 표는 다섯 안이 그대로 실린다
+    assert out[2]["cells"] and out[2]["prefix_rows"] == 0        # 줄 태그는 미리보기 한 줄, 빈 줄 합치기 밖
+
+
+def test_쪽_창구_id_가_없으면_차례_번호를_돌려준다():
+    out = sidecar.translate_page([{"text": "가나다"}, {"text": "라마바"}])["elements"]
+    assert [e["id"] for e in out] == ["0", "1"]
+
+
+def test_쪽_창구_cells_를_그대로_build_brf_에_넣으면_쪽_머리_빈_줄이_떨어진다():
+    """앱이 화면에 쓰는 글과 내려받는 BRF 가 같아야 한다(대표 지시 2026-11-01).
+
+    쪽 첫 요소가 제목이면 그 앞 빈 줄이 `cells` 에 붙어 오는데, 쪽 머리 빈 줄은 조판 몫이라 `build_brf` 가 뗀다.
+    """
+    els = [{"id": "e1", "text": "1 국어의 탐구와 활용", "type": "title", "heading_level": 2},
+           {"id": "e2", "text": "본문 첫 문단이다."}]
+    joined = _이어붙임(els)
+    assert joined.startswith("\n")
+    brf = sidecar.handle({"op": "build_brf", "job": {
+        "sources": [{"orig_page": 1, "blocks": [{"order": 1, "braille": joined}]}],
+        "opts": {"show_orig_page": False, "show_braille_page": False, "page_row_pages": "none"}}})["brf"]
+    first = brf.split("\x0c")[0].replace("\r\n", "\n").split("\n")[0]
+    assert first.strip(), first              # 첫 줄이 빈 줄이 아니다
+
+
+def test_쪽_창구는_요소_배열이_아니면_BAD_FIELD():
+    with pytest.raises(sidecar.SidecarError) as e:
+        sidecar.translate_page("가나다")
+    assert e.value.code == "BAD_FIELD"
+    with pytest.raises(sidecar.SidecarError):
+        sidecar.translate_page([{"text": "가"}, "나"])
+
+
+def test_rule_trail_좌표_기준을_axis_로_밝힌다():
+    """E2(앱 2026-11-01). 사이드카 좌표는 점자 칸이고 AI 서버 응답 좌표는 묵자 글자다.
+
+    앱이 둘을 한 목록에 합쳐 전부 점자로 읽어 `col_end` 43(32칸 초과)이 났다. 어느 쪽을 센 값인지 적는다.
+    """
+    r = sidecar.translate("<!주>점역자 주<!/주>")
+    assert r["rule_trail"], "점역자 주는 근거 조항이 붙는 자리다"
+    assert {t["axis"] for t in r["rule_trail"]} == {"braille"}
+    # 쪽 창구와 표 창구도 같은 값을 낸다
+    assert {t["axis"] for e in sidecar.translate_page([{"text": "<!주>점역자 주<!/주>"}])["elements"]
+            for t in e["rule_trail"]} == {"braille"}
