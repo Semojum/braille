@@ -5,6 +5,7 @@
 요청 한 줄에 응답 한 줄이다. 받은 순서대로 답한다. 표준출력에는 응답만 쓰고, 로그는 표준오류로 간다.
 표준입력이 닫히면 끝난다. 프로토콜은 docs/sidecar.md.
 """
+import contextlib
 import json
 import re
 import sys
@@ -90,7 +91,7 @@ def _roman_one(opt: LLMOutput):
 def translate(text: str, etype: str = "text", hlevel: int = 0,
               korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False,
               render_mode: str = "", tn_text: str = "", box_level: int = 0, force_roman: bool = False,
-              blank_lines: bool = True) -> dict:
+              blank_lines: bool = True, order: int = 1, _page: list | None = None) -> dict | None:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자 + 점역 못 한 요소인가.
 
@@ -133,14 +134,23 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     bare = text.strip()
     if bare in RULE_TAGS or bare in (PAGE_BREAK_TAG, CHAPTER_TAG):
         # 조판 태그만 든 요소. 줄 태그는 32칸 미리보기(조판은 `opts.cols` 로 다시 펼친다), 면 넘김 표식은 빈 점자.
-        return {"cells": rule_line(bare) if bare in RULE_TAGS else "", "breaks": [], "rule_trail": [],
+        return {"cells": rule_line(bare) if bare in RULE_TAGS else "", "breaks": [],
+                "prefix_rows": 0, "suffix_rows": 0, "rule_trail": [],
                 "dropped": [], "blocked": False, "unknown_tags": []}
     unknown = _unknown_tags(text)
     text = _HEADER_RE.sub("", _ALIGN_TAG_RE.sub("", text))
     for tag, slot in _SLOTS.items():
         text = text.replace(tag, slot)
     if etype == "table" or parse_table_tags(text) is not None:
-        return _unslot(table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page, blank_lines))
+        res = table(text, render_mode, tn_text, box_level, korean_grade, english_grade, math_page, blank_lines,
+                    order=order, _page=_page)
+        if res is not None:
+            return _unslot(res)
+        # 표 길로 갔고 펴기를 미뤘다. `table` op 는 자리표시를 쓰지 않아 스스로 되돌리지 않으므로,
+        # `translate` 로 들어온 이 건만 되돌리는 겹을 씌운다(종전 `_unslot(table(...))` 과 같은 일).
+        _bo, _el, _fin = _page[-1]
+        _page[-1] = (_bo, _el, lambda fe, _fin=_fin: _unslot(_fin(fe)))
+        return None
     force_roman = force_roman or etype == "header_footer"
     # ★ 들여쓰기를 **점역 전에** 태그로 되돌린다(2026-10-22). AI 응답의 묵자는 이제 들여쓰기를
     #   태그가 아니라 실제 빈칸으로 싣는다(점역사 화면에 기계 표식을 안 보이려는 대표 지시).
@@ -154,13 +164,73 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     if _inds:
         text = apply_indent_tags(_body_txt, [_inds[0]] + [0] * (len(_inds) - 1))
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
-    bo, fe = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
-                  korean_grade, english_grade, math_page, split_choices, line_indents=_inds)
+    bo, el = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
+                  korean_grade, english_grade, math_page, split_choices, line_indents=_inds, order=order)
     out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines),   # AI 서버 검토 표시(C2 · R1)와 같은 판정
            "unknown_tags": unknown}
-    if fe is None:                       # 내용이 없는 요소는 flatten_elements 가 담지 않는다
-        return {"cells": "", "breaks": [], "rule_trail": [], **out}
-    return _unslot({**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), **out})
+
+    def _finish(fe) -> dict:
+        if fe is None:                   # 내용이 없는 요소는 flatten_elements 가 담지 않는다
+            return {"cells": "", "breaks": [], "prefix_rows": 0, "suffix_rows": 0, "rule_trail": [], **out}
+        return _unslot({**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), **out})
+
+    if _page is not None:                # `translate_page` 가 쪽 요소를 모아 한 번에 편다
+        _page.append((bo, el, _finish))
+        return None
+    with _ctx(korean_grade, english_grade, math_page, split_choices):
+        return _finish(_flatten_one(bo, el))
+
+
+def translate_page(elements: list[dict], korean_grade: int = 2, english_grade: int = 2,
+                   math_page: bool = False, split_choices: bool = False) -> dict:
+    """원본 쪽 요소 목록 → 요소마다 점역 결과. **빈 줄까지 서버 조판과 똑같이 낸다**(#123).
+
+    `translate` 는 요소 하나만 받아 이웃을 모른다. 그래서 세 가지를 할 수 없었다.
+
+    1. 앞 요소의 뒤 빈 줄과 이 요소의 앞 빈 줄이 **겹쳐 두 줄**이 된다.
+    2. **원본 쪽 첫머리**의 상자 머리 빈 줄 · 문항 앞 빈 줄을 안 넣는 판정을 못 한다.
+    3. **잇단 시각 자료 사이**를 안 띄우는 판정(「점자 도서 제작 지침」 3장 2절 1 2) 다만)을 못 한다.
+
+    그 판정을 부르는 쪽이 다시 짜면 **화면과 내려받은 BRF 가 갈라진다.** 그래서 쪽 요소를 한꺼번에 받아
+    서버가 쓰는 `flatten_elements` 를 **한 번** 지난다. 이 op 가 내는 `cells` 를 `order` 차례로 **그대로 이어
+    붙이면** 서버 조판 결과와 같다. 부르는 쪽은 빈 줄을 더하지도 빼지도 않는다.
+
+    요소 하나의 칸은 `translate` 와 같다(`text` · `type` · `heading_level` · `render_mode` · `tn_text` ·
+    `box_level` · `force_roman`). 더 받는 칸은 `id`(응답에 되돌려 준다, 없으면 차례 번호)와 `order`
+    (읽기 순서, 없으면 목록 차례)다. 급수 · 수식 쪽 · 선택지 한 줄은 쪽 전체에 한 번만 준다.
+
+    앞뒤 빈 줄은 `cells` 에 **이미 합쳐져** 있다(`translate` 의 `blank_lines: true` 와 같은 꼴, 뒤 빈 줄은
+    마지막 줄을 끝내는 개행 하나가 더 붙는다). `prefix_rows` · `suffix_rows` 도 같이 내지만 합친 **뒤**
+    값이라, 이어 붙이는 쪽은 볼 일이 없다. 조판 태그만 든 요소(줄 태그 · 쪽바꿈)는 `translate` 와 같은 값을
+    내고 빈 줄 합치기에 끼지 않는다 — 조판(`build_brf`)이 맡는 자리다.
+    """
+    if not isinstance(elements, list):
+        raise SidecarError("BAD_FIELD", "elements 는 요소 객체의 배열이어야 한다")
+    results: list[dict | None] = [None] * len(elements)
+    pending: list[tuple] = []       # (BrailleOutput, 요소 메타, 응답 조립 닫힘꼴)
+    slots: list[int] = []           # pending 차례 → results 자리
+    with _ctx(korean_grade, english_grade, math_page, split_choices):
+        for i, el in enumerate(elements):
+            if not isinstance(el, dict):
+                raise SidecarError("BAD_FIELD", f"elements[{i}] 가 객체가 아니다")
+            before = len(pending)
+            res = translate(el.get("text") or "", el.get("type") or "text", _level_arg(el, "heading_level"),
+                            korean_grade, english_grade, math_page, split_choices,
+                            el.get("render_mode") or "", el.get("tn_text") or "",
+                            int(el.get("box_level") or 0), _flag(el, "force_roman"),
+                            blank_lines=True, order=_order_arg(el, i), _page=pending)
+            if res is not None:     # 조판 태그만 든 요소 — 펼 것이 없다
+                results[i] = res
+            elif len(pending) > before:
+                slots.append(i)
+    # ★ 쪽 요소를 **한 번에** 편다. 이웃을 보는 빈 줄 판정이 여기서 서버와 같아진다.
+    with _ctx(korean_grade, english_grade, math_page, split_choices):
+        flat = flatten_elements([bo for bo, _, _ in pending],
+                                SimpleNamespace(elements=[e for _, e, _ in pending]))
+        for at, (bo, _el, finish) in zip(slots, pending):
+            results[at] = finish(flat.get(bo.element_id))
+    return {"elements": [{"id": el.get("id") or str(i), **(res or {})}
+                         for i, (el, res) in enumerate(zip(elements, results))]}
 
 
 def _unslot(res: dict) -> dict:
@@ -178,7 +248,8 @@ def _unslot(res: dict) -> dict:
 
 
 def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int = 0,
-          korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, blank_lines: bool = True) -> dict:
+          korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, blank_lines: bool = True,
+          order: int = 1, _page: list | None = None) -> dict | None:
     """표 요소 하나 → 고른 안 + 다섯 안(풀어쓰기 · 격자 · 행열 바꿈 · 테두리만 · 번호 체계)의 요소 본문 (#56).
 
     `source` 는 표 태그 글(`<!표><!행><!칸>…`)이다. AI 응답 `TextElement.table_source` 가 이 값이다. 앱이 칸 글을
@@ -197,44 +268,79 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=source, routing_tier="ZERO", render_mode=render_mode,
                     tn_text=tn_text or None)
     tb = TableBraille({opt.element_id: box_level} if box_level else None)
-    bo, fe = _run(opt, tb._translate_one, "table", 0, korean_grade, english_grade, math_page)
+    bo, el = _run(opt, tb._translate_one, "table", 0, korean_grade, english_grade, math_page, order=order)
     out = {"render_mode": bo.drafts[bo.selected_idx].render_mode if bo.drafts else "",
            "dropped": _dropped(source), "blocked": is_blocked_braille(bo.braille_lines),
            "unknown_tags": _unknown_tags(source)}
-    if fe is None:
-        return {"cells": "", "breaks": [], "rule_trail": [], "drafts": [], **out}
-    drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b, blank_lines)}
-              for d, t, b in zip(bo.drafts, fe.draft_texts, fe.draft_breaks)]
-    return {**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), "drafts": drafts, **out}
+
+    def _finish(fe) -> dict:
+        if fe is None:
+            return {"cells": "", "breaks": [], "prefix_rows": 0, "suffix_rows": 0,
+                    "rule_trail": [], "drafts": [], **out}
+        drafts = [{"render_mode": d.render_mode, "label": d.label, **_body(fe, t, b, blank_lines)}
+                  for d, t, b in zip(bo.drafts, fe.draft_texts, fe.draft_breaks)]
+        return {**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines),
+                "drafts": drafts, **out}
+
+    if _page is not None:
+        _page.append((bo, el, _finish))
+        return None
+    with _ctx(korean_grade, english_grade, math_page):
+        return _finish(_flatten_one(bo, el))
 
 
-def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
-         korean_grade: int, english_grade: int, math_page: bool, split_choices: bool = False,
-         line_indents: list[int] | None = None):
-    """요소 하나를 AI 서버 체인처럼 점역하고(`safe_translate`, #52) `flatten_elements` 로 편다 → (BrailleOutput, FlatElement).
+@contextlib.contextmanager
+def _ctx(korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False):
+    """엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)을 이 블록 동안만 켠다.
 
-    엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
-    다음 요청으로 새면 안 된다(#34). 내용이 없는 요소는 `flatten_elements` 가 담지 않아 FlatElement 가 None 이다.
-    `line_indents`(묵자 줄별 앞 빈칸)는 둘째 줄부터 들인 줄이 있고 점자 줄 수가 같을 때만 싣는다(#119). 아니면 종전처럼
-    첫 줄 판정만 탄다.
+    사이드카는 오래 사는 프로세스라 켠 값이 다음 요청으로 새면 안 된다(#34).
+    ★ **펴기(`flatten_elements`)까지 이 안에서 해야 한다** — 선택지 한 줄 켜기는 접는 자리 판정(`_fold_full_lines`)도
+      읽으므로, 점역만 문맥 안에서 하고 펴기를 밖에서 하면 접힘이 달라진다.
     """
     tokens = [(v, v.set(x)) for v, x in ((KOREAN_GRADE1, korean_grade == 1), (ENGLISH_GRADE1, english_grade == 1),
                                          (inline_math.MATH_PAGE, math_page), (CHOICES_ONE_PER_LINE, split_choices))]
     try:
-        bo = safe_translate([opt], translate_one)[0]
-        # 첫 줄만 들인 글은 종전 판정 그대로다(글상자는 첫 칸을 테두리 안 첫 줄로 옮긴다, `_first_indented`).
-        if line_indents and any(line_indents[1:]) and len(line_indents) == len(bo.braille_lines):
-            bo.line_indents = list(line_indents)
-        el = SimpleNamespace(element_id=bo.element_id, type=etype, reading_order=1, heading_level=hlevel)
-        # 앞에 빈 줄 요구가 없는 글 요소 하나를 둔다 — 그러면 이 요소는 '쪽 첫 요소 · 쪽 머리' 가 아니어서 서버
-        #   `flatten_elements` 가 이 요소 몫으로 붙이는 앞 · 뒤 빈 줄(제목 단계 · 표 · 시각 자료 · 글상자 · 문항 머리)이
-        #   그대로 나온다. 빈 줄 규칙을 여기서 다시 짜지 않는다. 앞 요소는 빈 줄을 안 남겨(`trailing` 0) 값을 줄이지 않는다.
-        lead = BrailleOutput(element_id=uuid.uuid4(), corrected_text="가", braille_lines=["⠫"])
-        lead_el = SimpleNamespace(element_id=lead.element_id, type="text", reading_order=0, heading_level=0)
-        return bo, flatten_elements([lead, bo], SimpleNamespace(elements=[lead_el, el])).get(bo.element_id)
+        yield
     finally:
         for v, tok in reversed(tokens):
             v.reset(tok)
+
+
+def _flatten_one(bo: BrailleOutput, el) -> object | None:
+    """요소 하나를 **쪽에 혼자 있지 않은 것처럼** 편다 → FlatElement 또는 None.
+
+    앞에 빈 줄 요구가 없는 글 요소 하나를 둔다. 그러면 이 요소는 '쪽 첫 요소 · 쪽 머리' 가 아니어서 서버
+    `flatten_elements` 가 이 요소 몫으로 붙이는 앞 · 뒤 빈 줄(제목 단계 · 표 · 시각 자료 · 글상자 · 문항 머리)이
+    그대로 나온다. 빈 줄 규칙을 여기서 다시 짜지 않는다. 앞 요소는 빈 줄을 안 남겨(`trailing` 0) 값을 줄이지 않는다.
+
+    ★ 이웃을 **실제로** 보는 판정(원본 쪽 첫머리 억제 · 잇단 시각 자료 안 띄움 · 상자 윗줄 제목 뒤)은
+      요소 하나만으로는 할 수 없다. 그것까지 서버와 같게 하려면 `translate_page` 로 쪽 요소를 한꺼번에 넣는다.
+    """
+    lead = BrailleOutput(element_id=uuid.uuid4(), corrected_text="가", braille_lines=["⠫"])
+    lead_el = SimpleNamespace(element_id=lead.element_id, type="text", reading_order=0, heading_level=0)
+    return flatten_elements([lead, bo], SimpleNamespace(elements=[lead_el, el])).get(bo.element_id)
+
+
+def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
+         korean_grade: int, english_grade: int, math_page: bool, split_choices: bool = False,
+         line_indents: list[int] | None = None, order: int = 1):
+    """요소 하나를 AI 서버 체인처럼 점역한다(`safe_translate`, #52) → (BrailleOutput, 요소 메타). **펴지는 않는다.**
+
+    편 결과가 필요하면 `_flatten_one`(요소 하나) 이나 `flatten_elements`(쪽 요소 전부, `translate_page`)에 넣는다.
+    펴기를 떼어 둔 까닭은 쪽 요소 여럿을 **한 번에** 펴야 이웃을 보는 빈 줄 판정이 서버와 같아지기 때문이다.
+
+    엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
+    다음 요청으로 새면 안 된다(#34). 내용이 없는 요소는 `flatten_elements` 가 담지 않아 FlatElement 가 None 이다.
+    `line_indents`(묵자 줄별 앞 빈칸)는 둘째 줄부터 들인 줄이 있고 점자 줄 수가 같을 때만 싣는다(#119). 아니면 종전처럼
+    첫 줄 판정만 탄다. `order` 는 쪽 안 읽기 순서다(`translate_page` 가 넘긴다).
+    """
+    with _ctx(korean_grade, english_grade, math_page, split_choices):
+        bo = safe_translate([opt], translate_one)[0]
+    # 첫 줄만 들인 글은 종전 판정 그대로다(글상자는 첫 칸을 테두리 안 첫 줄로 옮긴다, `_first_indented`).
+    if line_indents and any(line_indents[1:]) and len(line_indents) == len(bo.braille_lines):
+        bo.line_indents = list(line_indents)
+    return bo, SimpleNamespace(element_id=bo.element_id, type=etype,
+                               reading_order=order, heading_level=hlevel)
 
 
 def _body(fe, text: str, breaks, blank_lines: bool = False) -> dict:
@@ -276,10 +382,16 @@ def _trail(fe, blank_lines: bool = False) -> list[dict]:
     `tag` 가 붙은 항목(`tn_open` · `box_top` · `blank_rule` · `emphasis_open` …)은 점역사가
     "여기가 점역자 주다 · 여기가 테두리다" 를 아는 유일한 자리다. 점자만 보면 우리가 판단해
     넣은 표식인지 묵자에 있던 기호인지 구분이 안 된다.
+
+    ★ `axis` 는 늘 `"braille"` 다(3.4.44, 앱 요청 E2). 여기 좌표는 **점자 칸**을 센 값이고, AI 서버
+      응답(`TextElement.rule_trail`)의 좌표는 **묵자 글자**를 센 값이라 `"print"` 로 온다. 두 쪽을 한
+      목록에 합쳐 쓰는 쪽은 이 칸으로 가른다. 묵자 좌표를 점자 줄에 대면 32칸을 넘는 자리가 나온다
+      (앱 QA 10-27: `col_end` 43).
     """
     n = 0 if blank_lines else len(fe.prefix)     # 앞 빈 줄을 실으면 좌표도 통 문자열 그대로다
     # `prefix` 는 개행뿐이라 그 안에 조항이 붙을 자리가 없다. 좌표가 음수로 내려가는 표본은 전수 0 이었다.
-    return [{**t.model_dump(), "line_no": 0, "col_start": t.col_start - n, "col_end": t.col_end - n}
+    return [{**t.model_dump(), "line_no": 0, "col_start": t.col_start - n, "col_end": t.col_end - n,
+             "axis": "braille"}
             for t in (fe.trail or [])]
 
 
@@ -333,6 +445,16 @@ def _level_arg(req: dict, key: str) -> int:
     if v is None or (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
         return int(v or 0)
     raise SidecarError("BAD_FIELD", f"{key} 는 0 이상의 정수여야 한다: {v!r}")
+
+
+def _order_arg(el: dict, fallback: int) -> int:
+    """읽기 순서. 없거나 null 이면 목록 차례. 정수가 아니면 `BAD_FIELD`."""
+    v = el.get("order")
+    if v is None:
+        return fallback
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    raise SidecarError("BAD_FIELD", f"order 는 정수여야 한다: {v!r}")
 
 
 def _grade_arg(req: dict, key: str) -> int:
@@ -400,6 +522,10 @@ def handle(req: dict) -> dict:
                          _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"), _flag(req, "math_page"),
                          _flag(req, "split_choices"), req.get("render_mode") or "", req.get("tn_text") or "",
                          int(req.get("box_level") or 0), _flag(req, "force_roman"), _flag_on(req, "blank_lines"))
+    if op == "translate_page":
+        return translate_page(req.get("elements") if isinstance(req.get("elements"), list) else [],
+                              _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"),
+                              _flag(req, "math_page"), _flag(req, "split_choices"))
     if op == "table":
         return table(req.get("table_source") or "", req.get("render_mode") or "", req.get("tn_text") or "",
                      int(req.get("box_level") or 0), _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"),
